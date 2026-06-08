@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/zanto-core",
+]
+resolver = "2"
+
+[env]
+RUST_BACKTRACE=1
