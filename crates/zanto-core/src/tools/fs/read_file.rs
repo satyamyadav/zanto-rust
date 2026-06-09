@@ -32,10 +32,10 @@ impl ToolBase for ReadFile {
 
 impl AsyncTool<super::FsTools> for ReadFile {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        svc.permissions.check(&args.path, Op::Read).await
+        let resolved = svc.permissions.check(&args.path, Op::Read).await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
-        std::fs::read_to_string(&args.path)
+        std::fs::read_to_string(&resolved)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }
 }

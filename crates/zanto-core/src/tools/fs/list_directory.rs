@@ -32,10 +32,10 @@ impl ToolBase for ListDirectory {
 
 impl AsyncTool<super::FsTools> for ListDirectory {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        svc.permissions.check(&args.path, Op::Read).await
+        let resolved = svc.permissions.check(&args.path, Op::Read).await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
-        let entries = std::fs::read_dir(&args.path)
+        let entries = std::fs::read_dir(&resolved)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let lines: Vec<String> = entries

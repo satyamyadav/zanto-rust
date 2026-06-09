@@ -34,14 +34,14 @@ impl ToolBase for SearchFiles {
 
 impl AsyncTool<super::FsTools> for SearchFiles {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        svc.permissions.check(&args.path, Op::Read).await
+        let resolved = svc.permissions.check(&args.path, Op::Read).await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         let glob = globset::Glob::new(&args.pattern)
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?
             .compile_matcher();
 
-        let matches: Vec<String> = walkdir::WalkDir::new(&args.path)
+        let matches: Vec<String> = walkdir::WalkDir::new(&resolved)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
@@ -50,7 +50,7 @@ impl AsyncTool<super::FsTools> for SearchFiles {
             .collect();
 
         Ok(if matches.is_empty() {
-            format!("no files matching '{}' found under '{}'", args.pattern, args.path)
+            format!("no files matching '{}' found under '{}'", args.pattern, resolved.display())
         } else {
             matches.join("\n")
         })

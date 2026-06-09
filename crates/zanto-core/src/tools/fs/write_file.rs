@@ -34,19 +34,17 @@ impl ToolBase for WriteFile {
 
 impl AsyncTool<super::FsTools> for WriteFile {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        svc.permissions.check(&args.path, Op::Write).await
+        let resolved = svc.permissions.check(&args.path, Op::Write).await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
-        let path = std::path::Path::new(&args.path);
-
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = resolved.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         }
 
-        std::fs::write(path, &args.content)
+        std::fs::write(&resolved, &args.content)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        Ok(format!("wrote {} bytes to {}", args.content.len(), args.path))
+        Ok(format!("wrote {} bytes to {}", args.content.len(), resolved.display()))
     }
 }

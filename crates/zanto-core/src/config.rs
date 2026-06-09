@@ -15,6 +15,8 @@ pub struct Settings {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_context_turns: Option<usize>,
 }
 
 impl Settings {
@@ -88,6 +90,9 @@ impl Settings {
         }
         if other.endpoint.is_some() {
             self.endpoint = other.endpoint;
+        }
+        if other.max_context_turns.is_some() {
+            self.max_context_turns = other.max_context_turns;
         }
         self
     }

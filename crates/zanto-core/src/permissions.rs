@@ -42,25 +42,26 @@ impl PermissionGuard {
         }
     }
 
-    pub async fn check(&self, path: &str, op: Op) -> Result<(), String> {
+    /// Check permission for a path. Returns the resolved absolute path on success.
+    pub async fn check(&self, path: &str, op: Op) -> Result<PathBuf, String> {
+        let resolved = resolve(path);
+
         let bypass = match op {
             Op::Read => self.allow_read_outside,
             Op::Write => self.allow_write_outside,
         };
         if bypass {
-            return Ok(());
+            return Ok(resolved);
         }
 
-        let resolved = resolve(path);
-
         if self.is_allowed(&resolved) {
-            return Ok(());
+            return Ok(resolved);
         }
 
         {
             let grants = self.session_grants.lock().unwrap();
             if grants.contains(&resolved) {
-                return Ok(());
+                return Ok(resolved.clone());
             }
         }
 
@@ -78,13 +79,13 @@ impl PermissionGuard {
             ApprovalResponse::AllowForever => {
                 self.session_grants.lock().unwrap().insert(resolved.clone());
                 crate::config::Settings::persist_allowed_path(&resolved.to_string_lossy());
-                Ok(())
+                Ok(resolved)
             }
             ApprovalResponse::AllowSession => {
-                self.session_grants.lock().unwrap().insert(resolved);
-                Ok(())
+                self.session_grants.lock().unwrap().insert(resolved.clone());
+                Ok(resolved)
             }
-            ApprovalResponse::AllowOnce => Ok(()),
+            ApprovalResponse::AllowOnce => Ok(resolved),
             ApprovalResponse::Deny => Err(format!("permission denied: {op_str} \"{path}\"")),
         }
     }
@@ -94,10 +95,23 @@ impl PermissionGuard {
     }
 }
 
-/// Resolves a path to canonical form. For paths that don't exist yet (e.g. a
-/// file about to be written), canonicalizes the parent and appends the filename.
+/// Expands a leading `~` to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if path == "~" || path.starts_with("~/") || path.starts_with("~\\") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        format!("{}{}", home, &path[1..])
+    } else {
+        path.to_string()
+    }
+}
+
+/// Resolves a path to canonical absolute form. For paths that don't exist yet
+/// (e.g. a file about to be written), canonicalizes the parent and appends the filename.
 fn resolve(path: &str) -> PathBuf {
-    let p = PathBuf::from(path);
+    let expanded = expand_tilde(path);
+    let p = PathBuf::from(&expanded);
     if let Ok(c) = std::fs::canonicalize(&p) {
         return c;
     }
