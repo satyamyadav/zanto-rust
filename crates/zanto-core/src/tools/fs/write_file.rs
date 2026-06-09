@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use rmcp::{ErrorData, schemars::JsonSchema};
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
 use serde::{Deserialize, Serialize};
+use crate::permissions::Op;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
@@ -32,7 +33,10 @@ impl ToolBase for WriteFile {
 }
 
 impl AsyncTool<super::FsTools> for WriteFile {
-    async fn invoke(_: &super::FsTools, args: Args) -> Result<String, ErrorData> {
+    async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
+        svc.permissions.check(&args.path, Op::Write).await
+            .map_err(|e| ErrorData::internal_error(e, None))?;
+
         let path = std::path::Path::new(&args.path);
 
         if let Some(parent) = path.parent() {

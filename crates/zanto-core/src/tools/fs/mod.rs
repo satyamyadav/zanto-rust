@@ -3,6 +3,7 @@ pub mod read_file;
 pub mod write_file;
 pub mod search_files;
 
+use std::sync::Arc;
 use genai::chat::Tool as GenaiTool;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase, ToolRouter};
@@ -10,11 +11,18 @@ use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams};
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer};
+use crate::permissions::PermissionGuard;
 
 #[derive(Clone)]
-pub struct FsTools;
+pub struct FsTools {
+    pub permissions: Arc<PermissionGuard>,
+}
 
 impl FsTools {
+    pub fn new(permissions: Arc<PermissionGuard>) -> Self {
+        Self { permissions }
+    }
+
     pub(super) fn tool_router() -> ToolRouter<Self> {
         ToolRouter::new()
             .with_async_tool::<list_directory::ListDirectory>()
@@ -53,15 +61,20 @@ pub(super) fn schemas() -> Vec<GenaiTool> {
 }
 
 pub(super) async fn dispatch(
+    svc: &FsTools,
     name: &str,
     args: serde_json::Value,
 ) -> Result<String, Box<dyn std::error::Error>> {
     macro_rules! try_invoke {
         ($T:ty) => {
             if name == <$T>::name() {
-                return <$T>::invoke(&FsTools, serde_json::from_value(args)?)
+                let param = match serde_json::from_value(args) {
+                    Ok(p) => p,
+                    Err(e) => return Ok(format!("invalid arguments: {e}")),
+                };
+                return Ok(<$T>::invoke(svc, param)
                     .await
-                    .map_err(|e| format!("{e:?}").into());
+                    .unwrap_or_else(|e| format!("error: {}", e.message)));
             }
         };
     }

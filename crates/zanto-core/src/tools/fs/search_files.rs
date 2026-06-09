@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use rmcp::{ErrorData, schemars::JsonSchema};
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
 use serde::{Deserialize, Serialize};
+use crate::permissions::Op;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
@@ -32,7 +33,10 @@ impl ToolBase for SearchFiles {
 }
 
 impl AsyncTool<super::FsTools> for SearchFiles {
-    async fn invoke(_: &super::FsTools, args: Args) -> Result<String, ErrorData> {
+    async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
+        svc.permissions.check(&args.path, Op::Read).await
+            .map_err(|e| ErrorData::internal_error(e, None))?;
+
         let glob = globset::Glob::new(&args.pattern)
             .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?
             .compile_matcher();

@@ -1,21 +1,32 @@
 pub mod fs;
 
+use std::sync::Arc;
 use genai::chat::Tool as GenaiTool;
+use crate::permissions::PermissionGuard;
 
-pub fn all_tools() -> Vec<GenaiTool> {
-    fs::schemas()
-    // future: .into_iter().chain(web::schemas()).collect()
+pub struct ToolService {
+    fs: fs::FsTools,
 }
 
-pub async fn dispatch(
-    name: &str,
-    args: serde_json::Value,
-) -> Result<String, Box<dyn std::error::Error>> {
-    fs::dispatch(name, args).await
-    // future: .or_else(|_| web::dispatch(name, args))
-}
+impl ToolService {
+    pub fn new(permissions: Arc<PermissionGuard>) -> Self {
+        Self { fs: fs::FsTools::new(permissions) }
+    }
 
-pub fn is_readonly(name: &str) -> bool {
-    fs::is_readonly(name)
-    // future: || web::is_readonly(name)
+    pub fn all_tools() -> Vec<GenaiTool> {
+        fs::schemas()
+    }
+
+    pub async fn dispatch(
+        &self,
+        name: &str,
+        args: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        fs::dispatch(&self.fs, name, args).await
+    }
+
+    pub fn is_readonly(name: &str) -> bool {
+        fs::is_readonly(name)
+        // future: || web::is_readonly(name)
+    }
 }

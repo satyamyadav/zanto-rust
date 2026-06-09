@@ -3,11 +3,12 @@ name = "zanto-core"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "zanto-core"
-path = "src/main.rs"
+[lib]
+name = "zanto_core"
+path = "src/lib.rs"
 
 [dependencies]
+async-trait = "0.1"
 genai = "0.6"
 rmcp = "1.7.0"
 schemars = "1.2.1"

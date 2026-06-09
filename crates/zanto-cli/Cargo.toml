@@ -1,0 +1,14 @@
+[package]
+name = "zanto-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "zanto"
+path = "src/main.rs"
+
+[dependencies]
+zanto-core = { path = "../zanto-core" }
+async-trait = "0.1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
