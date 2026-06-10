@@ -61,6 +61,19 @@ pub async fn chat(
 
         if res.tool_calls().is_empty() {
             let answer = res.first_text().unwrap_or_default().to_string();
+
+            // Fallback: some models (e.g. qwen2.5 via Ollama) occasionally return
+            // tool calls as raw JSON text instead of structured tool call objects.
+            // Detect and execute them rather than surfacing raw JSON to the user.
+            let fallback = extract_raw_tool_calls(&answer);
+            if !fallback.is_empty() {
+                eprintln!("[zanto] warn: model returned unparsed tool call(s), applying fallback parser");
+                push_msg(store, session, ChatMessage::from(fallback.clone())).await?;
+                execute_tool_calls(&tools, store, session, &fallback).await?;
+                turn += 1;
+                continue;
+            }
+
             push_msg(store, session, ChatMessage::assistant(answer.clone())).await?;
             return Ok(answer);
         }
@@ -136,4 +149,61 @@ async fn flush_parallel(
     }
 
     Ok(())
+}
+
+/// Scan `text` for JSON objects with `name` + `arguments` keys that look like
+/// tool calls the model produced in raw text form (genai failed to parse them).
+/// Returns synthetic `ToolCall` values that can be executed normally.
+fn extract_raw_tool_calls(text: &str) -> Vec<ToolCall> {
+    let mut result = Vec::new();
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] != b'{' {
+            i += 1;
+            continue;
+        }
+
+        let start = i;
+        let mut depth = 0i32;
+        let mut j = i;
+        let mut found_end = false;
+
+        while j < bytes.len() {
+            match bytes[j] {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        found_end = true;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+
+        if found_end {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text[start..=j]) {
+                if let (Some(name), Some(args)) = (
+                    v.get("name").and_then(|n| n.as_str()),
+                    v.get("arguments"),
+                ) {
+                    result.push(ToolCall {
+                        call_id: format!("fallback-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]),
+                        fn_name: name.to_string(),
+                        fn_arguments: args.clone(),
+                        thought_signatures: None,
+                    });
+                }
+            }
+            i = j + 1;
+        } else {
+            break;
+        }
+    }
+
+    result
 }

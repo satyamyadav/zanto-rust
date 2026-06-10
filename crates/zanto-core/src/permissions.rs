@@ -95,6 +95,112 @@ impl PermissionGuard {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Settings;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct PanicApprover;
+    #[async_trait::async_trait]
+    impl Approver for PanicApprover {
+        async fn confirm(&self, _: &str, _: &str, _: &str) -> ApprovalResponse {
+            panic!("approver should not have been called");
+        }
+    }
+
+    struct CountingApprover {
+        count: Arc<AtomicUsize>,
+        response: ApprovalResponse,
+    }
+    #[async_trait::async_trait]
+    impl Approver for CountingApprover {
+        async fn confirm(&self, _: &str, _: &str, _: &str) -> ApprovalResponse {
+            self.count.fetch_add(1, Ordering::SeqCst);
+            self.response.clone()
+        }
+    }
+
+    fn guard_with_allowed(path: &str, approver: impl Approver + 'static) -> PermissionGuard {
+        let settings = Settings {
+            allowed_paths: vec![path.to_string()],
+            ..Default::default()
+        };
+        PermissionGuard::new(&settings, approver)
+    }
+
+    #[tokio::test]
+    async fn tilde_expands_to_home() {
+        let settings = Settings {
+            allow_read_outside: true,
+            ..Default::default()
+        };
+        let guard = PermissionGuard::new(&settings, PanicApprover);
+        // With allow_read_outside the guard bypasses allowed_paths check.
+        // resolve() must expand ~ so the path is absolute.
+        let result = guard.check("~/some_nonexistent_path_xyz", Op::Read).await;
+        let home = std::env::var("HOME").unwrap_or_default();
+        let resolved = result.unwrap();
+        assert!(
+            resolved.to_string_lossy().starts_with(&home),
+            "expected path to start with HOME, got: {}",
+            resolved.display()
+        );
+    }
+
+    #[tokio::test]
+    async fn allowed_path_passes_without_prompt() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let dir_str = dir.path().to_string_lossy().to_string();
+        let guard = guard_with_allowed(&dir_str, PanicApprover);
+        // Create a file so canonicalize succeeds
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "x").unwrap();
+        let result = guard.check(file.to_str().unwrap(), Op::Read).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn deny_returns_error() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let approver = CountingApprover {
+            count: Arc::clone(&count),
+            response: ApprovalResponse::Deny,
+        };
+        let guard = guard_with_allowed("/never/matches", approver);
+        let result = guard.check("/some/other/path", Op::Read).await;
+        assert!(result.is_err());
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn allow_once_does_not_cache() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let approver = CountingApprover {
+            count: Arc::clone(&count),
+            response: ApprovalResponse::AllowOnce,
+        };
+        let guard = guard_with_allowed("/never/matches", approver);
+        guard.check("/some/path", Op::Read).await.unwrap();
+        guard.check("/some/path", Op::Read).await.unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn allow_session_caches() {
+        let count = Arc::new(AtomicUsize::new(0));
+        let approver = CountingApprover {
+            count: Arc::clone(&count),
+            response: ApprovalResponse::AllowSession,
+        };
+        let guard = guard_with_allowed("/never/matches", approver);
+        guard.check("/some/path", Op::Read).await.unwrap();
+        guard.check("/some/path", Op::Read).await.unwrap();
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+}
+
 /// Expands a leading `~` to the user's home directory.
 fn expand_tilde(path: &str) -> String {
     if path == "~" || path.starts_with("~/") || path.starts_with("~\\") {

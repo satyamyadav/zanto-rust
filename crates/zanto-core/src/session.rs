@@ -178,7 +178,11 @@ unsafe impl Sync for Store {}
 
 impl Store {
     /// Open the DB at the OS-conventional app-data path.
+    /// If `ZANTO_DB` env var is set, uses that path instead (for test isolation).
     pub fn open() -> Result<Self, SessionError> {
+        if let Ok(val) = std::env::var("ZANTO_DB") {
+            return Self::open_at(Path::new(&val));
+        }
         let path = db_path()?;
         Self::open_at(&path)
     }
@@ -453,4 +457,173 @@ pub fn format_ts_display(secs: u64) -> String {
     }
     let d = days + 1;
     format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use genai::chat::ChatMessage;
+    use tempfile::TempDir;
+
+    fn temp_store() -> (Store, TempDir) {
+        let dir = TempDir::new().unwrap();
+        let store = Store::open_at(&dir.path().join("test.db")).unwrap();
+        (store, dir)
+    }
+
+    fn make_session(workspace: &str) -> Session {
+        Session::new("test session", workspace)
+    }
+
+    #[test]
+    fn open_at_creates_schema() {
+        let (_store, _dir) = temp_store();
+        // if schema creation failed, open_at would have panicked
+    }
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let (store, _dir) = temp_store();
+        let mut s = make_session("/ws/a");
+        s.title = "my title".to_string();
+        store.save_session(&s).unwrap();
+
+        let loaded = store.load_session(&s.id).unwrap();
+        assert_eq!(loaded.id, s.id);
+        assert_eq!(loaded.title, "my title");
+        assert_eq!(loaded.workspace, "/ws/a");
+        assert!(loaded.messages.is_empty());
+    }
+
+    #[test]
+    fn append_and_load_messages() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws/a");
+        store.save_session(&s).unwrap();
+
+        let m0 = ChatMessage::user("hello");
+        let m1 = ChatMessage::assistant("hi there");
+        store.append_message(&s.id, 0, &m0).unwrap();
+        store.append_message(&s.id, 1, &m1).unwrap();
+
+        let loaded = store.load_session(&s.id).unwrap();
+        assert_eq!(loaded.messages.len(), 2);
+        assert_eq!(loaded.messages[0].content.first_text().unwrap(), "hello");
+        assert_eq!(loaded.messages[1].content.first_text().unwrap(), "hi there");
+    }
+
+    #[test]
+    fn last_session_id_returns_most_recent() {
+        let (store, _dir) = temp_store();
+        let mut s1 = make_session("/ws");
+        let mut s2 = make_session("/ws");
+        s1.updated_at = 100;
+        s2.updated_at = 200;
+        store.save_session(&s1).unwrap();
+        store.save_session(&s2).unwrap();
+
+        assert_eq!(store.last_session_id(None).unwrap(), s2.id);
+    }
+
+    #[test]
+    fn find_by_prefix_exact() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws");
+        store.save_session(&s).unwrap();
+        assert_eq!(store.find_by_prefix(&s.id).unwrap(), s.id);
+    }
+
+    #[test]
+    fn find_by_prefix_partial() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws");
+        store.save_session(&s).unwrap();
+        let prefix = &s.id[..10];
+        assert_eq!(store.find_by_prefix(prefix).unwrap(), s.id);
+    }
+
+    #[test]
+    fn find_by_prefix_ambiguous() {
+        let (store, _dir) = temp_store();
+        // Force two sessions with the same timestamp prefix by saving both
+        // before any time can elapse. IDs share the same timestamp portion.
+        let s1 = make_session("/ws");
+        let s2 = make_session("/ws");
+        store.save_session(&s1).unwrap();
+        store.save_session(&s2).unwrap();
+        // Both start with the date portion (15 chars). If UUIDs differ, an
+        // 8-char prefix of s1 might not be shared — only test ambiguity if
+        // the first 8 chars actually match both IDs.
+        let prefix8 = &s1.id[..8];
+        let both_match = s2.id.starts_with(prefix8);
+        if both_match {
+            assert!(matches!(
+                store.find_by_prefix(prefix8),
+                Err(SessionError::AmbiguousPrefix(_))
+            ));
+        }
+        // If they don't share the prefix, the test is vacuously satisfied —
+        // UUID randomness makes forced collision impractical without seeding.
+    }
+
+    #[test]
+    fn list_sessions_workspace_filter() {
+        let (store, _dir) = temp_store();
+        let s_a = make_session("/ws/a");
+        let s_b = make_session("/ws/b");
+        store.save_session(&s_a).unwrap();
+        store.save_session(&s_b).unwrap();
+
+        let list = store.list_sessions(Some("/ws/a")).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, s_a.id);
+    }
+
+    #[test]
+    fn delete_cascades_messages() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws");
+        store.save_session(&s).unwrap();
+        store.append_message(&s.id, 0, &ChatMessage::user("hi")).unwrap();
+
+        store.delete_session(&s.id).unwrap();
+        assert!(matches!(
+            store.load_session(&s.id),
+            Err(SessionError::NotFound(_))
+        ));
+    }
+
+    #[test]
+    fn context_policy_last_n_turns() {
+        let policy = ContextPolicy::LastNTurns { max_turns: 2 };
+        let mut s = make_session("/ws");
+
+        // 3 turns: user+assistant each
+        for i in 0..3u8 {
+            s.messages.push(ChatMessage::user(format!("q{i}")));
+            s.messages.push(ChatMessage::assistant(format!("a{i}")));
+        }
+
+        let effective = s.effective_messages(&policy);
+        // Should contain only last 2 turns (4 messages)
+        assert_eq!(effective.len(), 4);
+        assert_eq!(effective[0].content.first_text().unwrap(), "q1");
+        assert_eq!(effective[2].content.first_text().unwrap(), "q2");
+    }
+
+    #[test]
+    fn auto_title_takes_first_user_message() {
+        let msgs = vec![
+            ChatMessage::assistant("hi"),
+            ChatMessage::user("what is the capital of France?"),
+        ];
+        assert_eq!(auto_title(&msgs), "what is the capital of France?");
+    }
+
+    #[test]
+    fn auto_title_truncates_at_60_chars() {
+        let long = "a".repeat(80);
+        let msgs = vec![ChatMessage::user(long)];
+        assert_eq!(auto_title(&msgs).len(), 60);
+    }
 }
