@@ -27,8 +27,15 @@ pub async fn chat(
     store.save_session(session)?;
 
     let endpoint_str = config.endpoint;
+    // Cloud models (e.g. gemini-*) resolve their own endpoint + auth via genai
+    // (API key from GEMINI_API_KEY). Only override the endpoint for local Ollama,
+    // which genai would otherwise point at localhost instead of the configured host.
+    let override_endpoint = !config.model.starts_with("gemini");
     let target_resolver = ServiceTargetResolver::from_resolver_fn(
         move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
+            if !override_endpoint {
+                return Ok(service_target);
+            }
             let ServiceTarget { endpoint: _, auth, model } = service_target;
             Ok(ServiceTarget {
                 endpoint: Endpoint::from_static(endpoint_str),
