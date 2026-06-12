@@ -131,3 +131,38 @@ fn new_flag_starts_fresh_session() {
         "expected >= 2 sessions, got:\n{list}"
     );
 }
+
+#[test]
+#[ignore]
+fn edit_file_modifies_content() {
+    let h = Harness::new();
+    let file = h.workspace.path().join("edit_target.txt");
+    fs::write(&file, "the original line\nsome other content\n").unwrap();
+
+    h.stdout(&[
+        "Use the edit_file tool to edit edit_target.txt: \
+         replace the exact string 'the original line' with 'the modified line'",
+    ]);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("the modified line"),
+        "expected file to contain 'the modified line', got:\n{content}"
+    );
+    assert!(
+        !content.contains("the original line"),
+        "expected 'the original line' to be removed, got:\n{content}"
+    );
+}
+
+#[test]
+#[ignore]
+fn shell_runs_command() {
+    let h = Harness::new();
+
+    let out = h.stdout(&["run the shell command: echo zanto-shell-test"]);
+    assert!(
+        out.contains("zanto-shell-test"),
+        "expected 'zanto-shell-test' in output, got:\n{out}"
+    );
+}
