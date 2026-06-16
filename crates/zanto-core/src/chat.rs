@@ -90,6 +90,9 @@ pub struct ChatConfig {
     pub permissions: Arc<PermissionGuard>,
     /// Extra system-prompt text (the active app's skill). Appended to the base prompt.
     pub skill: Option<String>,
+    /// Loaded user context sources (see `context::load_context`). Injected into the
+    /// system prompt after the system-info block. `None` when no sources configured.
+    pub context: Option<String>,
     /// Extra tool schemas (the active app's agent tools).
     pub extra_tools: Vec<GenaiTool>,
     /// Dispatcher for non-base tools (shared artifact tools + the app's domain
@@ -108,11 +111,53 @@ impl ChatConfig {
             endpoint,
             permissions,
             skill: None,
+            context: None,
             extra_tools: Vec::new(),
             app_dispatch: None,
             sink: None,
         }
     }
+}
+
+// ---- System prompt ----
+
+/// Compose the system prompt from its parts, in order:
+/// 1. `base` — the base instruction prompt.
+/// 2. `system_info` — A2's host/date block, under a `--- system ---` header.
+/// 3. `context` — loaded user context sources (if any), under `--- context ---`.
+/// 4. `skill` — the active app skill / selected preprompt, under `--- skill ---`.
+///
+/// Empty/absent sections are omitted. Pure function — unit-testable.
+pub fn build_system_prompt(
+    base: &str,
+    system_info: &str,
+    context: Option<&str>,
+    skill: Option<&str>,
+) -> String {
+    let mut out = base.trim().to_string();
+
+    let mut section = |header: &str, body: &str| {
+        let body = body.trim();
+        if body.is_empty() {
+            return;
+        }
+        if !out.is_empty() {
+            out.push_str("\n\n");
+        }
+        out.push_str(header);
+        out.push('\n');
+        out.push_str(body);
+    };
+
+    section("--- system ---", system_info);
+    if let Some(ctx) = context {
+        section("--- context ---", ctx);
+    }
+    if let Some(sk) = skill {
+        section("--- skill ---", sk);
+    }
+
+    out
 }
 
 // ---- Chat loop ----
@@ -166,10 +211,12 @@ pub async fn chat(
 
     let base_prompt =
         "You are a helpful assistant. Use the provided tools to answer questions about the filesystem.";
-    let system_text = match &config.skill {
-        Some(skill) => format!("{base_prompt}\n\n{skill}"),
-        None => base_prompt.to_string(),
-    };
+    let system_text = build_system_prompt(
+        base_prompt,
+        &crate::session::system_info(),
+        config.context.as_deref(),
+        config.skill.as_deref(),
+    );
     let system_prompt = ChatMessage::system(system_text);
 
     // Tool schemas offered to the model: shared base fs/shell tools (always) plus
@@ -389,4 +436,48 @@ fn extract_raw_tool_calls(text: &str) -> Vec<ToolCall> {
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_system_prompt_orders_sections() {
+        let out = build_system_prompt(
+            "BASE",
+            "System: linux",
+            Some("--- context: notes.md ---\nhello"),
+            Some("be a planner"),
+        );
+
+        // All sections present.
+        assert!(out.contains("BASE"));
+        assert!(out.contains("--- system ---"));
+        assert!(out.contains("System: linux"));
+        assert!(out.contains("--- context ---"));
+        assert!(out.contains("hello"));
+        assert!(out.contains("--- skill ---"));
+        assert!(out.contains("be a planner"));
+
+        // Ordering: base < system < context < skill.
+        let base = out.find("BASE").unwrap();
+        let sys = out.find("--- system ---").unwrap();
+        let ctx = out.find("--- context ---").unwrap();
+        let skill = out.find("--- skill ---").unwrap();
+        assert!(base < sys && sys < ctx && ctx < skill);
+    }
+
+    #[test]
+    fn build_system_prompt_omits_empty_sections() {
+        let out = build_system_prompt("BASE", "System: linux", None, None);
+        assert!(out.contains("BASE"));
+        assert!(out.contains("--- system ---"));
+        assert!(!out.contains("--- context ---"));
+        assert!(!out.contains("--- skill ---"));
+
+        // Empty/whitespace strings are treated as absent.
+        let out2 = build_system_prompt("BASE", "", Some("   "), Some(""));
+        assert_eq!(out2, "BASE");
+    }
 }

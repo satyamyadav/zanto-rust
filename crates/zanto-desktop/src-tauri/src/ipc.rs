@@ -63,6 +63,7 @@ pub async fn send_message(
                 endpoint,
                 permissions: Arc::clone(&state.permissions),
                 skill: Some(app.skill()),
+                context: None,
                 extra_tools: extra,
                 app_dispatch: Some(Arc::new(SharedDispatcher::new(
                     Arc::clone(&state.catalogue),
