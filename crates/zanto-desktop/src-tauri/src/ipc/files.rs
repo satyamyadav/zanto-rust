@@ -7,6 +7,7 @@ use zanto_core::permissions::Op;
 use super::DesktopState;
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
