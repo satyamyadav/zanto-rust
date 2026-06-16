@@ -78,6 +78,10 @@ export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_conte
 
 export type RenderMsg = { role: "user" | "assistant"; text: string };
 
+// A filesystem entry from `browse_dir` (B1). `path = undefined` lists the
+// allowed roots; passing a dir's `path` descends into it.
+export type FileEntry = { name: string; path: string; isDir: boolean };
+
 export type ToolCallEvent = { id: string; name: string; args: any };
 export type ToolResultEvent = { id: string; output: string; ok: boolean };
 
@@ -112,6 +116,7 @@ export const ipc = {
   getConfig: () => invoke<Config>("get_config"),
   setConfig: (patch: ConfigPatch) => invoke<void>("set_config", { patch }),
   pickFolder: () => invoke<string | null>("pick_folder"),
+  browseDir: (path?: string) => invoke<FileEntry[]>("browse_dir", { path: path ?? null }),
   addAllowedPath: (path: string) => invoke<void>("add_allowed_path", { path }),
   setApiKey: (provider: string, key: string) => invoke<void>("set_api_key", { provider, key }),
   clearApiKey: (provider: string) => invoke<void>("clear_api_key", { provider }),
