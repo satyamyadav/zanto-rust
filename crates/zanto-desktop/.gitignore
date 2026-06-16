@@ -1,0 +1,6 @@
+# Tauri generated
+/gen/schemas
+
+# Frontend
+ui/node_modules
+ui/dist

@@ -2,6 +2,7 @@
 members = [
     "crates/zanto-core",
     "crates/zanto-cli",
+    "crates/zanto-desktop",
 ]
 resolver = "2"
 
