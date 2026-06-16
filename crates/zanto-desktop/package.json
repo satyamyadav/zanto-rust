@@ -1,11 +1,17 @@
 {
-  "name": "zanto",
+  "name": "zanto-desktop",
   "version": "0.1.0",
-  "description": "",
+  "description": "zanto desktop — micro-app agentic shell",
   "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dev:web": "vite dev",
+    "build:web": "vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -27,5 +33,8 @@
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "@tauri-apps/cli": "^2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
   }
 }
