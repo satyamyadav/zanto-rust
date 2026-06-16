@@ -214,9 +214,9 @@ async fn run_once(
     policy: &ContextPolicy,
     question: &str,
 ) {
-    let config = ChatConfig { model, endpoint, permissions: Arc::clone(permissions) };
+    let config = ChatConfig::new(model, endpoint, Arc::clone(permissions));
     match chat(config, store, session, question, policy).await {
-        Ok(answer) => println!("{answer}"),
+        Ok(turn) => println!("{}", turn.text()),
         Err(e) => eprintln!("Error: {e}"),
     }
 }
@@ -250,14 +250,10 @@ async fn run_interactive(
         if q.is_empty() { continue; }
         if q == "exit" || q == "quit" { break; }
 
-        let config = ChatConfig {
-            model: model.clone(),
-            endpoint,
-            permissions: Arc::clone(permissions),
-        };
+        let config = ChatConfig::new(model.clone(), endpoint, Arc::clone(permissions));
 
         match chat(config, store, session, q, policy).await {
-            Ok(answer) => println!("\n{answer}"),
+            Ok(turn) => println!("\n{}", turn.text()),
             Err(e) => eprintln!("Error: {e}"),
         }
     }
