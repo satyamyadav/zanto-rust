@@ -82,23 +82,26 @@ impl Approver for StdinApprover {
         eprintln!("\n[zanto] permission required: {op} \"{path}\"");
         eprintln!("  resolved: {resolved}");
         eprintln!("  (a) allow once  (s) allow session  (f) allow forever  (d) deny");
-        eprint!("> ");
-        std::io::stderr().flush().ok();
 
-        let mut line = String::new();
-        if tokio::io::BufReader::new(tokio::io::stdin())
-            .read_line(&mut line)
-            .await
-            .is_err()
-        {
-            return ApprovalResponse::Deny;
-        }
+        let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
+        loop {
+            eprint!("> ");
+            std::io::stderr().flush().ok();
 
-        match line.trim() {
-            "f" => ApprovalResponse::AllowForever,
-            "s" => ApprovalResponse::AllowSession,
-            "a" => ApprovalResponse::AllowOnce,
-            _ => ApprovalResponse::Deny,
+            let mut line = String::new();
+            match reader.read_line(&mut line).await {
+                Ok(0) | Err(_) => return ApprovalResponse::Deny, // EOF / read error
+                Ok(_) => {}
+            }
+
+            // Normalize: trim, lowercase, take the first char so "Allow"/"a "/"A" work.
+            match line.trim().to_lowercase().chars().next() {
+                Some('a') => return ApprovalResponse::AllowOnce,
+                Some('s') => return ApprovalResponse::AllowSession,
+                Some('f') => return ApprovalResponse::AllowForever,
+                Some('d') => return ApprovalResponse::Deny,
+                _ => eprintln!("  please enter a, s, f, or d"), // unrecognized → re-prompt
+            }
         }
     }
 }
@@ -126,12 +129,10 @@ async fn main() {
         .or_else(|| settings.model.clone())
         .unwrap_or_else(|| "qwen2.5:14b".to_string());
 
-    let endpoint: &'static str = Box::leak(
-        args.endpoint
-            .or_else(|| settings.endpoint.clone())
-            .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string())
-            .into_boxed_str(),
-    );
+    let endpoint: String = args
+        .endpoint
+        .or_else(|| settings.endpoint.clone())
+        .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string());
 
     let policy = match settings.max_context_turns {
         Some(n) => ContextPolicy::LastNTurns { max_turns: n },
@@ -209,14 +210,14 @@ async fn run_once(
     store: &Store,
     session: &mut Session,
     model: String,
-    endpoint: &'static str,
+    endpoint: String,
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
     question: &str,
 ) {
-    let config = ChatConfig { model, endpoint, permissions: Arc::clone(permissions) };
+    let config = ChatConfig::new(model, endpoint, Arc::clone(permissions));
     match chat(config, store, session, question, policy).await {
-        Ok(answer) => println!("{answer}"),
+        Ok(turn) => println!("{}", turn.text()),
         Err(e) => eprintln!("Error: {e}"),
     }
 }
@@ -225,7 +226,7 @@ async fn run_interactive(
     store: &Store,
     session: &mut Session,
     model: String,
-    endpoint: &'static str,
+    endpoint: String,
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
 ) {
@@ -250,14 +251,10 @@ async fn run_interactive(
         if q.is_empty() { continue; }
         if q == "exit" || q == "quit" { break; }
 
-        let config = ChatConfig {
-            model: model.clone(),
-            endpoint,
-            permissions: Arc::clone(permissions),
-        };
+        let config = ChatConfig::new(model.clone(), endpoint.clone(), Arc::clone(permissions));
 
         match chat(config, store, session, q, policy).await {
-            Ok(answer) => println!("\n{answer}"),
+            Ok(turn) => println!("\n{}", turn.text()),
             Err(e) => eprintln!("Error: {e}"),
         }
     }
@@ -274,7 +271,7 @@ fn handle_sessions(action: SessionAction, workspace: &str) {
     match action {
         SessionAction::List { all } => {
             let filter = if all { None } else { Some(workspace) };
-            match store.list_sessions(filter) {
+            match store.list_sessions(filter, None) {
                 Ok(sessions) if sessions.is_empty() => println!("No sessions found."),
                 Ok(sessions) => {
                     println!("  {:<22}  {:<43}  {:>4}  UPDATED", "ID", "TITLE", "MSGS");

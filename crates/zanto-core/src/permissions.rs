@@ -17,28 +17,33 @@ pub trait Approver: Send + Sync {
     async fn confirm(&self, path: &str, op: &str, resolved: &str) -> ApprovalResponse;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Read,
     Write,
 }
 
 pub struct PermissionGuard {
-    allowed: Vec<PathBuf>,
+    allowed: Mutex<Vec<PathBuf>>,
     allow_read_outside: bool,
     allow_write_outside: bool,
     approver: Arc<dyn Approver>,
     session_grants: Mutex<HashSet<PathBuf>>,
+    // Serializes interactive approval prompts so concurrent checks (e.g. a batch of
+    // read-only tools) don't race on the approver's input (stdin).
+    prompt_lock: tokio::sync::Mutex<()>,
 }
 
 impl PermissionGuard {
     pub fn new<A: Approver + 'static>(settings: &Settings, approver: A) -> Self {
         let allowed = settings.allowed_paths.iter().map(|p| resolve(p)).collect();
         Self {
-            allowed,
+            allowed: Mutex::new(allowed),
             allow_read_outside: settings.allow_read_outside,
             allow_write_outside: settings.allow_write_outside,
             approver: Arc::new(approver),
             session_grants: Mutex::new(HashSet::new()),
+            prompt_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -58,6 +63,17 @@ impl PermissionGuard {
             return Ok(resolved);
         }
 
+        {
+            let grants = self.session_grants.lock().unwrap();
+            if grants.contains(&resolved) {
+                return Ok(resolved.clone());
+            }
+        }
+
+        // Serialize prompts: only one approval is solicited at a time. After
+        // acquiring, re-check the cache — a concurrent prompt may have already
+        // granted this exact path while we waited.
+        let _prompt = self.prompt_lock.lock().await;
         {
             let grants = self.session_grants.lock().unwrap();
             if grants.contains(&resolved) {
@@ -91,7 +107,13 @@ impl PermissionGuard {
     }
 
     fn is_allowed(&self, path: &Path) -> bool {
-        self.allowed.iter().any(|a| path.starts_with(a))
+        self.allowed.lock().unwrap().iter().any(|a| path.starts_with(a))
+    }
+
+    /// Grant a folder (and its children) for the rest of this process. The caller
+    /// persists it to config separately for future launches.
+    pub fn add_allowed(&self, path: &str) {
+        self.allowed.lock().unwrap().push(resolve(path));
     }
 }
 

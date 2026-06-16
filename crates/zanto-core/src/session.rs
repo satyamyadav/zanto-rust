@@ -53,18 +53,24 @@ pub struct Session {
     pub id: String,
     pub title: String,
     pub workspace: String,
+    pub app_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
+    pub archived: bool,
+    pub summary: Option<String>,
     pub messages: Vec<ChatMessage>,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct SessionMeta {
     pub id: String,
     pub title: String,
     pub workspace: String,
+    pub app_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
     pub message_count: usize,
+    pub archived: bool,
 }
 
 pub enum ContextPolicy {
@@ -87,10 +93,33 @@ impl Session {
             id: new_id(),
             title: title.into(),
             workspace: workspace.into(),
+            app_id: None,
             created_at: now,
             updated_at: now,
+            archived: false,
+            summary: None,
             messages: Vec::new(),
         }
+    }
+
+    /// (role, text) pairs for display in a UI — user/assistant text messages only
+    /// (system and tool messages, and tool-call-only turns, are skipped).
+    pub fn display_messages(&self) -> Vec<(String, String)> {
+        self.messages
+            .iter()
+            .filter_map(|m| {
+                let role = match m.role {
+                    ChatRole::User => "user",
+                    ChatRole::Assistant => "assistant",
+                    _ => return None,
+                };
+                let text = m.content.first_text()?.to_string();
+                if text.trim().is_empty() {
+                    return None;
+                }
+                Some((role.to_string(), text))
+            })
+            .collect()
     }
 
     /// Returns the messages to send to the model: no system msgs (caller prepends),
@@ -165,6 +194,12 @@ fn migrations() -> &'static Migrations<'static> {
                     UNIQUE(session_id, position)
                 );",
             ),
+            // Sessions are scoped to the active micro-app (NULL = general mode).
+            M::up("ALTER TABLE sessions ADD COLUMN app_id TEXT;"),
+            // Archive flag (0/1), session summary text, per-message metadata JSON.
+            M::up("ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;"),
+            M::up("ALTER TABLE sessions ADD COLUMN summary TEXT;"),
+            M::up("ALTER TABLE messages ADD COLUMN metadata TEXT;"),
         ])
     })
 }
@@ -203,10 +238,12 @@ impl Store {
     pub fn save_session(&self, session: &Session) -> Result<(), SessionError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO sessions (id, title, workspace, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
-            params![session.id, session.title, session.workspace, session.created_at as i64, session.updated_at as i64],
+            "INSERT INTO sessions (id, title, workspace, app_id, created_at, updated_at, archived, summary)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+                 title = excluded.title, app_id = excluded.app_id, updated_at = excluded.updated_at,
+                 archived = excluded.archived, summary = excluded.summary",
+            params![session.id, session.title, session.workspace, session.app_id, session.created_at as i64, session.updated_at as i64, session.archived as i64, session.summary],
         )?;
         Ok(())
     }
@@ -218,14 +255,45 @@ impl Store {
         pos: usize,
         msg: &ChatMessage,
     ) -> Result<(), SessionError> {
+        self.append_message_meta(session_id, pos, msg, None)
+    }
+
+    /// Append a single message with optional metadata JSON. Ignores duplicate (session_id, position).
+    pub fn append_message_meta(
+        &self,
+        session_id: &str,
+        pos: usize,
+        msg: &ChatMessage,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<(), SessionError> {
         let content = serde_json::to_string(msg)?;
         let role = role_str(&msg.role);
+        let metadata = match metadata {
+            Some(v) => Some(serde_json::to_string(v)?),
+            None => None,
+        };
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR IGNORE INTO messages (session_id, position, role, content) VALUES (?1, ?2, ?3, ?4)",
-            params![session_id, pos as i64, role, content],
+            "INSERT OR IGNORE INTO messages (session_id, position, role, content, metadata) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![session_id, pos as i64, role, content, metadata],
         )?;
         Ok(())
+    }
+
+    /// Load per-message metadata, positionally parallel to `Session.messages`.
+    pub fn load_message_meta(&self, session_id: &str) -> Result<Vec<Option<serde_json::Value>>, SessionError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT metadata FROM messages WHERE session_id = ?1 ORDER BY position",
+        )?;
+        stmt.query_map(params![session_id], |r| r.get::<_, Option<String>>(0))?
+            .map(|r| {
+                r.map_err(SessionError::from).and_then(|opt| match opt {
+                    Some(s) => Ok(Some(serde_json::from_str(&s)?)),
+                    None => Ok(None),
+                })
+            })
+            .collect()
     }
 
     /// Load a full session including all messages.
@@ -233,12 +301,20 @@ impl Store {
         let conn = self.conn.lock().unwrap();
 
         let row = conn.query_row(
-            "SELECT title, workspace, created_at, updated_at FROM sessions WHERE id = ?1",
+            "SELECT title, workspace, app_id, created_at, updated_at, archived, summary FROM sessions WHERE id = ?1",
             params![id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?)),
+            |r| Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+                r.get::<_, Option<String>>(6)?,
+            )),
         );
 
-        let (title, workspace, created_at, updated_at) = match row {
+        let (title, workspace, app_id, created_at, updated_at, archived, summary) = match row {
             Ok(r) => r,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Err(SessionError::NotFound(id.to_string())),
             Err(e) => return Err(e.into()),
@@ -257,8 +333,11 @@ impl Store {
             id: id.to_string(),
             title,
             workspace,
+            app_id,
             created_at: created_at as u64,
             updated_at: updated_at as u64,
+            archived: archived != 0,
+            summary,
             messages: messages?,
         })
     }
@@ -272,38 +351,81 @@ impl Store {
         Ok(())
     }
 
-    pub fn list_sessions(&self, workspace_filter: Option<&str>) -> Result<Vec<SessionMeta>, SessionError> {
+    /// List non-archived sessions, optionally filtered by workspace/app.
+    pub fn list_sessions(
+        &self,
+        workspace_filter: Option<&str>,
+        app_filter: Option<&str>,
+    ) -> Result<Vec<SessionMeta>, SessionError> {
+        self.list_sessions_filtered(workspace_filter, app_filter, false)
+    }
+
+    /// List archived sessions, optionally filtered by workspace/app.
+    pub fn list_sessions_archived(
+        &self,
+        workspace_filter: Option<&str>,
+        app_filter: Option<&str>,
+    ) -> Result<Vec<SessionMeta>, SessionError> {
+        self.list_sessions_filtered(workspace_filter, app_filter, true)
+    }
+
+    fn list_sessions_filtered(
+        &self,
+        workspace_filter: Option<&str>,
+        app_filter: Option<&str>,
+        archived: bool,
+    ) -> Result<Vec<SessionMeta>, SessionError> {
         let conn = self.conn.lock().unwrap();
-        let (sql, count_params) = if workspace_filter.is_some() {
-            (
-                "SELECT s.id, s.title, s.workspace, s.created_at, s.updated_at, COUNT(m.id)
-                 FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-                 WHERE s.workspace = ?1
-                 GROUP BY s.id ORDER BY s.updated_at DESC",
-                true,
-            )
-        } else {
-            (
-                "SELECT s.id, s.title, s.workspace, s.created_at, s.updated_at, COUNT(m.id)
-                 FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-                 GROUP BY s.id ORDER BY s.updated_at DESC",
-                false,
-            )
-        };
 
-        let mut stmt = conn.prepare(sql)?;
+        let mut sql = String::from(
+            "SELECT s.id, s.title, s.workspace, s.created_at, s.updated_at, COUNT(m.id), s.app_id, s.archived
+             FROM sessions s LEFT JOIN messages m ON m.session_id = s.id",
+        );
+        // archived flag is always constrained; workspace/app are optional.
+        let mut conds: Vec<&str> = vec![if archived { "s.archived = 1" } else { "s.archived = 0" }];
+        let mut binds: Vec<String> = Vec::new();
+        if let Some(ws) = workspace_filter {
+            conds.push("s.workspace = ?");
+            binds.push(ws.to_string());
+        }
+        if let Some(app) = app_filter {
+            conds.push("s.app_id = ?");
+            binds.push(app.to_string());
+        }
+        sql.push_str(" WHERE ");
+        sql.push_str(&conds.join(" AND "));
+        sql.push_str(" GROUP BY s.id ORDER BY s.updated_at DESC");
 
-        let rows: Result<Vec<SessionMeta>, SessionError> = if count_params {
-            stmt.query_map(params![workspace_filter.unwrap()], row_to_meta)?
-                .map(|r| r.map_err(SessionError::from))
-                .collect()
-        } else {
-            stmt.query_map([], row_to_meta)?
-                .map(|r| r.map_err(SessionError::from))
-                .collect()
-        };
+        let mut stmt = conn.prepare(&sql)?;
+        stmt.query_map(rusqlite::params_from_iter(binds.iter()), row_to_meta)?
+            .map(|r| r.map_err(SessionError::from))
+            .collect()
+    }
 
-        rows
+    /// Set or clear the archived flag on a session.
+    pub fn set_archived(&self, id: &str, archived: bool) -> Result<(), SessionError> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "UPDATE sessions SET archived = ?1 WHERE id = ?2",
+            params![archived as i64, id],
+        )?;
+        if n == 0 {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+        Ok(())
+    }
+
+    /// Set or clear the session summary text.
+    pub fn set_summary(&self, id: &str, summary: Option<&str>) -> Result<(), SessionError> {
+        let conn = self.conn.lock().unwrap();
+        let n = conn.execute(
+            "UPDATE sessions SET summary = ?1 WHERE id = ?2",
+            params![summary, id],
+        )?;
+        if n == 0 {
+            return Err(SessionError::NotFound(id.to_string()));
+        }
+        Ok(())
     }
 
     pub fn last_session_id(&self, workspace_filter: Option<&str>) -> Option<String> {
@@ -367,6 +489,8 @@ fn row_to_meta(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionMeta> {
         created_at: r.get::<_, i64>(3)? as u64,
         updated_at: r.get::<_, i64>(4)? as u64,
         message_count: r.get::<_, i64>(5)? as usize,
+        app_id: r.get::<_, Option<String>>(6)?,
+        archived: r.get::<_, i64>(7)? != 0,
     })
 }
 
@@ -457,6 +581,20 @@ pub fn format_ts_display(secs: u64) -> String {
     }
     let d = days + 1;
     format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}")
+}
+
+/// Short single-line system-info block: OS, arch, cwd, shell, today's date.
+/// Pure function — reads env/cwd/clock, mutates nothing.
+pub fn system_info() -> String {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "?".to_string());
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "?".to_string());
+    // Date portion ("YYYY-MM-DD") of the current local-naive timestamp.
+    let date: String = format_ts_display(unix_now()).chars().take(10).collect();
+    format!("System: {os} {arch} · cwd: {cwd} · shell: {shell} · date: {date}")
 }
 
 #[cfg(test)]
@@ -574,7 +712,7 @@ mod tests {
         store.save_session(&s_a).unwrap();
         store.save_session(&s_b).unwrap();
 
-        let list = store.list_sessions(Some("/ws/a")).unwrap();
+        let list = store.list_sessions(Some("/ws/a"), None).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, s_a.id);
     }
@@ -625,5 +763,77 @@ mod tests {
         let long = "a".repeat(80);
         let msgs = vec![ChatMessage::user(long)];
         assert_eq!(auto_title(&msgs).len(), 60);
+    }
+
+    #[test]
+    fn archived_round_trip() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws");
+        store.save_session(&s).unwrap();
+        assert!(!store.load_session(&s.id).unwrap().archived);
+
+        store.set_archived(&s.id, true).unwrap();
+        assert!(store.load_session(&s.id).unwrap().archived);
+
+        store.set_archived(&s.id, false).unwrap();
+        assert!(!store.load_session(&s.id).unwrap().archived);
+    }
+
+    #[test]
+    fn summary_persist_and_load() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws");
+        store.save_session(&s).unwrap();
+        assert!(store.load_session(&s.id).unwrap().summary.is_none());
+
+        store.set_summary(&s.id, Some("a recap")).unwrap();
+        assert_eq!(store.load_session(&s.id).unwrap().summary.as_deref(), Some("a recap"));
+
+        store.set_summary(&s.id, None).unwrap();
+        assert!(store.load_session(&s.id).unwrap().summary.is_none());
+    }
+
+    #[test]
+    fn message_metadata_round_trip() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws");
+        store.save_session(&s).unwrap();
+
+        let meta = serde_json::json!({ "kind": "artifact", "n": 7 });
+        store.append_message(&s.id, 0, &ChatMessage::user("hi")).unwrap();
+        store.append_message_meta(&s.id, 1, &ChatMessage::assistant("yo"), Some(&meta)).unwrap();
+
+        let loaded = store.load_message_meta(&s.id).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded[0].is_none());
+        assert_eq!(loaded[1].as_ref().unwrap(), &meta);
+    }
+
+    #[test]
+    fn list_sessions_excludes_archived() {
+        let (store, _dir) = temp_store();
+        let active = make_session("/ws");
+        let archived = make_session("/ws");
+        store.save_session(&active).unwrap();
+        store.save_session(&archived).unwrap();
+        store.set_archived(&archived.id, true).unwrap();
+
+        let list = store.list_sessions(Some("/ws"), None).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, active.id);
+        assert!(!list[0].archived);
+
+        let arch = store.list_sessions_archived(Some("/ws"), None).unwrap();
+        assert_eq!(arch.len(), 1);
+        assert_eq!(arch[0].id, archived.id);
+        assert!(arch[0].archived);
+    }
+
+    #[test]
+    fn system_info_is_non_empty_and_dated() {
+        let info = system_info();
+        assert!(!info.is_empty());
+        let date: String = format_ts_display(unix_now()).chars().take(10).collect();
+        assert!(info.contains(&date), "info {info:?} should contain date {date}");
     }
 }

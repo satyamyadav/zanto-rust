@@ -28,14 +28,23 @@ impl ToolService {
         &self,
         name: &str,
         args: serde_json::Value,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        if let Ok(result) = fs::dispatch(&self.fs, name, args.clone()).await {
-            return Ok(result);
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // Route by which category owns the tool name — explicit, not Err-fallthrough.
+        if fs::owns(name) {
+            fs::dispatch(&self.fs, name, args).await
+        } else if shell::owns(name) {
+            shell::dispatch(&self.shell, name, args).await
+        } else {
+            Err(format!("unknown tool: {name}").into())
         }
-        shell::dispatch(&self.shell, name, args).await
     }
 
     pub fn is_readonly(name: &str) -> bool {
         fs::is_readonly(name) || shell::is_readonly(name)
+    }
+
+    /// Whether `name` is a built-in base tool (fs or shell).
+    pub fn owns(name: &str) -> bool {
+        fs::owns(name) || shell::owns(name)
     }
 }

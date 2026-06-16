@@ -1,0 +1,88 @@
+mod app;
+mod apps;
+mod catalogue;
+mod interaction;
+mod ipc;
+
+use std::sync::Arc;
+use tauri::Manager;
+use zanto_core::config::Settings;
+use zanto_core::data::DataStore;
+use zanto_core::permissions::PermissionGuard;
+use zanto_core::session::{ContextPolicy, Session, Store};
+use crate::app::AppRegistry;
+use crate::interaction::TauriInteractor;
+use crate::ipc::DesktopState;
+
+// Fixed workspace for the first slice. Directory picker / multi-workspace is future.
+const WORKSPACE: &str = "default";
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let settings = Settings::load();
+
+            let model = settings.model.clone().unwrap_or_else(|| "qwen2.5:14b".to_string());
+            let endpoint = settings
+                .endpoint
+                .clone()
+                .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string());
+            let policy = match settings.max_context_turns {
+                Some(n) => ContextPolicy::LastNTurns { max_turns: n },
+                None => ContextPolicy::default(),
+            };
+
+            // One HITL interaction channel: powers permission approvals (Approver)
+            // and agent `ask` forms. Shared by the permission guard and dispatcher.
+            let interactor = TauriInteractor::new(app.handle().clone());
+            let permissions = Arc::new(PermissionGuard::new(&settings, interactor.clone()));
+
+            let store = Store::open().expect("open sessions DB");
+            let data = Arc::new(DataStore::open(WORKSPACE).expect("open data engine"));
+            let registry = AppRegistry::new(vec![
+                apps::chat::ChatApp::new(),
+                apps::finance::FinanceApp::new(),
+            ]);
+            let catalogue = Arc::new(catalogue::Catalogue::load());
+            let session = tokio::sync::Mutex::new(Session::new("", WORKSPACE));
+
+            app.manage(DesktopState {
+                store,
+                data,
+                permissions,
+                registry,
+                catalogue,
+                interactor,
+                session,
+                policy,
+                model: std::sync::Mutex::new(model),
+                endpoint: std::sync::Mutex::new(endpoint),
+                workspace: WORKSPACE.to_string(),
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            ipc::send_message,
+            ipc::list_apps,
+            ipc::get_catalogue,
+            ipc::mount_app,
+            ipc::unmount_app,
+            ipc::query_app,
+            ipc::run_app_action,
+            ipc::list_sessions,
+            ipc::load_session,
+            ipc::new_session,
+            ipc::delete_session,
+            ipc::rename_session,
+            ipc::get_config,
+            ipc::set_config,
+            ipc::pick_folder,
+            ipc::add_allowed_path,
+            interaction::respond,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running zanto desktop");
+}
