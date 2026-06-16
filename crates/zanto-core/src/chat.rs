@@ -2,7 +2,8 @@ use std::sync::Arc;
 use futures::future::join_all;
 use genai::{Client, ServiceTarget};
 use genai::chat::{ChatMessage, ChatRequest, ToolCall, ToolResponse};
-use genai::resolver::{Endpoint, ServiceTargetResolver};
+use genai::resolver::{AuthData, AuthResolver, Endpoint, ServiceTargetResolver};
+use crate::config::{self, Provider};
 use crate::permissions::PermissionGuard;
 use crate::session::{ContextPolicy, Session, Store};
 use crate::tools::ToolService;
@@ -27,10 +28,11 @@ pub async fn chat(
     store.save_session(session)?;
 
     let endpoint_str = config.endpoint;
-    // Cloud models (e.g. gemini-*) resolve their own endpoint + auth via genai
-    // (API key from GEMINI_API_KEY). Only override the endpoint for local Ollama,
-    // which genai would otherwise point at localhost instead of the configured host.
-    let override_endpoint = !config.model.starts_with("gemini");
+    let provider = config::provider_of(&config.model);
+    // Cloud providers resolve their own endpoint via genai; only override it for
+    // local Ollama, which genai would otherwise point at localhost instead of the
+    // configured host.
+    let override_endpoint = provider == Provider::Ollama;
     let target_resolver = ServiceTargetResolver::from_resolver_fn(
         move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
             if !override_endpoint {
@@ -45,8 +47,19 @@ pub async fn chat(
         },
     );
 
+    // Resolve auth for cloud providers from the keychain/env (Ollama needs none).
+    let auth_resolver = AuthResolver::from_resolver_fn(
+        move |_model_iden: genai::ModelIden| -> Result<Option<AuthData>, genai::resolver::Error> {
+            if provider == Provider::Ollama {
+                return Ok(None);
+            }
+            Ok(config::api_key(provider).map(AuthData::from_single))
+        },
+    );
+
     let client = Client::builder()
         .with_service_target_resolver(target_resolver)
+        .with_auth_resolver(auth_resolver)
         .build();
 
     // Append user message to session
