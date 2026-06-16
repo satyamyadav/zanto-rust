@@ -39,6 +39,8 @@ export type Config = {
 
 export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_context_turns">>;
 
+export type RenderMsg = { role: "user" | "assistant"; text: string };
+
 // Thin typed wrappers over the Tauri IPC surface (commands + events).
 export const ipc = {
   sendMessage: (text: string) => invoke<ChatTurn>("send_message", { text }),
@@ -51,8 +53,8 @@ export const ipc = {
     invoke<any>("run_app_action", { id, action, args }),
   // Sessions (scoped to the active app)
   listSessions: () => invoke<SessionMeta[]>("list_sessions"),
-  loadSession: (id: string) => invoke<void>("load_session", { id }),
-  newSession: () => invoke<void>("new_session"),
+  loadSession: (id: string) => invoke<RenderMsg[]>("load_session", { id }),
+  newSession: () => invoke<string>("new_session"),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
   renameSession: (id: string, title: string) => invoke<void>("rename_session", { id, title }),
 
@@ -60,6 +62,7 @@ export const ipc = {
   getConfig: () => invoke<Config>("get_config"),
   setConfig: (patch: ConfigPatch) => invoke<void>("set_config", { patch }),
   pickFolder: () => invoke<string | null>("pick_folder"),
+  addAllowedPath: (path: string) => invoke<void>("add_allowed_path", { path }),
 
   approve: (requestId: string, response: "once" | "session" | "forever" | "deny") =>
     invoke<void>("approve", { requestId, response }),

@@ -1,11 +1,13 @@
 // Session store: session list (for the active app), the active session's chat
 // thread (blocks), and the right-panel canvas block.
+import { toast } from "svelte-sonner";
 import { ipc, type ChatBlock, type SessionMeta } from "$lib/ipc";
 
 export type ChatEntry = { role: "user" | "assistant"; block: ChatBlock };
 
 export const sessionStore = $state({
   sessions: [] as SessionMeta[],
+  activeSessionId: null as string | null,
   convo: [] as ChatEntry[], // chat thread (role-tagged blocks)
   canvas: null as ChatBlock | null, // right-panel view
   busy: false,
@@ -17,27 +19,47 @@ export async function loadSessions() {
 }
 
 export async function newSession() {
-  await ipc.newSession();
-  sessionStore.convo = [];
-  sessionStore.canvas = null;
-  await loadSessions();
+  try {
+    sessionStore.activeSessionId = await ipc.newSession();
+    sessionStore.convo = [];
+    sessionStore.canvas = null;
+    await loadSessions();
+  } catch (e) {
+    toast.error(`${e}`);
+  }
 }
 
 export async function selectSession(id: string) {
-  await ipc.loadSession(id);
-  // History is on the backend; the thread shows fresh from here (no message
-  // backfill in this slice). Clear the visible thread.
-  sessionStore.convo = [];
+  try {
+    const msgs = await ipc.loadSession(id);
+    sessionStore.convo = msgs.map((m) => ({
+      role: m.role,
+      block: { kind: "markdown", text: m.text } as ChatBlock,
+    }));
+    sessionStore.canvas = null;
+    sessionStore.activeSessionId = id;
+  } catch (e) {
+    toast.error(`${e}`);
+  }
 }
 
 export async function renameSession(id: string, title: string) {
-  await ipc.renameSession(id, title);
-  await loadSessions();
+  try {
+    await ipc.renameSession(id, title);
+    await loadSessions();
+  } catch (e) {
+    toast.error(`${e}`);
+  }
 }
 
 export async function deleteSession(id: string) {
-  await ipc.deleteSession(id);
-  await loadSessions();
+  try {
+    await ipc.deleteSession(id);
+    if (sessionStore.activeSessionId === id) await newSession();
+    else await loadSessions();
+  } catch (e) {
+    toast.error(`${e}`);
+  }
 }
 
 /** Send a chat turn; route inline blocks to the thread, canvas blocks to the panel. */

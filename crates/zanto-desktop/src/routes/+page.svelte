@@ -6,11 +6,20 @@
   import Canvas from "$lib/components/Canvas.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import ApprovalDialog from "$lib/ApprovalDialog.svelte";
-  import { loadApps } from "$lib/stores/app.svelte";
+  import { appStore, loadApps, mountApp } from "$lib/stores/app.svelte";
+  import { loadSessions, newSession } from "$lib/stores/session.svelte";
 
   let settingsOpen = $state(false);
 
-  onMount(loadApps);
+  onMount(async () => {
+    await loadApps();
+    // Land ready-to-chat: mount the first solution and open a fresh session.
+    if (appStore.apps.length > 0) {
+      await mountApp(appStore.apps[0].id);
+      await loadSessions();
+      await newSession();
+    }
+  });
 </script>
 
 <div class="h-screen w-screen bg-background text-foreground overflow-hidden">

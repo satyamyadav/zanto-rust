@@ -70,7 +70,11 @@
 
   <div class="flex-1 overflow-auto px-2 space-y-0.5">
     {#each sessionStore.sessions as s (s.id)}
-      <div class="group flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-sidebar-accent">
+      <div
+        class="group flex items-center gap-1 rounded-md px-2 py-1.5 {sessionStore.activeSessionId === s.id
+          ? 'bg-sidebar-accent'
+          : 'hover:bg-sidebar-accent'}"
+      >
         <button class="flex-1 min-w-0 text-left" onclick={() => selectSession(s.id)}>
           <div class="truncate text-sm">{s.title || "Untitled"}</div>
           <div class="text-[10px] text-muted-foreground">

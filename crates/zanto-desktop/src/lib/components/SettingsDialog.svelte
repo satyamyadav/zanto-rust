@@ -33,7 +33,10 @@
   async function pickFolder() {
     try {
       const f = await ipc.pickFolder();
-      if (f) toast.message(`Granted: ${f}`, { description: "Restart to apply folder access." });
+      if (!f) return;
+      await ipc.addAllowedPath(f);
+      await refreshConfig();
+      toast.success(`Folder access granted`, { description: f });
     } catch (e) {
       toast.error(`${e}`);
     }
