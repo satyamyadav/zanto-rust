@@ -342,6 +342,21 @@ impl Store {
         })
     }
 
+    /// Load a window of display (role, text) pairs for a session, ordered
+    /// newest-last. Applies the same user/assistant text filtering as
+    /// `Session::display_messages`, then windows the *filtered* list by
+    /// `offset`/`limit` counting from the start (oldest). An `offset` past the
+    /// end yields an empty vec.
+    pub fn load_messages_page(
+        &self,
+        session_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>, SessionError> {
+        let filtered = self.load_session(session_id)?.display_messages();
+        Ok(filtered.into_iter().skip(offset).take(limit).collect())
+    }
+
     pub fn delete_session(&self, id: &str) -> Result<(), SessionError> {
         let conn = self.conn.lock().unwrap();
         let n = conn.execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
@@ -648,6 +663,49 @@ mod tests {
         assert_eq!(loaded.messages.len(), 2);
         assert_eq!(loaded.messages[0].content.first_text().unwrap(), "hello");
         assert_eq!(loaded.messages[1].content.first_text().unwrap(), "hi there");
+    }
+
+    #[test]
+    fn load_messages_page_windows_filtered_list() {
+        let (store, _dir) = temp_store();
+        let s = make_session("/ws");
+        store.save_session(&s).unwrap();
+
+        // 10 display messages (alternating user/assistant) plus a system + an
+        // empty-text message that the filter must drop.
+        store.append_message(&s.id, 0, &ChatMessage::system("you are a bot")).unwrap();
+        let mut pos = 1;
+        for i in 0..10u8 {
+            let m = if i % 2 == 0 {
+                ChatMessage::user(format!("u{i}"))
+            } else {
+                ChatMessage::assistant(format!("a{i}"))
+            };
+            store.append_message(&s.id, pos, &m).unwrap();
+            pos += 1;
+        }
+        store.append_message(&s.id, pos, &ChatMessage::assistant("   ")).unwrap();
+
+        // Full list (system + blank filtered out) = 10 entries, newest-last.
+        let all = store.load_messages_page(&s.id, 0, 100).unwrap();
+        assert_eq!(all.len(), 10);
+        assert_eq!(all[0], ("user".to_string(), "u0".to_string()));
+        assert_eq!(all[9], ("assistant".to_string(), "a9".to_string()));
+
+        // Most-recent page of 4 = offset 6.
+        let page = store.load_messages_page(&s.id, 6, 4).unwrap();
+        assert_eq!(page.len(), 4);
+        assert_eq!(page[0], ("user".to_string(), "u6".to_string()));
+        assert_eq!(page[3], ("assistant".to_string(), "a9".to_string()));
+
+        // Older page of 4 = offset 2.
+        let older = store.load_messages_page(&s.id, 2, 4).unwrap();
+        assert_eq!(older.len(), 4);
+        assert_eq!(older[0].1, "u2");
+        assert_eq!(older[3].1, "a5");
+
+        // Offset past the end yields empty.
+        assert!(store.load_messages_page(&s.id, 50, 4).unwrap().is_empty());
     }
 
     #[test]

@@ -82,6 +82,7 @@ pub fn run() {
             ipc::apps::run_app_action,
             ipc::session::list_sessions,
             ipc::session::load_session,
+            ipc::session::load_session_page,
             ipc::session::new_session,
             ipc::session::delete_session,
             ipc::session::rename_session,

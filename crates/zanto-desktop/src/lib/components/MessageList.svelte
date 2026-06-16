@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import { ArrowDown } from "@lucide/svelte";
   import Message from "./Message.svelte";
-  import { sessionStore } from "$lib/stores/session.svelte";
+  import { sessionStore, loadOlder } from "$lib/stores/session.svelte";
 
   let scroller: HTMLDivElement;
   // True while the viewport is parked at (or near) the bottom. Drives both the
@@ -10,6 +10,8 @@
   let atBottom = $state(true);
 
   const NEAR_BOTTOM_PX = 48;
+  // Trigger an older-page fetch when scrolled within this many px of the top.
+  const NEAR_TOP_PX = 64;
 
   function isAtBottom() {
     if (!scroller) return true;
@@ -20,8 +22,26 @@
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   }
 
+  // Pull older history when the user nears the top, anchoring the viewport so the
+  // prepended messages don't yank the scroll position. We pin to the distance
+  // from the bottom (scrollHeight - scrollTop), which is invariant under a
+  // prepend, then restore it once the new content has laid out.
+  async function maybeLoadOlder() {
+    if (!scroller || !sessionStore.hasMore || sessionStore.loadingOlder) return;
+    // Don't pull history while pinned at the bottom: the autoscroll effect owns
+    // the scroll position there, and on a short (non-scrollable) thread top and
+    // bottom coincide — fetching would fight the autoscroll.
+    if (atBottom) return;
+    if (scroller.scrollTop > NEAR_TOP_PX) return;
+    const fromBottom = scroller.scrollHeight - scroller.scrollTop;
+    await loadOlder();
+    await tick();
+    if (scroller) scroller.scrollTop = scroller.scrollHeight - fromBottom;
+  }
+
   function onScroll() {
     atBottom = isAtBottom();
+    void maybeLoadOlder();
   }
 
   // Autoscroll on new entries/segments/stream activity, but only while the user
@@ -54,7 +74,12 @@
          the oldest messages out of reach). -->
     <div class="flex min-h-full flex-col">
       <div class="mt-auto flex flex-col gap-4">
-        {#each sessionStore.convo as entry, i (i)}
+        {#if sessionStore.loadingOlder}
+          <div class="flex justify-center py-1 text-xs text-muted-foreground">
+            loading older…
+          </div>
+        {/if}
+        {#each sessionStore.convo as entry (entry.id)}
           <Message {entry} />
         {/each}
         {#if sessionStore.busy && !sessionStore.streaming}

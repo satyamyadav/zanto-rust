@@ -12,7 +12,15 @@ export type ChatSegment =
   | { kind: "tool_call"; id: string; name: string; args: any; output?: string; ok?: boolean }
   | { kind: "block"; block: ChatBlock };
 
-export type ChatEntry = { role: "user" | "assistant"; segments: ChatSegment[] };
+export type ChatEntry = { id: number; role: "user" | "assistant"; segments: ChatSegment[] };
+
+// Monotonic id for stable {#each} keying. Entry ids must survive both streaming
+// (segment-by-segment object replacement) and loadOlder() prepends, so keying by
+// array index is wrong; every entry gets a unique id at creation and keeps it.
+let nextEntryId = 0;
+function entry(role: "user" | "assistant", segments: ChatSegment[]): ChatEntry {
+  return { id: nextEntryId++, role, segments };
+}
 
 export const sessionStore = $state({
   sessions: [] as SessionMeta[],
@@ -21,7 +29,15 @@ export const sessionStore = $state({
   canvas: null as ChatBlock | null, // right-panel view
   busy: false,
   streaming: false, // assistant tokens currently arriving
+  hasMore: false, // older history exists above the loaded window
+  loadingOlder: false, // a loadOlder() fetch is in flight
 });
+
+// How many display messages to show on first open / fetch per scrollback page.
+const PAGE_SIZE = 30;
+// Offset (into the filtered display list) of the oldest message currently in
+// `convo`. Older pages live at [loadedOffset - PAGE_SIZE, loadedOffset).
+let loadedOffset = 0;
 
 // Index of the live assistant entry currently being streamed (or null when the
 // next streamed segment should open a fresh assistant entry).
@@ -30,7 +46,7 @@ let streamIdx: number | null = null;
 /** Ensure a live assistant entry exists and return its index. */
 function ensureLiveEntry(): number {
   if (streamIdx === null) {
-    sessionStore.convo.push({ role: "assistant", segments: [] });
+    sessionStore.convo.push(entry("assistant", []));
     streamIdx = sessionStore.convo.length - 1;
   }
   return streamIdx;
@@ -111,25 +127,25 @@ export async function newSession() {
   try {
     sessionStore.activeSessionId = await ipc.newSession();
     sessionStore.canvas = null;
+    loadedOffset = 0;
+    sessionStore.hasMore = false;
+    sessionStore.loadingOlder = false;
     // Seed the chat-start NBA from the active app's suggested actions.
     const app = activeApp();
     sessionStore.convo =
       app && app.start_actions.length > 0
         ? [
-            {
-              role: "assistant",
-              segments: [
-                {
-                  kind: "block",
-                  block: {
-                    kind: "component",
-                    component_id: "nba",
-                    data: { title: `${app.name} — quick actions`, actions: app.start_actions },
-                    target: "inline",
-                  },
+            entry("assistant", [
+              {
+                kind: "block",
+                block: {
+                  kind: "component",
+                  component_id: "nba",
+                  data: { title: `${app.name} — quick actions`, actions: app.start_actions },
+                  target: "inline",
                 },
-              ],
-            },
+              },
+            ]),
           ]
         : [];
     await loadSessions();
@@ -138,17 +154,44 @@ export async function newSession() {
   }
 }
 
+function toEntries(msgs: { role: "user" | "assistant"; text: string }[]): ChatEntry[] {
+  return msgs.map((m) => entry(m.role, [{ kind: "text", text: m.text }]));
+}
+
 export async function selectSession(id: string) {
   try {
-    const msgs = await ipc.loadSession(id);
-    sessionStore.convo = msgs.map((m) => ({
-      role: m.role,
-      segments: [{ kind: "text", text: m.text }] as ChatSegment[],
-    }));
+    // Full load sets the active session in core state and gives the total count;
+    // we only render the most-recent page, then page older on scrollback.
+    const all = await ipc.loadSession(id);
+    const total = all.length;
+    const start = Math.max(0, total - PAGE_SIZE);
+    sessionStore.convo = toEntries(all.slice(start));
+    loadedOffset = start;
+    sessionStore.hasMore = start > 0;
+    sessionStore.loadingOlder = false;
     sessionStore.canvas = null;
     sessionStore.activeSessionId = id;
   } catch (e) {
     toast.error(`${e}`);
+  }
+}
+
+/** Fetch the previous page of history and PREPEND it to `convo`. */
+export async function loadOlder() {
+  const id = sessionStore.activeSessionId;
+  if (!id || !sessionStore.hasMore || sessionStore.loadingOlder) return;
+  sessionStore.loadingOlder = true;
+  try {
+    const offset = Math.max(0, loadedOffset - PAGE_SIZE);
+    const limit = loadedOffset - offset;
+    const older = await ipc.loadSessionPage(id, offset, limit);
+    sessionStore.convo = [...toEntries(older), ...sessionStore.convo];
+    loadedOffset = offset;
+    sessionStore.hasMore = offset > 0;
+  } catch (e) {
+    toast.error(`${e}`);
+  } finally {
+    sessionStore.loadingOlder = false;
   }
 }
 
@@ -178,7 +221,7 @@ export async function deleteSession(id: string) {
  * is not re-rendered to avoid duplication.
  */
 export async function send(text: string): Promise<void> {
-  sessionStore.convo.push({ role: "user", segments: [{ kind: "text", text }] });
+  sessionStore.convo.push(entry("user", [{ kind: "text", text }]));
   sessionStore.busy = true;
   streamIdx = null;
   try {

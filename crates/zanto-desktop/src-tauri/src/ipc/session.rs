@@ -25,6 +25,28 @@ pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<
     Ok(msgs)
 }
 
+/// Load one windowed page of a session's display messages (newest-last). Also
+/// sets the active session in app state, so paging in a session also "opens" it
+/// (idempotent: the full session is loaded into state regardless of the page).
+#[tauri::command]
+pub async fn load_session_page(
+    state: State<'_, DesktopState>,
+    id: String,
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<RenderMsg>, String> {
+    let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;
+    let page = loaded
+        .display_messages()
+        .into_iter()
+        .skip(offset)
+        .take(limit)
+        .map(|(role, text)| RenderMsg { role, text })
+        .collect();
+    *state.session.lock().await = loaded;
+    Ok(page)
+}
+
 #[tauri::command]
 pub async fn new_session(state: State<'_, DesktopState>) -> Result<String, String> {
     let mut s = Session::new("", &state.workspace);
