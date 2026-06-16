@@ -7,16 +7,16 @@
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import ApprovalDialog from "$lib/ApprovalDialog.svelte";
   import { appStore, loadApps, mountApp } from "$lib/stores/app.svelte";
-  import { loadSessions, newSession } from "$lib/stores/session.svelte";
+  import { newSession } from "$lib/stores/session.svelte";
 
   let settingsOpen = $state(false);
 
   onMount(async () => {
     await loadApps();
-    // Land ready-to-chat: mount the first solution and open a fresh session.
-    if (appStore.apps.length > 0) {
-      await mountApp(appStore.apps[0].id);
-      await loadSessions();
+    // Land in general Chat by default; fall back to the first app.
+    const start = appStore.apps.find((a) => a.id === "chat") ?? appStore.apps[0];
+    if (start) {
+      await mountApp(start.id);
       await newSession();
     }
   });

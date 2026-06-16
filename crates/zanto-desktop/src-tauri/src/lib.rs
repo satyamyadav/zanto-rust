@@ -43,7 +43,10 @@ pub fn run() {
 
             let store = Store::open().expect("open sessions DB");
             let data = Arc::new(DataStore::open(WORKSPACE).expect("open data engine"));
-            let registry = AppRegistry::new(vec![apps::finance::FinanceApp::new()]);
+            let registry = AppRegistry::new(vec![
+                apps::chat::ChatApp::new(),
+                apps::finance::FinanceApp::new(),
+            ]);
             let session = tokio::sync::Mutex::new(Session::new("", WORKSPACE));
 
             app.manage(Arc::clone(&pending));

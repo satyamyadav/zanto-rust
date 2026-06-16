@@ -4,11 +4,11 @@
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import PlusIcon from "@lucide/svelte/icons/plus";
   import MoreVerticalIcon from "@lucide/svelte/icons/ellipsis-vertical";
+  import MessageSquareIcon from "@lucide/svelte/icons/message-square";
   import { appStore, mountApp } from "$lib/stores/app.svelte";
   import {
     sessionStore,
     newSession,
-    loadSessions,
     selectSession,
     deleteSession,
     renameSession,
@@ -16,11 +16,14 @@
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
 
-  async function pickApp(id: string) {
+  // The general "Chat" app is surfaced separately from the vertical apps.
+  const chatApp = $derived(appStore.apps.find((a) => a.id === "chat"));
+  const verticalApps = $derived(appStore.apps.filter((a) => a.id !== "chat"));
+
+  async function switchTo(id: string) {
     await mountApp(id);
-    sessionStore.convo = [];
     sessionStore.canvas = null;
-    await loadSessions();
+    await newSession(); // clears the thread, opens a fresh chat, reloads the list
   }
 
   function relTime(unixSecs: number): string {
@@ -40,29 +43,40 @@
 </script>
 
 <div class="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-  <!-- App switcher -->
+  <!-- Chat + app switcher -->
   <div class="p-3 space-y-1">
-    <div class="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Solutions</div>
-    {#each appStore.apps as a}
+    {#if chatApp}
       <button
-        class="w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors {appStore.activeId === a.id
+        class="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-md text-sm transition-colors {appStore.activeId ===
+        chatApp.id
           ? 'bg-sidebar-primary text-sidebar-primary-foreground'
           : 'hover:bg-sidebar-accent'}"
-        onclick={() => pickApp(a.id)}
+        onclick={() => switchTo(chatApp.id)}
       >
-        {a.name}
+        <MessageSquareIcon class="size-4" /> Chat
       </button>
-    {/each}
-    {#if appStore.apps.length === 0}
-      <div class="text-sm text-muted-foreground">No apps</div>
+    {/if}
+
+    {#if verticalApps.length > 0}
+      <div class="text-[10px] uppercase tracking-wide text-muted-foreground mt-3 mb-1">Apps</div>
+      {#each verticalApps as a}
+        <button
+          class="w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors {appStore.activeId === a.id
+            ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+            : 'hover:bg-sidebar-accent'}"
+          onclick={() => switchTo(a.id)}
+        >
+          {a.name}
+        </button>
+      {/each}
     {/if}
   </div>
 
   <div class="border-t border-sidebar-border"></div>
 
-  <!-- Sessions -->
+  <!-- Chats (sessions for the active context) -->
   <div class="px-3 py-2 flex items-center justify-between">
-    <div class="text-[10px] uppercase tracking-wide text-muted-foreground">Sessions</div>
+    <div class="text-[10px] uppercase tracking-wide text-muted-foreground">Chats</div>
     <Button variant="ghost" size="icon" class="size-6" onclick={newSession} disabled={!appStore.activeId}>
       <PlusIcon class="size-4" />
     </Button>

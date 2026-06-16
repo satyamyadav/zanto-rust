@@ -42,6 +42,11 @@ pub trait App: Send + Sync {
     fn query(&self, data: &DataStore, name: &str, args: Value) -> Result<Value, String>;
     /// Manual action / flow (ungated backend path).
     fn action(&self, data: &DataStore, name: &str, args: Value) -> Result<Value, String>;
+    /// Whether the agent gets the built-in fs/shell tools instead of app tools.
+    /// The general "Chat" app returns true; verticals return false (default).
+    fn uses_base_tools(&self) -> bool {
+        false
+    }
 }
 
 /// Registry of available apps + the single active one (single-active + general mode).

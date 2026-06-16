@@ -52,7 +52,7 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
             skill: Some(app.skill()),
             extra_tools: app.agent_tools(),
             app_dispatch: Some(Arc::new(ActiveDispatcher::new(Arc::clone(app), Arc::clone(&state.data)))),
-            include_base_tools: false,
+            include_base_tools: app.uses_base_tools(),
         },
         None => ChatConfig::new(model, endpoint, Arc::clone(&state.permissions)),
     };
