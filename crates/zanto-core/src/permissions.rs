@@ -24,7 +24,7 @@ pub enum Op {
 }
 
 pub struct PermissionGuard {
-    allowed: Vec<PathBuf>,
+    allowed: Mutex<Vec<PathBuf>>,
     allow_read_outside: bool,
     allow_write_outside: bool,
     approver: Arc<dyn Approver>,
@@ -38,7 +38,7 @@ impl PermissionGuard {
     pub fn new<A: Approver + 'static>(settings: &Settings, approver: A) -> Self {
         let allowed = settings.allowed_paths.iter().map(|p| resolve(p)).collect();
         Self {
-            allowed,
+            allowed: Mutex::new(allowed),
             allow_read_outside: settings.allow_read_outside,
             allow_write_outside: settings.allow_write_outside,
             approver: Arc::new(approver),
@@ -107,7 +107,13 @@ impl PermissionGuard {
     }
 
     fn is_allowed(&self, path: &Path) -> bool {
-        self.allowed.iter().any(|a| path.starts_with(a))
+        self.allowed.lock().unwrap().iter().any(|a| path.starts_with(a))
+    }
+
+    /// Grant a folder (and its children) for the rest of this process. The caller
+    /// persists it to config separately for future launches.
+    pub fn add_allowed(&self, path: &str) {
+        self.allowed.lock().unwrap().push(resolve(path));
     }
 }
 

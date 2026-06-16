@@ -11,7 +11,7 @@ use zanto_core::chat::{chat, ChatConfig, ChatTurn};
 use zanto_core::config::Settings;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
-use zanto_core::session::{unix_now_pub, ContextPolicy, Session, SessionMeta, Store};
+use zanto_core::session::{auto_title, unix_now_pub, ContextPolicy, Session, SessionMeta, Store};
 use crate::app::{ActiveDispatcher, AppManifest, AppRegistry};
 
 pub struct DesktopState {
@@ -57,9 +57,16 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
         None => ChatConfig::new(model, endpoint, Arc::clone(&state.permissions)),
     };
 
-    chat(config, &state.store, &mut session, &text, &state.policy)
+    let turn = chat(config, &state.store, &mut session, &text, &state.policy)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Auto-title a fresh session from its first user message.
+    if session.title.is_empty() {
+        session.title = auto_title(&session.messages);
+        let _ = state.store.save_session(&session);
+    }
+    Ok(turn)
 }
 
 // ---- Apps ----
@@ -112,19 +119,32 @@ pub fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionMeta>,
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
-    let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;
-    *state.session.lock().await = loaded;
-    Ok(())
+/// A past message rendered for the chat thread.
+#[derive(Serialize)]
+pub struct RenderMsg {
+    pub role: String,
+    pub text: String,
 }
 
 #[tauri::command]
-pub async fn new_session(state: State<'_, DesktopState>) -> Result<(), String> {
+pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<Vec<RenderMsg>, String> {
+    let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;
+    let msgs = loaded
+        .display_messages()
+        .into_iter()
+        .map(|(role, text)| RenderMsg { role, text })
+        .collect();
+    *state.session.lock().await = loaded;
+    Ok(msgs)
+}
+
+#[tauri::command]
+pub async fn new_session(state: State<'_, DesktopState>) -> Result<String, String> {
     let mut s = Session::new("", &state.workspace);
     s.app_id = state.active_app_id();
+    let id = s.id.clone();
     *state.session.lock().await = s;
-    Ok(())
+    Ok(id)
 }
 
 #[tauri::command]
@@ -195,4 +215,12 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
 pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
     app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
+}
+
+/// Grant a folder (and children) for this session and persist it to project config.
+#[tauri::command]
+pub fn add_allowed_path(state: State<'_, DesktopState>, path: String) -> Result<(), String> {
+    state.permissions.add_allowed(&path);
+    Settings::persist_allowed_path(&path);
+    Ok(())
 }

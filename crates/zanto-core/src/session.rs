@@ -97,6 +97,26 @@ impl Session {
         }
     }
 
+    /// (role, text) pairs for display in a UI — user/assistant text messages only
+    /// (system and tool messages, and tool-call-only turns, are skipped).
+    pub fn display_messages(&self) -> Vec<(String, String)> {
+        self.messages
+            .iter()
+            .filter_map(|m| {
+                let role = match m.role {
+                    ChatRole::User => "user",
+                    ChatRole::Assistant => "assistant",
+                    _ => return None,
+                };
+                let text = m.content.first_text()?.to_string();
+                if text.trim().is_empty() {
+                    return None;
+                }
+                Some((role.to_string(), text))
+            })
+            .collect()
+    }
+
     /// Returns the messages to send to the model: no system msgs (caller prepends),
     /// trimmed to policy.
     pub fn effective_messages(&self, policy: &ContextPolicy) -> Vec<ChatMessage> {

@@ -75,6 +75,7 @@ pub fn run() {
             ipc::get_config,
             ipc::set_config,
             ipc::pick_folder,
+            ipc::add_allowed_path,
             approver::approve,
         ])
         .run(tauri::generate_context!())
