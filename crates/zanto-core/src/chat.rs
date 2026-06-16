@@ -70,14 +70,29 @@ pub trait AppDispatcher: Send + Sync {
 
 // ---- Streaming sink (provided by the frontend to render a turn live) ----
 
+/// A tool call about to be dispatched, surfaced to the sink for live rendering.
+pub struct ToolCallView {
+    pub id: String,
+    pub name: String,
+    pub args: Value,
+}
+
 /// Receives a turn's output incrementally so the UI can render as it arrives.
 /// `on_text` carries assistant text deltas; `on_block` carries a finished
-/// component block (e.g. a `render_artifact` result). The final `ChatTurn`
-/// returned by `chat` is still authoritative; sink calls are a live preview.
+/// component block (e.g. a `render_artifact` result). The reasoning / tool-call /
+/// tool-result methods carry typed segments (default no-op so existing sinks keep
+/// compiling). The final `ChatTurn` returned by `chat` is still authoritative;
+/// sink calls are a live preview.
 #[async_trait]
 pub trait ChatSink: Send + Sync {
     /// A streamed assistant text delta.
     async fn on_text(&self, delta: &str);
+    /// A streamed reasoning ("thinking") delta.
+    async fn on_reasoning(&self, _delta: &str) {}
+    /// A tool call about to be dispatched.
+    async fn on_tool_call(&self, _call: &ToolCallView) {}
+    /// A tool result, with its call id, output (or error text), and success flag.
+    async fn on_tool_result(&self, _id: &str, _output: &str, _ok: bool) {}
     /// A component block produced mid-turn (tool/app output).
     async fn on_block(&self, block: &ChatBlock);
 }
@@ -256,6 +271,11 @@ pub async fn chat(
                     }
                     answer.push_str(&chunk.content);
                 }
+                ChatStreamEvent::ReasoningChunk(chunk) => {
+                    if let Some(sink) = &config.sink {
+                        sink.on_reasoning(&chunk.content).await;
+                    }
+                }
                 ChatStreamEvent::End(end) => {
                     tool_calls = end.captured_into_tool_calls().unwrap_or_default();
                 }
@@ -310,37 +330,60 @@ async fn route_tool_calls(
                 continue;
             }
             // Mutating base tool: drain pending reads first, then run it.
-            flush_parallel(tools, store, session, &read_batch).await?;
+            flush_parallel(config, tools, store, session, &read_batch).await?;
             read_batch.clear();
             println!("[TOOL CALL mutating] {} ({:?})", call.fn_name, call.fn_arguments);
+            emit_tool_call(config, call).await;
             let output = tools.dispatch(&call.fn_name, call.fn_arguments.clone()).await?;
             println!("[TOOL OUTPUT] {}", &output[..output.len().min(120)]);
+            emit_tool_result(config, &call.call_id, &output, true).await;
             push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
         } else {
             // Non-base tool (artifact / domain): drain reads, then dispatch to the app.
-            flush_parallel(tools, store, session, &read_batch).await?;
+            flush_parallel(config, tools, store, session, &read_batch).await?;
             read_batch.clear();
-            let resp_text = match &config.app_dispatch {
+            emit_tool_call(config, call).await;
+            let (resp_text, ok) = match &config.app_dispatch {
                 Some(disp) => match disp.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
-                    Some(Ok(AppResult::Data(v))) => v.to_string(),
+                    Some(Ok(AppResult::Data(v))) => (v.to_string(), true),
                     Some(Ok(AppResult::Block { component_id, data, target })) => {
                         let block = ChatBlock::Component { component_id, data: data.clone(), target };
                         if let Some(sink) = &config.sink {
                             sink.on_block(&block).await;
                         }
                         blocks.push(block);
-                        data.to_string()
+                        (data.to_string(), true)
                     }
-                    Some(Err(e)) => format!("error: {e}"),
-                    None => format!("error: unknown tool {}", call.fn_name),
+                    Some(Err(e)) => (format!("error: {e}"), false),
+                    None => (format!("error: unknown tool {}", call.fn_name), false),
                 },
-                None => format!("error: unknown tool {}", call.fn_name),
+                None => (format!("error: unknown tool {}", call.fn_name), false),
             };
+            emit_tool_result(config, &call.call_id, &resp_text, ok).await;
             push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), resp_text))).await?;
         }
     }
 
-    flush_parallel(tools, store, session, &read_batch).await
+    flush_parallel(config, tools, store, session, &read_batch).await
+}
+
+/// Notify the sink (if any) that a tool call is about to be dispatched.
+async fn emit_tool_call(config: &ChatConfig, call: &ToolCall) {
+    if let Some(sink) = &config.sink {
+        sink.on_tool_call(&ToolCallView {
+            id: call.call_id.clone(),
+            name: call.fn_name.clone(),
+            args: call.fn_arguments.clone(),
+        })
+        .await;
+    }
+}
+
+/// Notify the sink (if any) that a tool call finished, with its output and outcome.
+async fn emit_tool_result(config: &ChatConfig, id: &str, output: &str, ok: bool) {
+    if let Some(sink) = &config.sink {
+        sink.on_tool_result(id, output, ok).await;
+    }
 }
 
 /// Append a message to the session and persist it.
@@ -356,6 +399,7 @@ async fn push_msg(
 }
 
 async fn flush_parallel(
+    config: &ChatConfig,
     tools: &ToolService,
     store: &Store,
     session: &mut Session,
@@ -367,6 +411,11 @@ async fn flush_parallel(
 
     println!("[TOOL BATCH {} read-only, concurrent]", batch.len());
 
+    // Surface each read call before the concurrent batch runs.
+    for call in batch {
+        emit_tool_call(config, call).await;
+    }
+
     let results = join_all(batch.iter().map(|call| {
         let name = call.fn_name.clone();
         let args = call.fn_arguments.clone();
@@ -377,6 +426,7 @@ async fn flush_parallel(
     for (call, result) in batch.iter().zip(results) {
         let output = result?;
         println!("[TOOL OUTPUT] {} → {}", call.fn_name, &output[..output.len().min(120)]);
+        emit_tool_result(config, &call.call_id, &output, true).await;
         push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
     }
 
@@ -466,6 +516,90 @@ mod tests {
         let ctx = out.find("--- context ---").unwrap();
         let skill = out.find("--- skill ---").unwrap();
         assert!(base < sys && sys < ctx && ctx < skill);
+    }
+
+    // A sink that records the order and payload of segment callbacks.
+    #[derive(Default)]
+    struct RecordingSink {
+        events: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl ChatSink for RecordingSink {
+        async fn on_text(&self, _delta: &str) {}
+        async fn on_block(&self, _block: &ChatBlock) {}
+        async fn on_tool_call(&self, call: &ToolCallView) {
+            self.events.lock().unwrap().push(format!("call:{}", call.id));
+        }
+        async fn on_tool_result(&self, id: &str, _output: &str, ok: bool) {
+            self.events.lock().unwrap().push(format!("result:{id}:{ok}"));
+        }
+    }
+
+    // An app dispatcher that owns one stub tool returning plain data.
+    struct StubDispatcher;
+
+    #[async_trait]
+    impl AppDispatcher for StubDispatcher {
+        async fn dispatch(&self, name: &str, _args: Value) -> Option<Result<AppResult, String>> {
+            if name == "stub_tool" {
+                Some(Ok(AppResult::Data(serde_json::json!({"ok": true}))))
+            } else {
+                None
+            }
+        }
+    }
+
+    struct DenyApprover;
+
+    #[async_trait]
+    impl crate::permissions::Approver for DenyApprover {
+        async fn confirm(
+            &self,
+            _path: &str,
+            _op: &str,
+            _resolved: &str,
+        ) -> crate::permissions::ApprovalResponse {
+            crate::permissions::ApprovalResponse::Deny
+        }
+    }
+
+    #[tokio::test]
+    async fn route_tool_calls_emits_call_before_result() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = Store::open_at(&dir.path().join("test.db")).unwrap();
+        let mut session = Session::new("test", dir.path().to_str().unwrap());
+        store.save_session(&session).unwrap();
+
+        let permissions = Arc::new(PermissionGuard::new(
+            &crate::config::Settings::default(),
+            DenyApprover,
+        ));
+        let tools = ToolService::new(Arc::clone(&permissions));
+        let sink = Arc::new(RecordingSink::default());
+
+        let mut config = ChatConfig::new(
+            "stub-model".to_string(),
+            "http://localhost".to_string(),
+            permissions,
+        );
+        config.app_dispatch = Some(Arc::new(StubDispatcher));
+        config.sink = Some(Arc::clone(&sink) as Arc<dyn ChatSink>);
+
+        let call = ToolCall {
+            call_id: "call-1".to_string(),
+            fn_name: "stub_tool".to_string(),
+            fn_arguments: serde_json::json!({}),
+            thought_signatures: None,
+        };
+
+        let mut blocks = Vec::new();
+        route_tool_calls(&config, &tools, &store, &mut session, &[call], &mut blocks)
+            .await
+            .unwrap();
+
+        let events = sink.events.lock().unwrap().clone();
+        assert_eq!(events, vec!["call:call-1".to_string(), "result:call-1:true".to_string()]);
     }
 
     #[test]
