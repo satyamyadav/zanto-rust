@@ -24,13 +24,15 @@
 
 {#if entry.role === "user"}
   <div class="flex justify-end">
-    <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-secondary text-secondary-foreground px-4 py-2 text-sm">
+    <div
+      class="flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm"
+    >
       {@render segments()}
     </div>
   </div>
 {:else}
   <div class="flex justify-start">
-    <div class="flex max-w-[90%] flex-col gap-2 text-sm leading-relaxed">
+    <div class="flex max-w-[90%] flex-col gap-2.5 text-sm leading-relaxed text-foreground">
       {@render segments()}
     </div>
   </div>

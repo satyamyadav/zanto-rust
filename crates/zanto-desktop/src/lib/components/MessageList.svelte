@@ -1,26 +1,88 @@
 <script lang="ts">
+  import { tick } from "svelte";
+  import { ArrowDown } from "@lucide/svelte";
   import Message from "./Message.svelte";
   import { sessionStore } from "$lib/stores/session.svelte";
 
   let scroller: HTMLDivElement;
+  // True while the viewport is parked at (or near) the bottom. Drives both the
+  // autoscroll pin and the visibility of the "jump to latest" affordance.
+  let atBottom = $state(true);
 
-  // Pin to bottom as new entries/segments arrive.
+  const NEAR_BOTTOM_PX = 48;
+
+  function isAtBottom() {
+    if (!scroller) return true;
+    return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= NEAR_BOTTOM_PX;
+  }
+
+  function scrollToBottom() {
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  }
+
+  function onScroll() {
+    atBottom = isAtBottom();
+  }
+
+  // Autoscroll on new entries/segments/stream activity, but only while the user
+  // is already pinned to the bottom — never yank them down mid-scrollback. Wait
+  // for the DOM to lay out the new content (tick) so scrollHeight is current,
+  // then re-sync atBottom against the post-scroll geometry.
   $effect(() => {
     sessionStore.convo.length;
     sessionStore.convo.at(-1)?.segments.length;
     sessionStore.busy;
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    sessionStore.streaming;
+    if (!atBottom) return;
+    tick().then(() => {
+      scrollToBottom();
+      atBottom = isAtBottom();
+    });
   });
 </script>
 
-<div bind:this={scroller} class="flex-1 overflow-auto p-4 space-y-3">
-  {#each sessionStore.convo as entry, i (i)}
-    <Message {entry} />
-  {/each}
-  {#if sessionStore.busy && !sessionStore.streaming}
-    <div class="text-sm text-muted-foreground">…thinking</div>
-  {/if}
-  {#if sessionStore.convo.length === 0 && !sessionStore.busy}
-    <div class="text-sm text-muted-foreground">Start a conversation.</div>
+<div class="relative min-h-0 flex-1">
+  <div
+    bind:this={scroller}
+    onscroll={onScroll}
+    class="absolute inset-0 overflow-auto px-4 py-4"
+  >
+    <!-- Bottom-anchored stack: a min-height flex column with `mt-auto` on the
+         content wrapper sinks a short thread to the bottom of the viewport, while
+         a long thread overflows downward and scrolls normally from the top (a
+         plain `justify-end` would push the overflow past the top edge and clip
+         the oldest messages out of reach). -->
+    <div class="flex min-h-full flex-col">
+      <div class="mt-auto flex flex-col gap-4">
+        {#each sessionStore.convo as entry, i (i)}
+          <Message {entry} />
+        {/each}
+        {#if sessionStore.busy && !sessionStore.streaming}
+          <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <span class="inline-flex gap-1">
+              <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]"></span>
+              <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]"></span>
+              <span class="size-1.5 animate-bounce rounded-full bg-current"></span>
+            </span>
+            <span>thinking</span>
+          </div>
+        {/if}
+        {#if sessionStore.convo.length === 0 && !sessionStore.busy}
+          <div class="text-sm text-muted-foreground">Start a conversation.</div>
+        {/if}
+      </div>
+    </div>
+  </div>
+
+  {#if !atBottom}
+    <button
+      type="button"
+      onclick={scrollToBottom}
+      aria-label="Jump to latest"
+      class="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-background/90 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-md backdrop-blur transition-colors hover:text-foreground"
+    >
+      <ArrowDown class="size-3.5" />
+      Jump to latest
+    </button>
   {/if}
 </div>
