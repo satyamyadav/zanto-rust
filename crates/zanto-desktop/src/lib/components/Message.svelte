@@ -4,6 +4,7 @@
   import TextSegment from "./segments/TextSegment.svelte";
   import ReasoningSegment from "./segments/ReasoningSegment.svelte";
   import ToolCallSegment from "./segments/ToolCallSegment.svelte";
+  import ErrorSegment from "./segments/ErrorSegment.svelte";
   import CopyIcon from "@lucide/svelte/icons/copy";
   import CheckIcon from "@lucide/svelte/icons/check";
   import { onDestroy } from "svelte";
@@ -104,6 +105,8 @@
       <ToolCallSegment name={seg.name} args={seg.args} output={seg.output} ok={seg.ok} />
     {:else if seg.kind === "block"}
       <Block block={seg.block} />
+    {:else if seg.kind === "error"}
+      <ErrorSegment message={seg.message} retryText={seg.retryText} />
     {/if}
   {/each}
 {/snippet}

@@ -10,7 +10,8 @@ export type ChatSegment =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
   | { kind: "tool_call"; id: string; name: string; args: any; output?: string; ok?: boolean }
-  | { kind: "block"; block: ChatBlock };
+  | { kind: "block"; block: ChatBlock }
+  | { kind: "error"; message: string; retryText: string };
 
 export type ChatEntry = { id: number; role: "user" | "assistant"; segments: ChatSegment[] };
 
@@ -226,10 +227,38 @@ export async function send(text: string): Promise<void> {
   streamIdx = null;
   try {
     await ipc.sendMessage(text);
+  } catch (e) {
+    // Surface the failed turn inline so it can be retried, not just a toast.
+    const message = `${e}`;
+    toast.error(message);
+    sessionStore.convo.push(entry("assistant", [{ kind: "error", message, retryText: text }]));
   } finally {
     sessionStore.busy = false;
     sessionStore.streaming = false;
     streamIdx = null;
     await loadSessions(); // titles/timestamps may have changed
   }
+}
+
+/**
+ * Retry a failed turn. Strips the trailing failed-turn entries — the error
+ * entry, any partial assistant entry produced before the stream rejected, and
+ * the original user entry — then re-sends (which re-adds the user entry once).
+ * Without dropping the user entry too, send() would push a duplicate user
+ * bubble on every retry.
+ */
+export async function retry(text: string): Promise<void> {
+  const convo = sessionStore.convo;
+  const last = convo[convo.length - 1];
+  if (!last || !last.segments.some((s) => s.kind === "error")) {
+    // Trailing entry isn't a live error bubble; don't disturb the thread.
+    await send(text);
+    return;
+  }
+  // Walk back over the failed-turn entries up to and including its user entry.
+  let cut = convo.length - 1; // the error entry
+  while (cut > 0 && convo[cut - 1].role !== "user") cut--;
+  if (cut > 0) cut--; // include the user entry
+  sessionStore.convo = convo.slice(0, cut);
+  await send(text);
 }
