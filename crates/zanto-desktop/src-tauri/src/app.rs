@@ -1,13 +1,12 @@
 //! Micro-app framework (desktop-only). An `App` is a full-stack module: a Rust
 //! backend slice (this trait) + a Svelte frontend slice + a manifest. Apps are NOT
 //! part of zanto-core; the core is parameterized at runtime by the active app's
-//! profile (skill + tools + stores) via `ActiveDispatcher`.
+//! profile (skill + tools + stores), dispatched via `SharedDispatcher`.
 
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::Value;
-use zanto_core::chat::{AppDispatcher, AppResult, GenaiTool};
+use zanto_core::chat::{AppResult, GenaiTool};
 use zanto_core::data::DataStore;
 
 /// A component an app can render in chat / the right panel. The agent fills `data`
@@ -42,11 +41,6 @@ pub trait App: Send + Sync {
     fn query(&self, data: &DataStore, name: &str, args: Value) -> Result<Value, String>;
     /// Manual action / flow (ungated backend path).
     fn action(&self, data: &DataStore, name: &str, args: Value) -> Result<Value, String>;
-    /// Whether the agent gets the built-in fs/shell tools instead of app tools.
-    /// The general "Chat" app returns true; verticals return false (default).
-    fn uses_base_tools(&self) -> bool {
-        false
-    }
 }
 
 /// Registry of available apps + the single active one (single-active + general mode).
@@ -87,22 +81,3 @@ impl AppRegistry {
     }
 }
 
-/// Bridges the active app to the core chat loop's `AppDispatcher`. Holds the data
-/// engine so app tools can read/write stores. Constructed per turn from the active app.
-pub struct ActiveDispatcher {
-    app: Arc<dyn App>,
-    data: Arc<DataStore>,
-}
-
-impl ActiveDispatcher {
-    pub fn new(app: Arc<dyn App>, data: Arc<DataStore>) -> Self {
-        Self { app, data }
-    }
-}
-
-#[async_trait]
-impl AppDispatcher for ActiveDispatcher {
-    async fn dispatch(&self, name: &str, args: Value) -> Option<Result<AppResult, String>> {
-        self.app.dispatch_tool(&self.data, name, args)
-    }
-}

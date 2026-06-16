@@ -1,6 +1,7 @@
 mod app;
 mod approver;
 mod apps;
+mod catalogue;
 mod ipc;
 
 use std::collections::HashMap;
@@ -47,6 +48,7 @@ pub fn run() {
                 apps::chat::ChatApp::new(),
                 apps::finance::FinanceApp::new(),
             ]);
+            let catalogue = Arc::new(catalogue::Catalogue::load());
             let session = tokio::sync::Mutex::new(Session::new("", WORKSPACE));
 
             app.manage(Arc::clone(&pending));
@@ -55,6 +57,7 @@ pub fn run() {
                 data,
                 permissions,
                 registry,
+                catalogue,
                 session,
                 policy,
                 model: Mutex::new(model),
@@ -66,6 +69,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::send_message,
             ipc::list_apps,
+            ipc::get_catalogue,
             ipc::mount_app,
             ipc::unmount_app,
             ipc::query_app,

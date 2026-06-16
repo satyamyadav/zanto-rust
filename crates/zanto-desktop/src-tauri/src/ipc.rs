@@ -12,13 +12,15 @@ use zanto_core::config::Settings;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{auto_title, unix_now_pub, ContextPolicy, Session, SessionMeta, Store};
-use crate::app::{ActiveDispatcher, AppManifest, AppRegistry};
+use crate::app::{AppManifest, AppRegistry};
+use crate::catalogue::{artifact_tools, ArtifactDef, Catalogue, SharedDispatcher};
 
 pub struct DesktopState {
     pub store: Store,
     pub data: Arc<DataStore>,
     pub permissions: Arc<PermissionGuard>,
     pub registry: AppRegistry,
+    pub catalogue: Arc<Catalogue>,
     pub session: Mutex<Session>,
     pub policy: ContextPolicy,
     // Runtime-mutable so Settings can change them live.
@@ -45,14 +47,24 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
     session.app_id = active.as_ref().map(|a| a.manifest().id.clone());
 
     let config = match &active {
-        Some(app) => ChatConfig {
-            model,
-            endpoint,
-            permissions: Arc::clone(&state.permissions),
-            skill: Some(app.skill()),
-            extra_tools: app.agent_tools(),
-            app_dispatch: Some(Arc::new(ActiveDispatcher::new(Arc::clone(app), Arc::clone(&state.data)))),
-        },
+        Some(app) => {
+            // Shared artifact tools + the app's domain tools; base fs/shell come
+            // from core. SharedDispatcher routes artifact tools then delegates.
+            let mut extra = artifact_tools();
+            extra.extend(app.agent_tools());
+            ChatConfig {
+                model,
+                endpoint,
+                permissions: Arc::clone(&state.permissions),
+                skill: Some(app.skill()),
+                extra_tools: extra,
+                app_dispatch: Some(Arc::new(SharedDispatcher::new(
+                    Arc::clone(&state.catalogue),
+                    Arc::clone(app),
+                    Arc::clone(&state.data),
+                ))),
+            }
+        }
         None => ChatConfig::new(model, endpoint, Arc::clone(&state.permissions)),
     };
 
@@ -73,6 +85,13 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
 #[tauri::command]
 pub fn list_apps(state: State<'_, DesktopState>) -> Vec<AppManifest> {
     state.registry.manifests()
+}
+
+/// The shared artifact catalogue (id, description, dataSchema) — for the shell to
+/// AJV-validate and mount components by id.
+#[tauri::command]
+pub fn get_catalogue(state: State<'_, DesktopState>) -> Vec<ArtifactDef> {
+    state.catalogue.all()
 }
 
 #[tauri::command]

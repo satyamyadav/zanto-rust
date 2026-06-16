@@ -1,0 +1,93 @@
+[
+  {
+    "id": "table",
+    "description": "A table with named columns and rows.",
+    "when_to_use": "Tabular data — lists of records, comparisons.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "columns": { "type": "array", "items": { "type": "string" } },
+        "rows": { "type": "array", "items": { "type": "array" } }
+      },
+      "required": ["columns", "rows"]
+    }
+  },
+  {
+    "id": "metric",
+    "description": "A single headline value with a label.",
+    "when_to_use": "A KPI, total, or one important number.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "label": { "type": "string" },
+        "value": {},
+        "unit": { "type": "string" }
+      },
+      "required": ["label", "value"]
+    }
+  },
+  {
+    "id": "list",
+    "description": "A bulleted list of items.",
+    "when_to_use": "Simple enumerations.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["items"]
+    }
+  },
+  {
+    "id": "kv",
+    "description": "Key/value pairs.",
+    "when_to_use": "Attributes or a small record.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "pairs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "key": { "type": "string" }, "value": {} },
+            "required": ["key", "value"]
+          }
+        }
+      },
+      "required": ["pairs"]
+    }
+  },
+  {
+    "id": "json",
+    "description": "Raw JSON, pretty-printed. Fallback for anything structured.",
+    "when_to_use": "When no specific artifact fits the data.",
+    "data_schema": { "type": "object" }
+  },
+  {
+    "id": "transactions_table",
+    "description": "Finance transactions table.",
+    "when_to_use": "Showing the user's transactions.",
+    "data_schema": {
+      "type": "object",
+      "properties": { "rows": { "type": "array" } },
+      "required": ["rows"]
+    }
+  },
+  {
+    "id": "monthly_summary",
+    "description": "Finance monthly spending summary (total + per-category).",
+    "when_to_use": "Monthly spending totals and breakdown.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "month": { "type": "string" },
+        "total": { "type": "number" },
+        "by_category": { "type": "array" }
+      },
+      "required": ["month", "total", "by_category"]
+    }
+  }
+]

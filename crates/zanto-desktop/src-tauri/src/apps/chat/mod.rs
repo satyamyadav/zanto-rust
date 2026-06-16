@@ -54,8 +54,4 @@ impl App for ChatApp {
     fn action(&self, _data: &DataStore, name: &str, _args: Value) -> Result<Value, String> {
         Err(format!("unknown action: {name}"))
     }
-
-    fn uses_base_tools(&self) -> bool {
-        true
-    }
 }

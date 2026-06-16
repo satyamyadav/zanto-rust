@@ -1,0 +1,139 @@
+//! The shared artifact catalogue: the single source of truth (catalogue.json) for
+//! the LLM wiring (list/get/render tools) and shell mounting. Each artifact has a
+//! `dataSchema`; `render_artifact` validates data against it in Rust so the model
+//! gets errors to retry (the shell re-checks with AJV before mounting).
+
+use std::sync::Arc;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use zanto_core::chat::{AppDispatcher, AppResult, GenaiTool, Target};
+use zanto_core::data::DataStore;
+use crate::app::App;
+
+const CATALOGUE_JSON: &str = include_str!("../catalogue.json");
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtifactDef {
+    pub id: String,
+    pub description: String,
+    #[serde(default)]
+    pub when_to_use: String,
+    #[serde(rename = "data_schema", alias = "dataSchema")]
+    pub data_schema: Value,
+}
+
+pub struct Catalogue {
+    defs: Vec<ArtifactDef>,
+}
+
+impl Catalogue {
+    pub fn load() -> Self {
+        let defs: Vec<ArtifactDef> =
+            serde_json::from_str(CATALOGUE_JSON).expect("parse catalogue.json");
+        Catalogue { defs }
+    }
+
+    pub fn all(&self) -> Vec<ArtifactDef> {
+        self.defs.clone()
+    }
+
+    pub fn get(&self, id: &str) -> Option<&ArtifactDef> {
+        self.defs.iter().find(|d| d.id == id)
+    }
+
+    /// Summaries for `list_artifacts` (no schemas).
+    fn list(&self) -> Value {
+        Value::Array(
+            self.defs
+                .iter()
+                .map(|d| json!({ "id": d.id, "description": d.description, "when_to_use": d.when_to_use }))
+                .collect(),
+        )
+    }
+
+    /// Validate `data` against the artifact's dataSchema. `Err` carries readable messages.
+    pub fn validate(&self, id: &str, data: &Value) -> Result<(), Vec<String>> {
+        let def = self.get(id).ok_or_else(|| vec![format!("unknown artifact: {id}")])?;
+        let compiled = jsonschema::JSONSchema::compile(&def.data_schema)
+            .map_err(|e| vec![format!("bad schema for {id}: {e}")])?;
+        if let Err(errors) = compiled.validate(data) {
+            return Err(errors.map(|e| e.to_string()).collect());
+        }
+        Ok(())
+    }
+}
+
+/// Tool schemas for the shared artifact tools — added to every app's tool set.
+pub fn artifact_tools() -> Vec<GenaiTool> {
+    vec![
+        GenaiTool::new("list_artifacts")
+            .with_description("List available UI artifacts (id, description, when to use). Call this to discover what you can render.")
+            .with_schema(json!({ "type": "object", "properties": {} })),
+        GenaiTool::new("get_artifact")
+            .with_description("Get one artifact's full definition, including its dataSchema, before rendering it.")
+            .with_schema(json!({
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            })),
+        GenaiTool::new("render_artifact")
+            .with_description("Render an artifact in the chat (target=inline) or the right canvas (target=canvas). `data` must match the artifact's dataSchema.")
+            .with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "data": { "type": "object" },
+                    "target": { "type": "string", "enum": ["inline", "canvas"] }
+                },
+                "required": ["id", "data"]
+            })),
+    ]
+}
+
+/// Dispatcher layered over each app: handles the shared artifact tools, then
+/// delegates anything else to the app's own domain tools.
+pub struct SharedDispatcher {
+    catalogue: Arc<Catalogue>,
+    app: Arc<dyn App>,
+    data: Arc<DataStore>,
+}
+
+impl SharedDispatcher {
+    pub fn new(catalogue: Arc<Catalogue>, app: Arc<dyn App>, data: Arc<DataStore>) -> Self {
+        Self { catalogue, app, data }
+    }
+}
+
+#[async_trait]
+impl AppDispatcher for SharedDispatcher {
+    async fn dispatch(&self, name: &str, args: Value) -> Option<Result<AppResult, String>> {
+        match name {
+            "list_artifacts" => Some(Ok(AppResult::Data(self.catalogue.list()))),
+            "get_artifact" => {
+                let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                let result = match self.catalogue.get(id) {
+                    Some(def) => serde_json::to_value(def).unwrap_or(Value::Null),
+                    None => json!({ "error": format!("unknown artifact: {id}") }),
+                };
+                Some(Ok(AppResult::Data(result)))
+            }
+            "render_artifact" => {
+                let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let data = args.get("data").cloned().unwrap_or(Value::Null);
+                let target = match args.get("target").and_then(|v| v.as_str()) {
+                    Some("canvas") => Target::Canvas,
+                    _ => Target::Inline,
+                };
+                match self.catalogue.validate(&id, &data) {
+                    Ok(()) => Some(Ok(AppResult::Block { component_id: id, data, target })),
+                    Err(details) => Some(Ok(AppResult::Data(json!({
+                        "error": "data did not match the artifact's dataSchema; fix and retry",
+                        "details": details
+                    })))),
+                }
+            }
+            _ => self.app.dispatch_tool(&self.data, name, args),
+        }
+    }
+}
