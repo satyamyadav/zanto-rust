@@ -17,6 +17,7 @@ pub trait Approver: Send + Sync {
     async fn confirm(&self, path: &str, op: &str, resolved: &str) -> ApprovalResponse;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     Read,
     Write,
@@ -28,6 +29,9 @@ pub struct PermissionGuard {
     allow_write_outside: bool,
     approver: Arc<dyn Approver>,
     session_grants: Mutex<HashSet<PathBuf>>,
+    // Serializes interactive approval prompts so concurrent checks (e.g. a batch of
+    // read-only tools) don't race on the approver's input (stdin).
+    prompt_lock: tokio::sync::Mutex<()>,
 }
 
 impl PermissionGuard {
@@ -39,6 +43,7 @@ impl PermissionGuard {
             allow_write_outside: settings.allow_write_outside,
             approver: Arc::new(approver),
             session_grants: Mutex::new(HashSet::new()),
+            prompt_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -58,6 +63,17 @@ impl PermissionGuard {
             return Ok(resolved);
         }
 
+        {
+            let grants = self.session_grants.lock().unwrap();
+            if grants.contains(&resolved) {
+                return Ok(resolved.clone());
+            }
+        }
+
+        // Serialize prompts: only one approval is solicited at a time. After
+        // acquiring, re-check the cache — a concurrent prompt may have already
+        // granted this exact path while we waited.
+        let _prompt = self.prompt_lock.lock().await;
         {
             let grants = self.session_grants.lock().unwrap();
             if grants.contains(&resolved) {

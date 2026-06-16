@@ -29,10 +29,14 @@ impl ToolService {
         name: &str,
         args: serde_json::Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(result) = fs::dispatch(&self.fs, name, args.clone()).await {
-            return Ok(result);
+        // Route by which category owns the tool name — explicit, not Err-fallthrough.
+        if fs::owns(name) {
+            fs::dispatch(&self.fs, name, args).await
+        } else if shell::owns(name) {
+            shell::dispatch(&self.shell, name, args).await
+        } else {
+            Err(format!("unknown tool: {name}").into())
         }
-        shell::dispatch(&self.shell, name, args).await
     }
 
     pub fn is_readonly(name: &str) -> bool {

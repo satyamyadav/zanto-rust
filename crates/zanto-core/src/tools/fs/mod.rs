@@ -93,3 +93,11 @@ pub(super) fn is_readonly(name: &str) -> bool {
         || name == read_file::ReadFile::name().as_ref()
         || name == search_files::SearchFiles::name().as_ref()
 }
+
+pub(super) fn owns(name: &str) -> bool {
+    name == edit_file::EditFile::name().as_ref()
+        || name == list_directory::ListDirectory::name().as_ref()
+        || name == read_file::ReadFile::name().as_ref()
+        || name == search_files::SearchFiles::name().as_ref()
+        || name == write_file::WriteFile::name().as_ref()
+}

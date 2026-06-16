@@ -79,3 +79,7 @@ pub(super) async fn dispatch(
 pub(super) fn is_readonly(_name: &str) -> bool {
     false
 }
+
+pub(super) fn owns(name: &str) -> bool {
+    name == run_command::RunCommand::name().as_ref()
+}

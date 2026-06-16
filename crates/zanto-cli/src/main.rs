@@ -82,23 +82,26 @@ impl Approver for StdinApprover {
         eprintln!("\n[zanto] permission required: {op} \"{path}\"");
         eprintln!("  resolved: {resolved}");
         eprintln!("  (a) allow once  (s) allow session  (f) allow forever  (d) deny");
-        eprint!("> ");
-        std::io::stderr().flush().ok();
 
-        let mut line = String::new();
-        if tokio::io::BufReader::new(tokio::io::stdin())
-            .read_line(&mut line)
-            .await
-            .is_err()
-        {
-            return ApprovalResponse::Deny;
-        }
+        let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
+        loop {
+            eprint!("> ");
+            std::io::stderr().flush().ok();
 
-        match line.trim() {
-            "f" => ApprovalResponse::AllowForever,
-            "s" => ApprovalResponse::AllowSession,
-            "a" => ApprovalResponse::AllowOnce,
-            _ => ApprovalResponse::Deny,
+            let mut line = String::new();
+            match reader.read_line(&mut line).await {
+                Ok(0) | Err(_) => return ApprovalResponse::Deny, // EOF / read error
+                Ok(_) => {}
+            }
+
+            // Normalize: trim, lowercase, take the first char so "Allow"/"a "/"A" work.
+            match line.trim().to_lowercase().chars().next() {
+                Some('a') => return ApprovalResponse::AllowOnce,
+                Some('s') => return ApprovalResponse::AllowSession,
+                Some('f') => return ApprovalResponse::AllowForever,
+                Some('d') => return ApprovalResponse::Deny,
+                _ => eprintln!("  please enter a, s, f, or d"), // unrecognized → re-prompt
+            }
         }
     }
 }
