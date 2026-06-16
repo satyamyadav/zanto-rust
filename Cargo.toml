@@ -2,7 +2,7 @@
 members = [
     "crates/zanto-core",
     "crates/zanto-cli",
-    "crates/zanto-desktop",
+    "crates/zanto-desktop/src-tauri",
 ]
 resolver = "2"
 

@@ -2,19 +2,19 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "zanto",
   "version": "0.1.0",
-  "identifier": "com.zanto.desktop",
+  "identifier": "com.lazy.zanto",
   "build": {
-    "beforeDevCommand": "npm run dev --prefix ui",
+    "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build --prefix ui",
-    "frontendDist": "ui/dist"
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
   },
   "app": {
     "windows": [
       {
         "title": "zanto",
-        "width": 1100,
-        "height": 720
+        "width": 800,
+        "height": 600
       }
     ],
     "security": {
