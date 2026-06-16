@@ -21,17 +21,15 @@ const WORKSPACE: &str = "default";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let settings = Settings::load();
 
             let model = settings.model.clone().unwrap_or_else(|| "qwen2.5:14b".to_string());
-            let endpoint: &'static str = Box::leak(
-                settings
-                    .endpoint
-                    .clone()
-                    .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string())
-                    .into_boxed_str(),
-            );
+            let endpoint = settings
+                .endpoint
+                .clone()
+                .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string());
             let policy = match settings.max_context_turns {
                 Some(n) => ContextPolicy::LastNTurns { max_turns: n },
                 None => ContextPolicy::default(),
@@ -56,8 +54,8 @@ pub fn run() {
                 registry,
                 session,
                 policy,
-                model,
-                endpoint,
+                model: Mutex::new(model),
+                endpoint: Mutex::new(endpoint),
                 workspace: WORKSPACE.to_string(),
             });
             Ok(())
@@ -72,6 +70,11 @@ pub fn run() {
             ipc::list_sessions,
             ipc::load_session,
             ipc::new_session,
+            ipc::delete_session,
+            ipc::rename_session,
+            ipc::get_config,
+            ipc::set_config,
+            ipc::pick_folder,
             approver::approve,
         ])
         .run(tauri::generate_context!())

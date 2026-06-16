@@ -53,6 +53,7 @@ pub struct Session {
     pub id: String,
     pub title: String,
     pub workspace: String,
+    pub app_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
     pub messages: Vec<ChatMessage>,
@@ -63,6 +64,7 @@ pub struct SessionMeta {
     pub id: String,
     pub title: String,
     pub workspace: String,
+    pub app_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
     pub message_count: usize,
@@ -88,6 +90,7 @@ impl Session {
             id: new_id(),
             title: title.into(),
             workspace: workspace.into(),
+            app_id: None,
             created_at: now,
             updated_at: now,
             messages: Vec::new(),
@@ -166,6 +169,8 @@ fn migrations() -> &'static Migrations<'static> {
                     UNIQUE(session_id, position)
                 );",
             ),
+            // Sessions are scoped to the active micro-app (NULL = general mode).
+            M::up("ALTER TABLE sessions ADD COLUMN app_id TEXT;"),
         ])
     })
 }
@@ -204,10 +209,11 @@ impl Store {
     pub fn save_session(&self, session: &Session) -> Result<(), SessionError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO sessions (id, title, workspace, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at",
-            params![session.id, session.title, session.workspace, session.created_at as i64, session.updated_at as i64],
+            "INSERT INTO sessions (id, title, workspace, app_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET
+                 title = excluded.title, app_id = excluded.app_id, updated_at = excluded.updated_at",
+            params![session.id, session.title, session.workspace, session.app_id, session.created_at as i64, session.updated_at as i64],
         )?;
         Ok(())
     }
@@ -234,12 +240,18 @@ impl Store {
         let conn = self.conn.lock().unwrap();
 
         let row = conn.query_row(
-            "SELECT title, workspace, created_at, updated_at FROM sessions WHERE id = ?1",
+            "SELECT title, workspace, app_id, created_at, updated_at FROM sessions WHERE id = ?1",
             params![id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?)),
+            |r| Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+            )),
         );
 
-        let (title, workspace, created_at, updated_at) = match row {
+        let (title, workspace, app_id, created_at, updated_at) = match row {
             Ok(r) => r,
             Err(rusqlite::Error::QueryReturnedNoRows) => return Err(SessionError::NotFound(id.to_string())),
             Err(e) => return Err(e.into()),
@@ -258,6 +270,7 @@ impl Store {
             id: id.to_string(),
             title,
             workspace,
+            app_id,
             created_at: created_at as u64,
             updated_at: updated_at as u64,
             messages: messages?,
@@ -273,38 +286,37 @@ impl Store {
         Ok(())
     }
 
-    pub fn list_sessions(&self, workspace_filter: Option<&str>) -> Result<Vec<SessionMeta>, SessionError> {
+    pub fn list_sessions(
+        &self,
+        workspace_filter: Option<&str>,
+        app_filter: Option<&str>,
+    ) -> Result<Vec<SessionMeta>, SessionError> {
         let conn = self.conn.lock().unwrap();
-        let (sql, count_params) = if workspace_filter.is_some() {
-            (
-                "SELECT s.id, s.title, s.workspace, s.created_at, s.updated_at, COUNT(m.id)
-                 FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-                 WHERE s.workspace = ?1
-                 GROUP BY s.id ORDER BY s.updated_at DESC",
-                true,
-            )
-        } else {
-            (
-                "SELECT s.id, s.title, s.workspace, s.created_at, s.updated_at, COUNT(m.id)
-                 FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
-                 GROUP BY s.id ORDER BY s.updated_at DESC",
-                false,
-            )
-        };
 
-        let mut stmt = conn.prepare(sql)?;
+        let mut sql = String::from(
+            "SELECT s.id, s.title, s.workspace, s.created_at, s.updated_at, COUNT(m.id), s.app_id
+             FROM sessions s LEFT JOIN messages m ON m.session_id = s.id",
+        );
+        let mut conds: Vec<&str> = Vec::new();
+        let mut binds: Vec<String> = Vec::new();
+        if let Some(ws) = workspace_filter {
+            conds.push("s.workspace = ?");
+            binds.push(ws.to_string());
+        }
+        if let Some(app) = app_filter {
+            conds.push("s.app_id = ?");
+            binds.push(app.to_string());
+        }
+        if !conds.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conds.join(" AND "));
+        }
+        sql.push_str(" GROUP BY s.id ORDER BY s.updated_at DESC");
 
-        let rows: Result<Vec<SessionMeta>, SessionError> = if count_params {
-            stmt.query_map(params![workspace_filter.unwrap()], row_to_meta)?
-                .map(|r| r.map_err(SessionError::from))
-                .collect()
-        } else {
-            stmt.query_map([], row_to_meta)?
-                .map(|r| r.map_err(SessionError::from))
-                .collect()
-        };
-
-        rows
+        let mut stmt = conn.prepare(&sql)?;
+        stmt.query_map(rusqlite::params_from_iter(binds.iter()), row_to_meta)?
+            .map(|r| r.map_err(SessionError::from))
+            .collect()
     }
 
     pub fn last_session_id(&self, workspace_filter: Option<&str>) -> Option<String> {
@@ -368,6 +380,7 @@ fn row_to_meta(r: &rusqlite::Row<'_>) -> rusqlite::Result<SessionMeta> {
         created_at: r.get::<_, i64>(3)? as u64,
         updated_at: r.get::<_, i64>(4)? as u64,
         message_count: r.get::<_, i64>(5)? as usize,
+        app_id: r.get::<_, Option<String>>(6)?,
     })
 }
 
@@ -575,7 +588,7 @@ mod tests {
         store.save_session(&s_a).unwrap();
         store.save_session(&s_b).unwrap();
 
-        let list = store.list_sessions(Some("/ws/a")).unwrap();
+        let list = store.list_sessions(Some("/ws/a"), None).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, s_a.id);
     }

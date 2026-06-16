@@ -129,12 +129,10 @@ async fn main() {
         .or_else(|| settings.model.clone())
         .unwrap_or_else(|| "qwen2.5:14b".to_string());
 
-    let endpoint: &'static str = Box::leak(
-        args.endpoint
-            .or_else(|| settings.endpoint.clone())
-            .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string())
-            .into_boxed_str(),
-    );
+    let endpoint: String = args
+        .endpoint
+        .or_else(|| settings.endpoint.clone())
+        .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string());
 
     let policy = match settings.max_context_turns {
         Some(n) => ContextPolicy::LastNTurns { max_turns: n },
@@ -212,7 +210,7 @@ async fn run_once(
     store: &Store,
     session: &mut Session,
     model: String,
-    endpoint: &'static str,
+    endpoint: String,
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
     question: &str,
@@ -228,7 +226,7 @@ async fn run_interactive(
     store: &Store,
     session: &mut Session,
     model: String,
-    endpoint: &'static str,
+    endpoint: String,
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
 ) {
@@ -253,7 +251,7 @@ async fn run_interactive(
         if q.is_empty() { continue; }
         if q == "exit" || q == "quit" { break; }
 
-        let config = ChatConfig::new(model.clone(), endpoint, Arc::clone(permissions));
+        let config = ChatConfig::new(model.clone(), endpoint.clone(), Arc::clone(permissions));
 
         match chat(config, store, session, q, policy).await {
             Ok(turn) => println!("\n{}", turn.text()),
@@ -273,7 +271,7 @@ fn handle_sessions(action: SessionAction, workspace: &str) {
     match action {
         SessionAction::List { all } => {
             let filter = if all { None } else { Some(workspace) };
-            match store.list_sessions(filter) {
+            match store.list_sessions(filter, None) {
                 Ok(sessions) if sessions.is_empty() => println!("No sessions found."),
                 Ok(sessions) => {
                     println!("  {:<22}  {:<43}  {:>4}  UPDATED", "ID", "TITLE", "MSGS");

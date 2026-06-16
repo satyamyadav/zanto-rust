@@ -1,15 +1,17 @@
-//! Tauri IPC surface: the commands the Svelte frontend calls. Manual paths
-//! (`query_app`/`run_app_action`) hit the data engine directly (ungated); the
-//! agentic path (`send_message`) runs a chat turn in the active app's context.
+//! Tauri IPC surface. Manual paths (`query_app`/`run_app_action`) hit the data
+//! engine directly (ungated); the agentic path (`send_message`) runs a chat turn in
+//! the active app's context. Sessions are scoped to the active app.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::State;
 use tokio::sync::Mutex;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn};
+use zanto_core::config::Settings;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
-use zanto_core::session::{ContextPolicy, Session, SessionMeta, Store};
+use zanto_core::session::{unix_now_pub, ContextPolicy, Session, SessionMeta, Store};
 use crate::app::{ActiveDispatcher, AppManifest, AppRegistry};
 
 pub struct DesktopState {
@@ -19,33 +21,48 @@ pub struct DesktopState {
     pub registry: AppRegistry,
     pub session: Mutex<Session>,
     pub policy: ContextPolicy,
-    pub model: String,
-    pub endpoint: &'static str,
+    // Runtime-mutable so Settings can change them live.
+    pub model: StdMutex<String>,
+    pub endpoint: StdMutex<String>,
     pub workspace: String,
 }
+
+impl DesktopState {
+    fn active_app_id(&self) -> Option<String> {
+        self.registry.active().map(|a| a.manifest().id.clone())
+    }
+}
+
+// ---- Chat ----
 
 #[tauri::command]
 pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Result<ChatTurn, String> {
     let active = state.registry.active();
+    let model = state.model.lock().unwrap().clone();
+    let endpoint = state.endpoint.lock().unwrap().clone();
+
     let mut session = state.session.lock().await;
+    session.app_id = active.as_ref().map(|a| a.manifest().id.clone());
 
     let config = match &active {
         Some(app) => ChatConfig {
-            model: state.model.clone(),
-            endpoint: state.endpoint,
+            model,
+            endpoint,
             permissions: Arc::clone(&state.permissions),
             skill: Some(app.skill()),
             extra_tools: app.agent_tools(),
             app_dispatch: Some(Arc::new(ActiveDispatcher::new(Arc::clone(app), Arc::clone(&state.data)))),
             include_base_tools: false,
         },
-        None => ChatConfig::new(state.model.clone(), state.endpoint, Arc::clone(&state.permissions)),
+        None => ChatConfig::new(model, endpoint, Arc::clone(&state.permissions)),
     };
 
     chat(config, &state.store, &mut session, &text, &state.policy)
         .await
         .map_err(|e| e.to_string())
 }
+
+// ---- Apps ----
 
 #[tauri::command]
 pub fn list_apps(state: State<'_, DesktopState>) -> Vec<AppManifest> {
@@ -84,9 +101,15 @@ pub fn run_app_action(
     app.action(&state.data, &action, args)
 }
 
+// ---- Sessions (scoped to the active app) ----
+
 #[tauri::command]
 pub fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionMeta>, String> {
-    state.store.list_sessions(Some(&state.workspace)).map_err(|e| e.to_string())
+    let app_id = state.active_app_id();
+    state
+        .store
+        .list_sessions(Some(&state.workspace), app_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -98,6 +121,78 @@ pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<
 
 #[tauri::command]
 pub async fn new_session(state: State<'_, DesktopState>) -> Result<(), String> {
-    *state.session.lock().await = Session::new("", &state.workspace);
+    let mut s = Session::new("", &state.workspace);
+    s.app_id = state.active_app_id();
+    *state.session.lock().await = s;
     Ok(())
+}
+
+#[tauri::command]
+pub fn delete_session(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
+    state.store.delete_session(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn rename_session(state: State<'_, DesktopState>, id: String, title: String) -> Result<(), String> {
+    let mut s = state.store.load_session(&id).map_err(|e| e.to_string())?;
+    s.title = title;
+    s.updated_at = unix_now_pub();
+    state.store.save_session(&s).map_err(|e| e.to_string())
+}
+
+// ---- Config ----
+
+#[derive(Serialize)]
+pub struct ConfigDto {
+    pub model: String,
+    pub endpoint: String,
+    pub allowed_paths: Vec<String>,
+    pub max_context_turns: Option<usize>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct ConfigPatch {
+    pub model: Option<String>,
+    pub endpoint: Option<String>,
+    pub max_context_turns: Option<usize>,
+}
+
+#[tauri::command]
+pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
+    let settings = Settings::load();
+    ConfigDto {
+        model: state.model.lock().unwrap().clone(),
+        endpoint: state.endpoint.lock().unwrap().clone(),
+        allowed_paths: settings.allowed_paths,
+        max_context_turns: settings.max_context_turns,
+    }
+}
+
+#[tauri::command]
+pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<(), String> {
+    // Apply live to running state.
+    if let Some(m) = &patch.model {
+        *state.model.lock().unwrap() = m.clone();
+    }
+    if let Some(e) = &patch.endpoint {
+        *state.endpoint.lock().unwrap() = e.clone();
+    }
+    // Persist to .zanto/settings.json.
+    let mut settings = Settings::load();
+    if let Some(m) = patch.model {
+        settings.model = Some(m);
+    }
+    if let Some(e) = patch.endpoint {
+        settings.endpoint = Some(e);
+    }
+    if let Some(t) = patch.max_context_turns {
+        settings.max_context_turns = Some(t);
+    }
+    settings.save().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
 }

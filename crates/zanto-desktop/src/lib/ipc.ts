@@ -20,6 +20,25 @@ export type AppManifest = {
 
 export type ApprovalRequest = { id: string; path: string; op: string; resolved: string };
 
+export type SessionMeta = {
+  id: string;
+  title: string;
+  workspace: string;
+  app_id: string | null;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+};
+
+export type Config = {
+  model: string;
+  endpoint: string;
+  allowed_paths: string[];
+  max_context_turns: number | null;
+};
+
+export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_context_turns">>;
+
 // Thin typed wrappers over the Tauri IPC surface (commands + events).
 export const ipc = {
   sendMessage: (text: string) => invoke<ChatTurn>("send_message", { text }),
@@ -30,7 +49,18 @@ export const ipc = {
     invoke<any>("query_app", { id, query, args }),
   runAppAction: (id: string, action: string, args: any = {}) =>
     invoke<any>("run_app_action", { id, action, args }),
+  // Sessions (scoped to the active app)
+  listSessions: () => invoke<SessionMeta[]>("list_sessions"),
+  loadSession: (id: string) => invoke<void>("load_session", { id }),
   newSession: () => invoke<void>("new_session"),
+  deleteSession: (id: string) => invoke<void>("delete_session", { id }),
+  renameSession: (id: string, title: string) => invoke<void>("rename_session", { id, title }),
+
+  // Config
+  getConfig: () => invoke<Config>("get_config"),
+  setConfig: (patch: ConfigPatch) => invoke<void>("set_config", { patch }),
+  pickFolder: () => invoke<string | null>("pick_folder"),
+
   approve: (requestId: string, response: "once" | "session" | "forever" | "deny") =>
     invoke<void>("approve", { requestId, response }),
   onApprovalRequest: (cb: (r: ApprovalRequest) => void): Promise<UnlistenFn> =>

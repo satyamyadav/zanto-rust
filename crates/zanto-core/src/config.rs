@@ -27,6 +27,17 @@ impl Settings {
         user.merge(project).resolve_paths()
     }
 
+    /// Persist this Settings to the project config (`.zanto/settings.json`).
+    pub fn save(&self) -> std::io::Result<()> {
+        let path = Path::new(PROJECT_CONFIG);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        std::fs::write(path, content)
+    }
+
     /// Persist an absolute path into the project config's allowed_paths.
     pub fn persist_allowed_path(abs_path: &str) {
         let config_path = Path::new(PROJECT_CONFIG);

@@ -70,7 +70,7 @@ pub trait AppDispatcher: Send + Sync {
 
 pub struct ChatConfig {
     pub model: String,
-    pub endpoint: &'static str,
+    pub endpoint: String,
     pub permissions: Arc<PermissionGuard>,
     /// Extra system-prompt text (the active app's skill). Appended to the base prompt.
     pub skill: Option<String>,
@@ -85,7 +85,7 @@ pub struct ChatConfig {
 
 impl ChatConfig {
     /// General-mode config (CLI): base fs/shell tools, no app skill/tools.
-    pub fn new(model: String, endpoint: &'static str, permissions: Arc<PermissionGuard>) -> Self {
+    pub fn new(model: String, endpoint: String, permissions: Arc<PermissionGuard>) -> Self {
         Self {
             model,
             endpoint,
@@ -113,7 +113,8 @@ pub async fn chat(
     session.updated_at = crate::session::unix_now_pub();
     store.save_session(session)?;
 
-    let endpoint_str = config.endpoint;
+    // genai's resolver needs a 'static endpoint; leak the (rarely-changing) value.
+    let endpoint_str: &'static str = Box::leak(config.endpoint.clone().into_boxed_str());
     // Cloud models (e.g. gemini-*) resolve their own endpoint + auth via genai
     // (API key from GEMINI_API_KEY). Only override the endpoint for local Ollama,
     // which genai would otherwise point at localhost instead of the configured host.
