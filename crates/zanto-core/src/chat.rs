@@ -2,7 +2,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::join_all;
 use genai::{Client, ServiceTarget};
-use genai::chat::{ChatMessage, ChatRequest, Tool as GenaiTool, ToolCall, ToolResponse};
+use genai::chat::{ChatMessage, ChatRequest, ToolCall, ToolResponse};
+// Re-exported so downstream crates (the desktop app) can build tool schemas
+// without depending on genai directly.
+pub use genai::chat::Tool as GenaiTool;
 use genai::resolver::{Endpoint, ServiceTargetResolver};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
