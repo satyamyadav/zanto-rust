@@ -111,6 +111,17 @@ impl Settings {
         }
     }
 
+    /// Persist this Settings to the project config (`.zanto/settings.json`).
+    pub fn save(&self) -> std::io::Result<()> {
+        let path = Path::new(PROJECT_CONFIG);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        std::fs::write(path, content)
+    }
+
     /// The effective active `(provider, model, endpoint)`.
     ///
     /// Prefers `active_provider` + its matching `ProviderConfig`; otherwise falls
