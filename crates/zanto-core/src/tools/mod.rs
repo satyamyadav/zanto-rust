@@ -42,4 +42,9 @@ impl ToolService {
     pub fn is_readonly(name: &str) -> bool {
         fs::is_readonly(name) || shell::is_readonly(name)
     }
+
+    /// Whether `name` is a built-in base tool (fs or shell).
+    pub fn owns(name: &str) -> bool {
+        fs::owns(name) || shell::owns(name)
+    }
 }

@@ -76,15 +76,13 @@ pub struct ChatConfig {
     pub skill: Option<String>,
     /// Extra tool schemas (the active app's agent tools).
     pub extra_tools: Vec<GenaiTool>,
-    /// App tool dispatcher (app mode). When set with `include_base_tools = false`,
-    /// all tool calls route here.
+    /// Dispatcher for non-base tools (shared artifact tools + the app's domain
+    /// tools). Base fs/shell tools are always available and handled separately.
     pub app_dispatch: Option<Arc<dyn AppDispatcher>>,
-    /// Include the built-in fs/shell tools (general mode). App mode sets this false.
-    pub include_base_tools: bool,
 }
 
 impl ChatConfig {
-    /// General-mode config (CLI): base fs/shell tools, no app skill/tools.
+    /// General-mode config (CLI): base fs/shell tools, no app skill/extra tools.
     pub fn new(model: String, endpoint: String, permissions: Arc<PermissionGuard>) -> Self {
         Self {
             model,
@@ -93,7 +91,6 @@ impl ChatConfig {
             skill: None,
             extra_tools: Vec::new(),
             app_dispatch: None,
-            include_base_tools: true,
         }
     }
 }
@@ -143,12 +140,9 @@ pub async fn chat(
     };
     let system_prompt = ChatMessage::system(system_text);
 
-    // Tool schemas offered to the model: base (general mode) + the active app's tools.
-    let mut request_tools = if config.include_base_tools {
-        ToolService::all_tools()
-    } else {
-        Vec::new()
-    };
+    // Tool schemas offered to the model: shared base fs/shell tools (always) plus
+    // the desktop's extra tools (shared artifact tools + the app's domain tools).
+    let mut request_tools = ToolService::all_tools();
     request_tools.extend(config.extra_tools.clone());
 
     let mut blocks: Vec<ChatBlock> = Vec::new();
@@ -191,8 +185,10 @@ pub async fn chat(
     }
 }
 
-/// Route tool calls to the base tool service (general mode) or the app dispatcher
-/// (app mode). General and app modes are mutually exclusive for a given turn.
+/// Execute a turn's tool calls. Base fs/shell tools go to `ToolService` (read-only
+/// calls batched concurrently, mutating calls serialized); everything else
+/// (shared artifact tools + the app's domain tools) goes to `app_dispatch`, which
+/// may return a component block.
 async fn route_tool_calls(
     config: &ChatConfig,
     tools: &ToolService,
@@ -201,21 +197,42 @@ async fn route_tool_calls(
     calls: &[ToolCall],
     blocks: &mut Vec<ChatBlock>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if config.include_base_tools {
-        execute_tool_calls(tools, store, session, calls).await
-    } else if let Some(disp) = &config.app_dispatch {
-        execute_app_tool_calls(disp.as_ref(), store, session, calls, blocks).await
-    } else {
-        for call in calls {
-            push_msg(
-                store,
-                session,
-                ChatMessage::from(ToolResponse::new(call.call_id.clone(), "error: no tools available".to_string())),
-            )
-            .await?;
+    let mut read_batch: Vec<&ToolCall> = Vec::new();
+
+    for call in calls {
+        if ToolService::owns(&call.fn_name) {
+            if ToolService::is_readonly(&call.fn_name) {
+                read_batch.push(call);
+                continue;
+            }
+            // Mutating base tool: drain pending reads first, then run it.
+            flush_parallel(tools, store, session, &read_batch).await?;
+            read_batch.clear();
+            println!("[TOOL CALL mutating] {} ({:?})", call.fn_name, call.fn_arguments);
+            let output = tools.dispatch(&call.fn_name, call.fn_arguments.clone()).await?;
+            println!("[TOOL OUTPUT] {}", &output[..output.len().min(120)]);
+            push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
+        } else {
+            // Non-base tool (artifact / domain): drain reads, then dispatch to the app.
+            flush_parallel(tools, store, session, &read_batch).await?;
+            read_batch.clear();
+            let resp_text = match &config.app_dispatch {
+                Some(disp) => match disp.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
+                    Some(Ok(AppResult::Data(v))) => v.to_string(),
+                    Some(Ok(AppResult::Block { component_id, data, target })) => {
+                        blocks.push(ChatBlock::Component { component_id, data: data.clone(), target });
+                        data.to_string()
+                    }
+                    Some(Err(e)) => format!("error: {e}"),
+                    None => format!("error: unknown tool {}", call.fn_name),
+                },
+                None => format!("error: unknown tool {}", call.fn_name),
+            };
+            push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), resp_text))).await?;
         }
-        Ok(())
     }
+
+    flush_parallel(tools, store, session, &read_batch).await
 }
 
 /// Append a message to the session and persist it.
@@ -228,63 +245,6 @@ async fn push_msg(
     session.messages.push(msg);
     store.append_message(&session.id, pos, &session.messages[pos])?;
     Ok(())
-}
-
-// ---- App-mode execution (sequential; collects component blocks) ----
-
-async fn execute_app_tool_calls(
-    dispatch: &dyn AppDispatcher,
-    store: &Store,
-    session: &mut Session,
-    tool_calls: &[ToolCall],
-    blocks: &mut Vec<ChatBlock>,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    for call in tool_calls {
-        let resp_text = match dispatch.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
-            Some(Ok(AppResult::Data(v))) => v.to_string(),
-            Some(Ok(AppResult::Block { component_id, data, target })) => {
-                blocks.push(ChatBlock::Component { component_id, data: data.clone(), target });
-                // Feed the data back so the model can summarize/continue.
-                data.to_string()
-            }
-            Some(Err(e)) => format!("error: {e}"),
-            None => format!("error: unknown tool {}", call.fn_name),
-        };
-        push_msg(
-            store,
-            session,
-            ChatMessage::from(ToolResponse::new(call.call_id.clone(), resp_text)),
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-// ---- General-mode execution (read batch concurrent, writes sequential) ----
-
-async fn execute_tool_calls(
-    tools: &ToolService,
-    store: &Store,
-    session: &mut Session,
-    tool_calls: &[ToolCall],
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut read_batch: Vec<&ToolCall> = Vec::new();
-
-    for call in tool_calls {
-        if ToolService::is_readonly(&call.fn_name) {
-            read_batch.push(call);
-        } else {
-            flush_parallel(tools, store, session, &read_batch).await?;
-            read_batch.clear();
-
-            println!("[TOOL CALL mutating] {} ({:?})", call.fn_name, call.fn_arguments);
-            let output = tools.dispatch(&call.fn_name, call.fn_arguments.clone()).await?;
-            println!("[TOOL OUTPUT] {}", &output[..output.len().min(120)]);
-            push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
-        }
-    }
-
-    flush_parallel(tools, store, session, &read_batch).await
 }
 
 async fn flush_parallel(
