@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import * as Dialog from "$lib/components/ui/dialog";
+  import { Button } from "$lib/components/ui/button";
   import { ipc, type ApprovalRequest } from "./ipc";
 
   let pending = $state<ApprovalRequest | null>(null);
@@ -11,37 +13,36 @@
     };
   });
 
-  async function respond(resp: "once" | "session" | "forever" | "deny") {
+  async function respond(r: "once" | "session" | "forever" | "deny") {
     const req = pending;
     if (!req) return;
     pending = null;
-    await ipc.approve(req.id, resp);
+    await ipc.approve(req.id, r);
   }
 </script>
 
-{#if pending}
-  <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl p-5 w-[28rem] space-y-3">
-      <div class="font-medium">Permission required</div>
+<Dialog.Root
+  open={pending !== null}
+  onOpenChange={(o) => {
+    if (!o && pending) respond("deny");
+  }}
+>
+  <Dialog.Content class="max-w-md">
+    <Dialog.Header>
+      <Dialog.Title>Permission required</Dialog.Title>
+    </Dialog.Header>
+    {#if pending}
       <div class="text-sm">
-        <span class="uppercase text-gray-500">{pending.op}</span>
+        <span class="uppercase text-muted-foreground">{pending.op}</span>
         <span class="font-mono">"{pending.path}"</span>
       </div>
-      <div class="text-xs text-gray-500 font-mono break-all">{pending.resolved}</div>
-      <div class="flex gap-2 pt-2">
-        <button class="px-3 py-1 rounded bg-blue-600 text-white text-sm" onclick={() => respond("once")}>
-          Allow once
-        </button>
-        <button class="px-3 py-1 rounded bg-gray-200 text-sm" onclick={() => respond("session")}>
-          Session
-        </button>
-        <button class="px-3 py-1 rounded bg-gray-200 text-sm" onclick={() => respond("forever")}>
-          Forever
-        </button>
-        <button class="px-3 py-1 rounded bg-red-100 text-red-700 text-sm ml-auto" onclick={() => respond("deny")}>
-          Deny
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
+      <div class="text-xs text-muted-foreground font-mono break-all">{pending.resolved}</div>
+      <Dialog.Footer class="gap-2 sm:justify-start">
+        <Button size="sm" onclick={() => respond("once")}>Allow once</Button>
+        <Button size="sm" variant="secondary" onclick={() => respond("session")}>Session</Button>
+        <Button size="sm" variant="secondary" onclick={() => respond("forever")}>Forever</Button>
+        <Button size="sm" variant="destructive" class="sm:ml-auto" onclick={() => respond("deny")}>Deny</Button>
+      </Dialog.Footer>
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>
