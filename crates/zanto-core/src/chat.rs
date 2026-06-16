@@ -106,7 +106,7 @@ pub async fn chat(
     session: &mut Session,
     question: &str,
     policy: &ContextPolicy,
-) -> Result<ChatTurn, Box<dyn std::error::Error>> {
+) -> Result<ChatTurn, Box<dyn std::error::Error + Send + Sync>> {
     let tools = ToolService::new(Arc::clone(&config.permissions));
 
     // Ensure the session row exists before appending messages
@@ -199,7 +199,7 @@ async fn route_tool_calls(
     session: &mut Session,
     calls: &[ToolCall],
     blocks: &mut Vec<ChatBlock>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if config.include_base_tools {
         execute_tool_calls(tools, store, session, calls).await
     } else if let Some(disp) = &config.app_dispatch {
@@ -222,7 +222,7 @@ async fn push_msg(
     store: &Store,
     session: &mut Session,
     msg: ChatMessage,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let pos = session.messages.len();
     session.messages.push(msg);
     store.append_message(&session.id, pos, &session.messages[pos])?;
@@ -237,7 +237,7 @@ async fn execute_app_tool_calls(
     session: &mut Session,
     tool_calls: &[ToolCall],
     blocks: &mut Vec<ChatBlock>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     for call in tool_calls {
         let resp_text = match dispatch.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
             Some(Ok(AppResult::Data(v))) => v.to_string(),
@@ -266,7 +266,7 @@ async fn execute_tool_calls(
     store: &Store,
     session: &mut Session,
     tool_calls: &[ToolCall],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut read_batch: Vec<&ToolCall> = Vec::new();
 
     for call in tool_calls {
@@ -291,7 +291,7 @@ async fn flush_parallel(
     store: &Store,
     session: &mut Session,
     batch: &[&ToolCall],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if batch.is_empty() {
         return Ok(());
     }

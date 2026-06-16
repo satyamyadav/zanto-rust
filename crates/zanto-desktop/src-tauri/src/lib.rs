@@ -1,18 +1,79 @@
 mod app;
 mod approver;
 mod apps;
+mod ipc;
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tauri::Manager;
+use zanto_core::config::Settings;
+use zanto_core::data::DataStore;
+use zanto_core::permissions::PermissionGuard;
+use zanto_core::session::{ContextPolicy, Session, Store};
+use crate::app::AppRegistry;
+use crate::approver::{PendingApprovals, TauriApprover};
+use crate::ipc::DesktopState;
+
+// Fixed workspace for the first slice. Directory picker / multi-workspace is future.
+const WORKSPACE: &str = "default";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .setup(|app| {
+            let settings = Settings::load();
+
+            let model = settings.model.clone().unwrap_or_else(|| "qwen2.5:14b".to_string());
+            let endpoint: &'static str = Box::leak(
+                settings
+                    .endpoint
+                    .clone()
+                    .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string())
+                    .into_boxed_str(),
+            );
+            let policy = match settings.max_context_turns {
+                Some(n) => ContextPolicy::LastNTurns { max_turns: n },
+                None => ContextPolicy::default(),
+            };
+
+            // HITL approval bridged to the UI. Pending map is shared with the
+            // `approve` command (managed separately so the command can reach it).
+            let pending: Arc<PendingApprovals> = Arc::new(Mutex::new(HashMap::new()));
+            let approver = TauriApprover::new(app.handle().clone(), Arc::clone(&pending));
+            let permissions = Arc::new(PermissionGuard::new(&settings, approver));
+
+            let store = Store::open().expect("open sessions DB");
+            let data = Arc::new(DataStore::open(WORKSPACE).expect("open data engine"));
+            let registry = AppRegistry::new(vec![apps::finance::FinanceApp::new()]);
+            let session = tokio::sync::Mutex::new(Session::new("", WORKSPACE));
+
+            app.manage(Arc::clone(&pending));
+            app.manage(DesktopState {
+                store,
+                data,
+                permissions,
+                registry,
+                session,
+                policy,
+                model,
+                endpoint,
+                workspace: WORKSPACE.to_string(),
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            ipc::send_message,
+            ipc::list_apps,
+            ipc::mount_app,
+            ipc::unmount_app,
+            ipc::query_app,
+            ipc::run_app_action,
+            ipc::list_sessions,
+            ipc::load_session,
+            ipc::new_session,
+            approver::approve,
+        ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running zanto desktop");
 }

@@ -58,7 +58,7 @@ pub(super) async fn dispatch(
     svc: &ShellTools,
     name: &str,
     args: serde_json::Value,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     macro_rules! try_invoke {
         ($T:ty) => {
             if name == <$T>::name() {

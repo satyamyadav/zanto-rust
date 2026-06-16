@@ -28,7 +28,7 @@ impl ToolService {
         &self,
         name: &str,
         args: serde_json::Value,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         if let Ok(result) = fs::dispatch(&self.fs, name, args.clone()).await {
             return Ok(result);
         }
