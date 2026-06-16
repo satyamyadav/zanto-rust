@@ -84,5 +84,8 @@ and the frontend decides how to ask the user. Today the only implementor is
   it for current-state detail.
 - `known_issues.md` — open bugs with priorities.
 - `docs/stories/` — proof artifacts (real runs).
+- `docs/design/` — agreed near-term designs not yet built (e.g. micro-app
+  architecture). The framework upcoming specs decompose from.
+- `docs/specs/` — dated implementation specs.
 - `docs/vision/` — FUTURE direction only (e.g. the GenUI-D web frontend). Not
   current state; kept separate on purpose.
