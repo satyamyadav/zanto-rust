@@ -18,6 +18,14 @@ pub struct ComponentDecl {
     pub schema: Value,
 }
 
+/// A suggested action shown at chat-start (the static NBA flow). Clicking sends
+/// `prompt` as a message.
+#[derive(Debug, Clone, Serialize)]
+pub struct StartAction {
+    pub label: String,
+    pub prompt: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AppManifest {
     pub id: String,
@@ -25,6 +33,7 @@ pub struct AppManifest {
     pub description: String,
     pub stores: Vec<String>,
     pub components: Vec<ComponentDecl>,
+    pub start_actions: Vec<StartAction>,
 }
 
 /// A micro-app's backend. Agentic path: `agent_tools` + `dispatch_tool`. Manual

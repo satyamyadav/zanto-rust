@@ -5,6 +5,7 @@ import Metric from "./blocks/Metric.svelte";
 import List from "./blocks/List.svelte";
 import KeyValue from "./blocks/KeyValue.svelte";
 import Json from "./blocks/Json.svelte";
+import Nba from "./blocks/Nba.svelte";
 // App-specific
 import TransactionsTable from "./apps/finance/transactions_table.svelte";
 import MonthlySummary from "./apps/finance/monthly_summary.svelte";
@@ -19,6 +20,7 @@ export const componentRegistry: Record<string, Component<{ data: any }>> = {
   list: List,
   kv: KeyValue,
   json: Json,
+  nba: Nba,
   // app-specific (finance)
   transactions_table: TransactionsTable,
   monthly_summary: MonthlySummary,

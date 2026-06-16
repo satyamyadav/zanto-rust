@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use zanto_core::chat::{AppResult, GenaiTool, Target};
 use zanto_core::data::{DataStore, Filter, FilterOp, Query};
 use zanto_core::session::{format_ts_display, unix_now_pub};
-use crate::app::{App, AppManifest, ComponentDecl};
+use crate::app::{App, AppManifest, ComponentDecl, StartAction};
 
 const STORE: &str = "transactions";
 
@@ -42,6 +42,11 @@ impl FinanceApp {
                         }
                     }),
                 },
+            ],
+            start_actions: vec![
+                StartAction { label: "Add a transaction".into(), prompt: "Add a transaction".into() },
+                StartAction { label: "This month's summary".into(), prompt: "Show me this month's spending summary".into() },
+                StartAction { label: "Recent transactions".into(), prompt: "Show my recent transactions".into() },
             ],
         };
         Arc::new(FinanceApp { manifest })

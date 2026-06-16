@@ -2,6 +2,7 @@
 // thread (blocks), and the right-panel canvas block.
 import { toast } from "svelte-sonner";
 import { ipc, type ChatBlock, type SessionMeta } from "$lib/ipc";
+import { activeApp } from "$lib/stores/app.svelte";
 
 export type ChatEntry = { role: "user" | "assistant"; block: ChatBlock };
 
@@ -21,8 +22,23 @@ export async function loadSessions() {
 export async function newSession() {
   try {
     sessionStore.activeSessionId = await ipc.newSession();
-    sessionStore.convo = [];
     sessionStore.canvas = null;
+    // Seed the chat-start NBA from the active app's suggested actions.
+    const app = activeApp();
+    sessionStore.convo =
+      app && app.start_actions.length > 0
+        ? [
+            {
+              role: "assistant",
+              block: {
+                kind: "component",
+                component_id: "nba",
+                data: { title: `${app.name} — quick actions`, actions: app.start_actions },
+                target: "inline",
+              },
+            },
+          ]
+        : [];
     await loadSessions();
   } catch (e) {
     toast.error(`${e}`);

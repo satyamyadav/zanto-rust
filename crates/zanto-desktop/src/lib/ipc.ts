@@ -10,12 +10,14 @@ export type ChatBlock =
 export type ChatTurn = { blocks: ChatBlock[] };
 
 export type ComponentDecl = { id: string; schema: any };
+export type StartAction = { label: string; prompt: string };
 export type AppManifest = {
   id: string;
   name: string;
   description: string;
   stores: string[];
   components: ComponentDecl[];
+  start_actions: StartAction[];
 };
 
 export type ApprovalRequest = { id: string; path: string; op: string; resolved: string };

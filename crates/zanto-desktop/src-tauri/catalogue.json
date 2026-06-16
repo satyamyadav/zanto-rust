@@ -67,6 +67,30 @@
     "data_schema": { "type": "object" }
   },
   {
+    "id": "nba",
+    "description": "Next best actions — suggested actions as clickable buttons; each sends its prompt as a new message.",
+    "when_to_use": "Offer the user concrete follow-up actions to take next.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "prompt": { "type": "string" },
+              "icon": { "type": "string" }
+            },
+            "required": ["label", "prompt"]
+          }
+        }
+      },
+      "required": ["actions"]
+    }
+  },
+  {
     "id": "transactions_table",
     "description": "Finance transactions table.",
     "when_to_use": "Showing the user's transactions.",

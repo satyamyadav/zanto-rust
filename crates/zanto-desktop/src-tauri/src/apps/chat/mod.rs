@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use zanto_core::chat::{AppResult, GenaiTool};
 use zanto_core::data::DataStore;
-use crate::app::{App, AppManifest};
+use crate::app::{App, AppManifest, StartAction};
 
 pub struct ChatApp {
     manifest: AppManifest,
@@ -21,6 +21,10 @@ impl ChatApp {
                 description: "General assistant with filesystem and shell access.".to_string(),
                 stores: Vec::new(),
                 components: Vec::new(),
+                start_actions: vec![
+                    StartAction { label: "What can you do?".into(), prompt: "What can you help me with?".into() },
+                    StartAction { label: "Summarize a file".into(), prompt: "Read a file I name and summarize it.".into() },
+                ],
             },
         })
     }
