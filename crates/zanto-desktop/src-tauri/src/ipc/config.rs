@@ -1,40 +1,118 @@
 //! Configuration IPC commands.
 
 use tauri::State;
-use zanto_core::config::Settings;
-use super::{ConfigDto, ConfigPatch, DesktopState};
+use zanto_core::config::{self, Provider, ProviderConfig, Settings};
+use super::{ConfigDto, ConfigPatch, DesktopState, ProviderDto};
+
+/// Default provider list when none are configured.
+fn default_providers() -> Vec<ProviderConfig> {
+    vec![
+        ProviderConfig { provider: Provider::Anthropic, model: "claude-opus-4-5".to_string(), endpoint: None },
+        ProviderConfig { provider: Provider::OpenAI,    model: "gpt-4o".to_string(),           endpoint: None },
+        ProviderConfig { provider: Provider::Gemini,    model: "gemini-2.0-flash".to_string(), endpoint: None },
+        ProviderConfig { provider: Provider::Ollama,    model: "qwen2.5:14b".to_string(),      endpoint: Some("http://localhost:11434/".to_string()) },
+    ]
+}
+
+/// Map a provider name string to the enum; returns `Err` for unknown names.
+///
+/// NOTE: keep this in sync with `Provider::as_str()` in zanto-core. The match
+/// is intentionally exhaustive over the known variants so a CI search for
+/// `parse_provider` flags this function when the enum grows.
+fn parse_provider(s: &str) -> Result<Provider, String> {
+    // Match every arm explicitly — no wildcard — so a new Provider variant in
+    // zanto-core surfaces here at review time even if the Rust compiler doesn't
+    // force it (string match can't be exhaustiveness-checked).
+    if s == Provider::Anthropic.as_str() { return Ok(Provider::Anthropic); }
+    if s == Provider::OpenAI.as_str()    { return Ok(Provider::OpenAI); }
+    if s == Provider::Gemini.as_str()    { return Ok(Provider::Gemini); }
+    if s == Provider::Ollama.as_str()    { return Ok(Provider::Ollama); }
+    Err(format!("unknown provider: {s}"))
+}
 
 #[tauri::command]
 pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
     let settings = Settings::load();
+
+    let providers_cfg = if settings.providers.is_empty() {
+        default_providers()
+    } else {
+        settings.providers.clone()
+    };
+
+    let providers: Vec<ProviderDto> = providers_cfg
+        .into_iter()
+        .map(|pc| {
+            let has_key = config::has_api_key(pc.provider);
+            ProviderDto {
+                provider: pc.provider.as_str().to_string(),
+                model: pc.model,
+                endpoint: pc.endpoint,
+                has_key,
+            }
+        })
+        .collect();
+
+    let active_provider = settings.active_provider.map(|p| p.as_str().to_string());
+
     ConfigDto {
         model: state.model.lock().unwrap().clone(),
         endpoint: state.endpoint.lock().unwrap().clone(),
         allowed_paths: settings.allowed_paths,
         max_context_turns: settings.max_context_turns,
+        providers,
+        active_provider,
     }
 }
 
 #[tauri::command]
 pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<(), String> {
-    // Apply live to running state.
-    if let Some(m) = &patch.model {
-        *state.model.lock().unwrap() = m.clone();
-    }
-    if let Some(e) = &patch.endpoint {
-        *state.endpoint.lock().unwrap() = e.clone();
-    }
-    // Persist to .zanto/settings.json.
     let mut settings = Settings::load();
-    if let Some(m) = patch.model {
-        settings.model = Some(m);
+
+    // Apply provider list patch.
+    if let Some(provider_patches) = patch.providers {
+        let mut new_providers: Vec<ProviderConfig> = Vec::new();
+        for pp in provider_patches {
+            let p = parse_provider(&pp.provider)?;
+            new_providers.push(ProviderConfig { provider: p, model: pp.model, endpoint: pp.endpoint });
+        }
+        settings.providers = new_providers;
     }
-    if let Some(e) = patch.endpoint {
-        settings.endpoint = Some(e);
+
+    // Apply active provider patch.
+    if let Some(ap_str) = &patch.active_provider {
+        let p = parse_provider(ap_str)?;
+        settings.active_provider = Some(p);
     }
+
+    // Sync legacy model/endpoint from the active() resolution so the running
+    // state reflects the provider choice.
+    let (_, active_model, active_endpoint) = settings.active();
+
+    // Explicit patch.model/endpoint always win; otherwise use the resolved
+    // active-provider values (which may be None for endpoint — leave None as
+    // None rather than collapsing to "" to avoid persisting an empty base URL).
+    let effective_model = patch.model.clone().unwrap_or(active_model);
+    let effective_endpoint = patch.endpoint.clone().or(active_endpoint);
+
+    *state.model.lock().unwrap() = effective_model.clone();
+    *state.endpoint.lock().unwrap() = effective_endpoint.clone().unwrap_or_default();
+
+    // Keep legacy fields in sync only when there is a real value to write.
+    // Never write settings.model = Some("") or settings.endpoint = Some("").
+    if !effective_model.is_empty() {
+        settings.model = Some(effective_model);
+    }
+    if let Some(ep) = effective_endpoint {
+        if !ep.is_empty() {
+            settings.endpoint = Some(ep);
+        }
+    }
+
     if let Some(t) = patch.max_context_turns {
         settings.max_context_turns = Some(t);
     }
+
     settings.save().map_err(|e| e.to_string())
 }
 
@@ -50,4 +128,18 @@ pub fn add_allowed_path(state: State<'_, DesktopState>, path: String) -> Result<
     state.permissions.add_allowed(&path);
     Settings::persist_allowed_path(&path);
     Ok(())
+}
+
+/// Store an API key for a provider in the OS keychain.
+#[tauri::command]
+pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
+    let p = parse_provider(&provider)?;
+    config::set_api_key(p, &key)
+}
+
+/// Remove an API key for a provider from the OS keychain.
+#[tauri::command]
+pub fn clear_api_key(provider: String) -> Result<(), String> {
+    let p = parse_provider(&provider)?;
+    config::clear_api_key(p)
 }

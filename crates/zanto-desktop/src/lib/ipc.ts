@@ -49,14 +49,32 @@ export type SessionMeta = {
   message_count: number;
 };
 
+export type ProviderDto = {
+  provider: string;
+  model: string;
+  endpoint: string | null;
+  has_key: boolean;
+};
+
+export type ProviderPatch = {
+  provider: string;
+  model: string;
+  endpoint: string | null;
+};
+
 export type Config = {
   model: string;
   endpoint: string;
   allowed_paths: string[];
   max_context_turns: number | null;
+  providers: ProviderDto[];
+  active_provider: string | null;
 };
 
-export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_context_turns">>;
+export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_context_turns">> & {
+  providers?: ProviderPatch[];
+  active_provider?: string;
+};
 
 export type RenderMsg = { role: "user" | "assistant"; text: string };
 
@@ -93,6 +111,8 @@ export const ipc = {
   setConfig: (patch: ConfigPatch) => invoke<void>("set_config", { patch }),
   pickFolder: () => invoke<string | null>("pick_folder"),
   addAllowedPath: (path: string) => invoke<void>("add_allowed_path", { path }),
+  setApiKey: (provider: string, key: string) => invoke<void>("set_api_key", { provider, key }),
+  clearApiKey: (provider: string) => invoke<void>("clear_api_key", { provider }),
 
   // HITL interaction channel (approvals + agent forms)
   respond: (requestId: string, value: unknown) => invoke<void>("respond", { requestId, value }),

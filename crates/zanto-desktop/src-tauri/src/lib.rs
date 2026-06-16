@@ -25,10 +25,18 @@ pub fn run() {
         .setup(|app| {
             let settings = Settings::load();
 
-            let model = settings.model.clone().unwrap_or_else(|| "qwen2.5:14b".to_string());
-            let endpoint = settings
-                .endpoint
-                .clone()
+            // Resolve the active provider's model/endpoint so the running state
+            // matches what get_config will report as active_provider.
+            let (_, active_model, active_endpoint) = settings.active();
+            let model = if active_model.is_empty() {
+                settings.model.clone().unwrap_or_else(|| "qwen2.5:14b".to_string())
+            } else {
+                active_model
+            };
+            let endpoint = active_endpoint
+                .filter(|e| !e.is_empty())
+                .or_else(|| settings.endpoint.clone())
+                .filter(|e| !e.is_empty())
                 .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string());
             let policy = match settings.max_context_turns {
                 Some(n) => ContextPolicy::LastNTurns { max_turns: n },
@@ -81,6 +89,8 @@ pub fn run() {
             ipc::config::set_config,
             ipc::config::pick_folder,
             ipc::config::add_allowed_path,
+            ipc::config::set_api_key,
+            ipc::config::clear_api_key,
             ipc::files::browse_dir,
             interaction::respond,
         ])

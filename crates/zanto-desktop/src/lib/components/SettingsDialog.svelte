@@ -6,25 +6,75 @@
   import { mode, setMode } from "mode-watcher";
   import { density, setDensity, type Density } from "$lib/stores/theme.svelte";
   import { appStore, refreshConfig } from "$lib/stores/app.svelte";
-  import { ipc } from "$lib/ipc";
+  import { ipc, type ProviderPatch } from "$lib/ipc";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
-  let model = $state("");
-  let endpoint = $state("");
+  let activeProvider = $state("");
+  let providers = $state<ProviderPatch[]>([]);
+  let keyInput = $state("");
 
   $effect(() => {
     if (open && appStore.config) {
-      model = appStore.config.model;
-      endpoint = appStore.config.endpoint;
+      // Fall back to the first provider in the list so the UI is never blank.
+      activeProvider = appStore.config.active_provider ?? appStore.config.providers[0]?.provider ?? "";
+      providers = appStore.config.providers.map((p) => ({
+        provider: p.provider,
+        model: p.model,
+        endpoint: p.endpoint,
+      }));
+      keyInput = "";
     }
   });
 
-  async function saveModel() {
+  function activeProviderDto() {
+    return appStore.config?.providers.find((p) => p.provider === activeProvider) ?? null;
+  }
+
+  function activeProviderPatch(): ProviderPatch | undefined {
+    return providers.find((p) => p.provider === activeProvider);
+  }
+
+  function setActiveModel(val: string) {
+    providers = providers.map((p) =>
+      p.provider === activeProvider ? { ...p, model: val } : p
+    );
+  }
+
+  function setActiveEndpoint(val: string) {
+    providers = providers.map((p) =>
+      p.provider === activeProvider ? { ...p, endpoint: val || null } : p
+    );
+  }
+
+  async function saveProviders() {
     try {
-      await ipc.setConfig({ model, endpoint });
+      await ipc.setConfig({ providers, active_provider: activeProvider || undefined });
       await refreshConfig();
       toast.success("Settings saved");
+    } catch (e) {
+      toast.error(`${e}`);
+    }
+  }
+
+  async function saveKey() {
+    if (!keyInput.trim() || !activeProvider) return;
+    try {
+      await ipc.setApiKey(activeProvider, keyInput.trim());
+      keyInput = "";
+      await refreshConfig();
+      toast.success("API key saved");
+    } catch (e) {
+      toast.error(`${e}`);
+    }
+  }
+
+  async function clearKey() {
+    if (!activeProvider) return;
+    try {
+      await ipc.clearApiKey(activeProvider);
+      await refreshConfig();
+      toast.success("API key cleared");
     } catch (e) {
       toast.error(`${e}`);
     }
@@ -43,6 +93,12 @@
   }
 
   const densities: Density[] = ["compact", "normal", "relaxed"];
+  const providerLabels: Record<string, string> = {
+    anthropic: "Anthropic",
+    openai: "OpenAI",
+    gemini: "Gemini",
+    ollama: "Ollama",
+  };
 </script>
 
 <Dialog.Root bind:open>
@@ -52,20 +108,76 @@
     </Dialog.Header>
 
     <div class="space-y-6 py-1">
+
+      <!-- Provider & model -->
       <section class="space-y-2">
-        <h3 class="text-sm font-medium">Model</h3>
+        <h3 class="text-sm font-medium">Provider &amp; model</h3>
+
         <div class="space-y-1">
-          <label class="text-xs text-muted-foreground" for="cfg-model">Model</label>
-          <Input id="cfg-model" bind:value={model} placeholder="gemini-flash-latest" />
+          <label class="text-xs text-muted-foreground" for="cfg-provider">Active provider</label>
+          <select
+            id="cfg-provider"
+            class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            bind:value={activeProvider}
+          >
+            {#each (appStore.config?.providers ?? []) as p}
+              <option value={p.provider}>{providerLabels[p.provider] ?? p.provider}</option>
+            {/each}
+          </select>
         </div>
-        <div class="space-y-1">
-          <label class="text-xs text-muted-foreground" for="cfg-endpoint">Endpoint</label>
-          <Input id="cfg-endpoint" bind:value={endpoint} placeholder="http://localhost:11434/" />
-        </div>
-        <p class="text-[11px] text-muted-foreground">API keys are read from the environment (e.g. GEMINI_API_KEY).</p>
-        <Button size="sm" onclick={saveModel}>Save</Button>
+
+        {#if activeProvider}
+          <div class="space-y-1">
+            <label class="text-xs text-muted-foreground" for="cfg-prov-model">Model</label>
+            <Input
+              id="cfg-prov-model"
+              value={activeProviderPatch()?.model ?? ""}
+              oninput={(e) => setActiveModel((e.target as HTMLInputElement).value)}
+              placeholder="model name"
+            />
+          </div>
+
+          {#if activeProvider === "ollama"}
+            <div class="space-y-1">
+              <label class="text-xs text-muted-foreground" for="cfg-prov-endpoint">Endpoint</label>
+              <Input
+                id="cfg-prov-endpoint"
+                value={activeProviderPatch()?.endpoint ?? ""}
+                oninput={(e) => setActiveEndpoint((e.target as HTMLInputElement).value)}
+                placeholder="http://localhost:11434/"
+              />
+            </div>
+          {/if}
+
+          {#if activeProvider !== "ollama"}
+            <div class="space-y-1">
+              <label class="text-xs text-muted-foreground" for="cfg-api-key">
+                API key
+                {#if activeProviderDto()?.has_key}
+                  <span class="ml-1 text-green-600 dark:text-green-400">Saved ✓</span>
+                {/if}
+              </label>
+              <div class="flex gap-2">
+                <Input
+                  id="cfg-api-key"
+                  type="password"
+                  bind:value={keyInput}
+                  placeholder={activeProviderDto()?.has_key ? "replace saved key…" : "enter API key…"}
+                  class="flex-1"
+                />
+                <Button size="sm" onclick={saveKey} disabled={!keyInput.trim()}>Save key</Button>
+                {#if activeProviderDto()?.has_key}
+                  <Button size="sm" variant="outline" onclick={clearKey}>Clear</Button>
+                {/if}
+              </div>
+            </div>
+          {/if}
+        {/if}
+
+        <Button size="sm" onclick={saveProviders}>Save</Button>
       </section>
 
+      <!-- Appearance -->
       <section class="space-y-2">
         <h3 class="text-sm font-medium">Appearance</h3>
         <div class="space-y-1">
@@ -91,6 +203,7 @@
         </div>
       </section>
 
+      <!-- Folder access -->
       <section class="space-y-2">
         <h3 class="text-sm font-medium">Folder access</h3>
         <div class="text-xs text-muted-foreground break-all">

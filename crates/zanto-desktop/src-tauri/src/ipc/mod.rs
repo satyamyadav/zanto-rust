@@ -46,11 +46,28 @@ pub struct RenderMsg {
 }
 
 #[derive(Serialize)]
+pub struct ProviderDto {
+    pub provider: String,
+    pub model: String,
+    pub endpoint: Option<String>,
+    pub has_key: bool,
+}
+
+#[derive(Serialize)]
 pub struct ConfigDto {
     pub model: String,
     pub endpoint: String,
     pub allowed_paths: Vec<String>,
     pub max_context_turns: Option<usize>,
+    pub providers: Vec<ProviderDto>,
+    pub active_provider: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ProviderPatch {
+    pub provider: String,
+    pub model: String,
+    pub endpoint: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -58,5 +75,7 @@ pub struct ConfigPatch {
     pub model: Option<String>,
     pub endpoint: Option<String>,
     pub max_context_turns: Option<usize>,
+    pub providers: Option<Vec<ProviderPatch>>,
+    pub active_provider: Option<String>,
 }
 
