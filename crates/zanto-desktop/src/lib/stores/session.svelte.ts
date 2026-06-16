@@ -12,7 +12,43 @@ export const sessionStore = $state({
   convo: [] as ChatEntry[], // chat thread (role-tagged blocks)
   canvas: null as ChatBlock | null, // right-panel view
   busy: false,
+  streaming: false, // assistant tokens currently arriving
 });
+
+// Index of the live assistant text entry currently being streamed (or null when
+// the next text delta should open a fresh bubble).
+let streamIdx: number | null = null;
+
+/** Wire the streaming turn events to the thread. Call once at app startup. */
+export function initStreaming() {
+  ipc.onChatChunk((text) => {
+    if (streamIdx === null) {
+      sessionStore.convo.push({ role: "assistant", block: { kind: "markdown", text: "" } });
+      streamIdx = sessionStore.convo.length - 1;
+    }
+    const e = sessionStore.convo[streamIdx];
+    if (e.block.kind === "markdown") {
+      // Reassign for reactivity.
+      sessionStore.convo[streamIdx] = {
+        ...e,
+        block: { kind: "markdown", text: e.block.text + text },
+      };
+    }
+    sessionStore.streaming = true;
+  });
+
+  ipc.onChatBlock((block) => {
+    // Close the current text bubble; route the block to canvas or thread.
+    streamIdx = null;
+    if (block.kind === "component" && block.target === "canvas") sessionStore.canvas = block;
+    else sessionStore.convo.push({ role: "assistant", block });
+  });
+
+  ipc.onChatDone(() => {
+    streamIdx = null;
+    sessionStore.streaming = false;
+  });
+}
 
 /** Refresh the session list for the active app. */
 export async function loadSessions() {
@@ -78,18 +114,21 @@ export async function deleteSession(id: string) {
   }
 }
 
-/** Send a chat turn; route inline blocks to the thread, canvas blocks to the panel. */
+/**
+ * Send a chat turn. The thread is assembled live from streaming events
+ * (`chat_chunk`/`chat_block`/`chat_done` via {@link initStreaming}); the awaited
+ * return is the authoritative turn but is not re-rendered to avoid duplication.
+ */
 export async function send(text: string): Promise<void> {
   sessionStore.convo.push({ role: "user", block: { kind: "markdown", text } });
   sessionStore.busy = true;
+  streamIdx = null;
   try {
-    const turn = await ipc.sendMessage(text);
-    for (const b of turn.blocks) {
-      if (b.kind === "component" && b.target === "canvas") sessionStore.canvas = b;
-      else sessionStore.convo.push({ role: "assistant", block: b });
-    }
+    await ipc.sendMessage(text);
   } finally {
     sessionStore.busy = false;
+    sessionStore.streaming = false;
+    streamIdx = null;
     await loadSessions(); // titles/timestamps may have changed
   }
 }

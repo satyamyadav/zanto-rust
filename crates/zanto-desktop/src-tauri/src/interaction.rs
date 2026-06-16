@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
+use zanto_core::chat::{ChatBlock, ChatSink};
 use zanto_core::permissions::{ApprovalResponse, Approver};
 
 struct Inner {
@@ -80,4 +81,36 @@ impl Approver for TauriInteractor {
 #[tauri::command]
 pub fn respond(state: tauri::State<'_, crate::ipc::DesktopState>, request_id: String, value: Value) {
     state.interactor.resolve(&request_id, value);
+}
+
+// ---- Streaming sink ----
+
+/// Renders a chat turn to the shell live: `chat_chunk` (text deltas) and
+/// `chat_block` (component blocks) as they arrive, then `chat_done` once the turn
+/// completes. The shell assembles a streaming assistant message from these events.
+#[derive(Clone)]
+pub struct TauriSink {
+    app: AppHandle,
+}
+
+impl TauriSink {
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+
+    /// Signal the end of the turn so the shell can finalize the streaming message.
+    pub fn finish(&self) {
+        let _ = self.app.emit("chat_done", ());
+    }
+}
+
+#[async_trait]
+impl ChatSink for TauriSink {
+    async fn on_text(&self, delta: &str) {
+        let _ = self.app.emit("chat_chunk", json!({ "text": delta }));
+    }
+
+    async fn on_block(&self, block: &ChatBlock) {
+        let _ = self.app.emit("chat_block", json!({ "block": block }));
+    }
 }

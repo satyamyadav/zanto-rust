@@ -6,12 +6,13 @@
   import Canvas from "$lib/components/Canvas.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import { appStore, loadApps, mountApp } from "$lib/stores/app.svelte";
-  import { newSession } from "$lib/stores/session.svelte";
+  import { newSession, initStreaming } from "$lib/stores/session.svelte";
   import { loadCatalogue } from "$lib/stores/artifacts.svelte";
 
   let settingsOpen = $state(false);
 
   onMount(async () => {
+    initStreaming();
     await Promise.all([loadApps(), loadCatalogue()]);
     // Land in general Chat by default; fall back to the first app.
     const start = appStore.apps.find((a) => a.id === "chat") ?? appStore.apps[0];

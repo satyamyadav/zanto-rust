@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::join_all;
+use futures::StreamExt;
 use genai::{Client, ServiceTarget};
-use genai::chat::{ChatMessage, ChatRequest, ToolCall, ToolResponse};
+use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ToolCall, ToolResponse};
 // Re-exported so downstream crates (the desktop app) can build tool schemas
 // without depending on genai directly.
 pub use genai::chat::Tool as GenaiTool;
@@ -66,6 +67,20 @@ pub trait AppDispatcher: Send + Sync {
     async fn dispatch(&self, name: &str, args: Value) -> Option<Result<AppResult, String>>;
 }
 
+// ---- Streaming sink (provided by the frontend to render a turn live) ----
+
+/// Receives a turn's output incrementally so the UI can render as it arrives.
+/// `on_text` carries assistant text deltas; `on_block` carries a finished
+/// component block (e.g. a `render_artifact` result). The final `ChatTurn`
+/// returned by `chat` is still authoritative; sink calls are a live preview.
+#[async_trait]
+pub trait ChatSink: Send + Sync {
+    /// A streamed assistant text delta.
+    async fn on_text(&self, delta: &str);
+    /// A component block produced mid-turn (tool/app output).
+    async fn on_block(&self, block: &ChatBlock);
+}
+
 // ---- Config ----
 
 pub struct ChatConfig {
@@ -79,6 +94,9 @@ pub struct ChatConfig {
     /// Dispatcher for non-base tools (shared artifact tools + the app's domain
     /// tools). Base fs/shell tools are always available and handled separately.
     pub app_dispatch: Option<Arc<dyn AppDispatcher>>,
+    /// Optional streaming sink. When set, the turn's text deltas and blocks are
+    /// emitted live; when `None`, `chat` behaves as a synchronous turn.
+    pub sink: Option<Arc<dyn ChatSink>>,
 }
 
 impl ChatConfig {
@@ -91,6 +109,7 @@ impl ChatConfig {
             skill: None,
             extra_tools: Vec::new(),
             app_dispatch: None,
+            sink: None,
         }
     }
 }
@@ -145,6 +164,12 @@ pub async fn chat(
     let mut request_tools = ToolService::all_tools();
     request_tools.extend(config.extra_tools.clone());
 
+    // Capture the concatenated content and tool calls at stream end; text is also
+    // accumulated per-chunk so the sink can render it live.
+    let stream_options = ChatOptions::default()
+        .with_capture_content(true)
+        .with_capture_tool_calls(true);
+
     let mut blocks: Vec<ChatBlock> = Vec::new();
     let mut turn = 1;
     loop {
@@ -154,11 +179,31 @@ pub async fn chat(
         send_messages.extend(session.effective_messages(policy));
 
         let req = ChatRequest::new(send_messages).with_tools(request_tools.clone());
-        let res = client.exec_chat(&config.model, req, None).await?;
+        let res = client
+            .exec_chat_stream(&config.model, req, Some(&stream_options))
+            .await?;
 
-        if res.tool_calls().is_empty() {
-            let answer = res.first_text().unwrap_or_default().to_string();
+        // Consume the stream: forward text deltas to the sink, accumulate the full
+        // text, and grab the captured tool calls from the terminal event.
+        let mut stream = res.stream;
+        let mut answer = String::new();
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
+        while let Some(event) = stream.next().await {
+            match event? {
+                ChatStreamEvent::Chunk(chunk) => {
+                    if let Some(sink) = &config.sink {
+                        sink.on_text(&chunk.content).await;
+                    }
+                    answer.push_str(&chunk.content);
+                }
+                ChatStreamEvent::End(end) => {
+                    tool_calls = end.captured_into_tool_calls().unwrap_or_default();
+                }
+                _ => {}
+            }
+        }
 
+        if tool_calls.is_empty() {
             // Fallback: some models (e.g. qwen2.5 via Ollama) emit tool calls as raw
             // JSON text instead of structured calls. Detect and execute them.
             let fallback = extract_raw_tool_calls(&answer);
@@ -177,7 +222,6 @@ pub async fn chat(
             return Ok(ChatTurn { blocks });
         }
 
-        let tool_calls = res.into_tool_calls();
         push_msg(store, session, ChatMessage::from(tool_calls.clone())).await?;
         route_tool_calls(&config, &tools, store, session, &tool_calls, &mut blocks).await?;
 
@@ -220,7 +264,11 @@ async fn route_tool_calls(
                 Some(disp) => match disp.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
                     Some(Ok(AppResult::Data(v))) => v.to_string(),
                     Some(Ok(AppResult::Block { component_id, data, target })) => {
-                        blocks.push(ChatBlock::Component { component_id, data: data.clone(), target });
+                        let block = ChatBlock::Component { component_id, data: data.clone(), target };
+                        if let Some(sink) = &config.sink {
+                            sink.on_block(&block).await;
+                        }
+                        blocks.push(block);
                         data.to_string()
                     }
                     Some(Err(e)) => format!("error: {e}"),

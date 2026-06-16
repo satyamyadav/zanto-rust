@@ -95,4 +95,12 @@ export const ipc = {
   respond: (requestId: string, value: unknown) => invoke<void>("respond", { requestId, value }),
   onInteractionRequest: (cb: (r: InteractionRequest) => void): Promise<UnlistenFn> =>
     listen<InteractionRequest>("interaction_request", (e) => cb(e.payload)),
+
+  // Streaming turn events: text deltas, component blocks, then a final `done`.
+  onChatChunk: (cb: (text: string) => void): Promise<UnlistenFn> =>
+    listen<{ text: string }>("chat_chunk", (e) => cb(e.payload.text)),
+  onChatBlock: (cb: (block: ChatBlock) => void): Promise<UnlistenFn> =>
+    listen<{ block: ChatBlock }>("chat_block", (e) => cb(e.payload.block)),
+  onChatDone: (cb: () => void): Promise<UnlistenFn> =>
+    listen<null>("chat_done", () => cb()),
 };

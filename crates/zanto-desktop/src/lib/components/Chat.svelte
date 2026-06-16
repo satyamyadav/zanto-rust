@@ -19,7 +19,7 @@
     {#each sessionStore.convo as entry, i (i)}
       <Message {entry} />
     {/each}
-    {#if sessionStore.busy}
+    {#if sessionStore.busy && !sessionStore.streaming}
       <div class="text-sm text-muted-foreground">…thinking</div>
     {/if}
     {#if sessionStore.convo.length === 0 && !sessionStore.busy}

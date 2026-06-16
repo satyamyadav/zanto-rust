@@ -14,7 +14,7 @@ use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{auto_title, unix_now_pub, ContextPolicy, Session, SessionMeta, Store};
 use crate::app::{AppManifest, AppRegistry};
 use crate::catalogue::{shared_tools, ArtifactDef, Catalogue, SharedDispatcher};
-use crate::interaction::TauriInteractor;
+use crate::interaction::{TauriInteractor, TauriSink};
 
 pub struct DesktopState {
     pub store: Store,
@@ -40,7 +40,11 @@ impl DesktopState {
 // ---- Chat ----
 
 #[tauri::command]
-pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Result<ChatTurn, String> {
+pub async fn send_message(
+    app: tauri::AppHandle,
+    state: State<'_, DesktopState>,
+    text: String,
+) -> Result<ChatTurn, String> {
     let active = state.registry.active();
     let model = state.model.lock().unwrap().clone();
     let endpoint = state.endpoint.lock().unwrap().clone();
@@ -48,7 +52,7 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
     let mut session = state.session.lock().await;
     session.app_id = active.as_ref().map(|a| a.manifest().id.clone());
 
-    let config = match &active {
+    let mut config = match &active {
         Some(app) => {
             // Shared artifact tools + the app's domain tools; base fs/shell come
             // from core. SharedDispatcher routes artifact tools then delegates.
@@ -66,14 +70,19 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
                     Arc::clone(&state.data),
                     state.interactor.clone(),
                 ))),
+                sink: None,
             }
         }
         None => ChatConfig::new(model, endpoint, Arc::clone(&state.permissions)),
     };
 
-    let turn = chat(config, &state.store, &mut session, &text, &state.policy)
-        .await
-        .map_err(|e| e.to_string())?;
+    // Stream the turn to the shell: text deltas + blocks live, `chat_done` at end.
+    let sink = TauriSink::new(app);
+    config.sink = Some(Arc::new(sink.clone()));
+
+    let result = chat(config, &state.store, &mut session, &text, &state.policy).await;
+    sink.finish();
+    let turn = result.map_err(|e| e.to_string())?;
 
     // Auto-title a fresh session from its first user message.
     if session.title.is_empty() {
