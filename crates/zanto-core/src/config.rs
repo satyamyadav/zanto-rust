@@ -3,6 +3,66 @@ use std::path::{Path, PathBuf};
 
 pub const PROJECT_CONFIG: &str = ".zanto/settings.json";
 
+/// Keyring service name under which API keys are stored.
+const KEYRING_SERVICE: &str = "zanto";
+
+/// An LLM provider. Each provider has its own model + auth scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    Ollama,
+    Gemini,
+    Anthropic,
+    OpenAI,
+}
+
+impl Provider {
+    /// Snake-case identifier; used as the keyring username and env-var basis.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Provider::Ollama => "ollama",
+            Provider::Gemini => "gemini",
+            Provider::Anthropic => "anthropic",
+            Provider::OpenAI => "openai",
+        }
+    }
+
+    /// Environment variable consulted as a fallback for this provider's API key.
+    /// `None` for providers that need no key (Ollama).
+    fn env_var(self) -> Option<&'static str> {
+        match self {
+            Provider::Ollama => None,
+            Provider::Gemini => Some("GEMINI_API_KEY"),
+            Provider::Anthropic => Some("ANTHROPIC_API_KEY"),
+            Provider::OpenAI => Some("OPENAI_API_KEY"),
+        }
+    }
+}
+
+/// Infer the provider for a model name from its prefix. Defaults to Ollama.
+pub fn provider_of(model: &str) -> Provider {
+    if model.starts_with("gemini-") {
+        Provider::Gemini
+    } else if model.starts_with("claude-") {
+        Provider::Anthropic
+    } else if model.starts_with("gpt-") || model.starts_with("o1") {
+        Provider::OpenAI
+    } else {
+        Provider::Ollama
+    }
+}
+
+/// A single provider's active model and optional endpoint override.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    pub provider: Provider,
+    /// Active model for this provider.
+    pub model: String,
+    /// Endpoint override (Ollama needs it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Settings {
     #[serde(default)]
@@ -17,6 +77,18 @@ pub struct Settings {
     pub endpoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_context_turns: Option<usize>,
+    /// Per-provider model + endpoint configs.
+    #[serde(default)]
+    pub providers: Vec<ProviderConfig>,
+    /// The selected provider; when set, its `ProviderConfig` is the effective active one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_provider: Option<Provider>,
+    /// Root directory of the active project (canonicalized on load).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_dir: Option<String>,
+    /// Extra context sources (files/dirs) fed to the assistant.
+    #[serde(default)]
+    pub context_sources: Vec<String>,
 }
 
 impl Settings {
@@ -36,6 +108,23 @@ impl Settings {
             if let Ok(content) = serde_json::to_string_pretty(&settings) {
                 let _ = std::fs::write(config_path, content);
             }
+        }
+    }
+
+    /// The effective active `(provider, model, endpoint)`.
+    ///
+    /// Prefers `active_provider` + its matching `ProviderConfig`; otherwise falls
+    /// back to the legacy `model`/`endpoint` fields (inferring the provider from
+    /// the model prefix, defaulting to Ollama).
+    pub fn active(&self) -> (Provider, String, Option<String>) {
+        if let Some(active) = self.active_provider {
+            if let Some(pc) = self.providers.iter().find(|p| p.provider == active) {
+                return (pc.provider, pc.model.clone(), pc.endpoint.clone());
+            }
+        }
+        match &self.model {
+            Some(model) => (provider_of(model), model.clone(), self.endpoint.clone()),
+            None => (Provider::Ollama, String::new(), self.endpoint.clone()),
         }
     }
 
@@ -74,6 +163,12 @@ impl Settings {
                     .into_owned()
             })
             .collect();
+        self.project_dir = self.project_dir.map(|p| {
+            std::fs::canonicalize(&p)
+                .unwrap_or_else(|_| PathBuf::from(&p))
+                .to_string_lossy()
+                .into_owned()
+        });
         self
     }
 
@@ -94,6 +189,172 @@ impl Settings {
         if other.max_context_turns.is_some() {
             self.max_context_turns = other.max_context_turns;
         }
+        self.providers.extend(other.providers);
+        if other.active_provider.is_some() {
+            self.active_provider = other.active_provider;
+        }
+        if other.project_dir.is_some() {
+            self.project_dir = other.project_dir;
+        }
+        self.context_sources.extend(other.context_sources);
         self
+    }
+}
+
+// ---- API keys (OS keychain with env-var fallback) ----
+
+/// The keyring entry for a provider, or an error string if the entry could not
+/// be constructed (e.g. no secret service backend available).
+fn key_entry(p: Provider) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, p.as_str()).map_err(|e| e.to_string())
+}
+
+/// Read the API key for a provider: keychain first, then env-var fallback.
+/// Returns `None` for providers that need no key (Ollama) when none is set.
+pub fn api_key(p: Provider) -> Option<String> {
+    if let Ok(entry) = key_entry(p) {
+        if let Ok(key) = entry.get_password() {
+            if !key.is_empty() {
+                return Some(key);
+            }
+        }
+    }
+    p.env_var()
+        .and_then(|var| std::env::var(var).ok())
+        .filter(|k| !k.is_empty())
+}
+
+/// Store the API key for a provider in the OS keychain. Returns `Err` gracefully
+/// (no panic) when no secret service is available.
+pub fn set_api_key(p: Provider, key: &str) -> Result<(), String> {
+    key_entry(p)?.set_password(key).map_err(|e| e.to_string())
+}
+
+/// Remove the API key for a provider from the OS keychain.
+pub fn clear_api_key(p: Provider) -> Result<(), String> {
+    let entry = key_entry(p)?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        // Deleting a non-existent entry is a no-op success.
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Whether an API key is available for a provider (keychain or env fallback).
+pub fn has_api_key(p: Provider) -> bool {
+    api_key(p).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_serde_round_trip_with_providers() {
+        let settings = Settings {
+            model: Some("llama3".to_string()),
+            providers: vec![
+                ProviderConfig {
+                    provider: Provider::Ollama,
+                    model: "llama3".to_string(),
+                    endpoint: Some("http://localhost:11434".to_string()),
+                },
+                ProviderConfig {
+                    provider: Provider::Gemini,
+                    model: "gemini-2.0-flash".to_string(),
+                    endpoint: None,
+                },
+            ],
+            active_provider: Some(Provider::Gemini),
+            project_dir: Some("/tmp/project".to_string()),
+            context_sources: vec!["notes.md".to_string()],
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(back.providers.len(), 2);
+        assert_eq!(back.active_provider, Some(Provider::Gemini));
+        assert_eq!(back.project_dir.as_deref(), Some("/tmp/project"));
+        assert_eq!(back.context_sources, vec!["notes.md".to_string()]);
+        // snake_case rename for the provider enum.
+        assert!(json.contains("\"gemini\""));
+    }
+
+    #[test]
+    fn active_prefers_active_provider_config() {
+        let settings = Settings {
+            model: Some("llama3".to_string()),
+            endpoint: Some("http://legacy".to_string()),
+            providers: vec![ProviderConfig {
+                provider: Provider::Gemini,
+                model: "gemini-2.0-flash".to_string(),
+                endpoint: None,
+            }],
+            active_provider: Some(Provider::Gemini),
+            ..Default::default()
+        };
+
+        let (provider, model, endpoint) = settings.active();
+        assert_eq!(provider, Provider::Gemini);
+        assert_eq!(model, "gemini-2.0-flash");
+        assert_eq!(endpoint, None);
+    }
+
+    #[test]
+    fn active_falls_back_to_legacy_fields() {
+        let settings = Settings {
+            model: Some("gemini-2.0-flash".to_string()),
+            endpoint: Some("http://legacy".to_string()),
+            ..Default::default()
+        };
+
+        let (provider, model, endpoint) = settings.active();
+        assert_eq!(provider, Provider::Gemini);
+        assert_eq!(model, "gemini-2.0-flash");
+        assert_eq!(endpoint.as_deref(), Some("http://legacy"));
+    }
+
+    #[test]
+    fn active_defaults_to_ollama_without_model() {
+        let settings = Settings::default();
+        let (provider, model, _) = settings.active();
+        assert_eq!(provider, Provider::Ollama);
+        assert!(model.is_empty());
+    }
+
+    #[test]
+    fn provider_of_prefix_map() {
+        assert_eq!(provider_of("gemini-2.0-flash"), Provider::Gemini);
+        assert_eq!(provider_of("claude-opus-4"), Provider::Anthropic);
+        assert_eq!(provider_of("gpt-4o"), Provider::OpenAI);
+        assert_eq!(provider_of("o1-mini"), Provider::OpenAI);
+        assert_eq!(provider_of("llama3"), Provider::Ollama);
+        assert_eq!(provider_of("qwen2.5"), Provider::Ollama);
+    }
+
+    #[test]
+    fn api_key_env_fallback() {
+        // No keychain entry expected in a headless test environment, so the env
+        // var is the only source. Use OpenAI to avoid clobbering other tests.
+        let var = "OPENAI_API_KEY";
+        let prev = std::env::var(var).ok();
+        unsafe { std::env::set_var(var, "sk-test-123") };
+
+        assert_eq!(api_key(Provider::OpenAI).as_deref(), Some("sk-test-123"));
+        assert!(has_api_key(Provider::OpenAI));
+
+        match prev {
+            Some(v) => unsafe { std::env::set_var(var, v) },
+            None => unsafe { std::env::remove_var(var) },
+        }
+    }
+
+    #[test]
+    fn api_key_none_for_ollama() {
+        assert_eq!(api_key(Provider::Ollama), None);
+        assert!(!has_api_key(Provider::Ollama));
     }
 }
