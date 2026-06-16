@@ -60,6 +60,9 @@ export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_conte
 
 export type RenderMsg = { role: "user" | "assistant"; text: string };
 
+export type ToolCallEvent = { id: string; name: string; args: any };
+export type ToolResultEvent = { id: string; output: string; ok: boolean };
+
 export type ArtifactDef = {
   id: string;
   description: string;
@@ -96,9 +99,16 @@ export const ipc = {
   onInteractionRequest: (cb: (r: InteractionRequest) => void): Promise<UnlistenFn> =>
     listen<InteractionRequest>("interaction_request", (e) => cb(e.payload)),
 
-  // Streaming turn events: text deltas, component blocks, then a final `done`.
+  // Streaming turn events: text deltas, reasoning deltas, tool calls/results,
+  // component blocks, then a final `done`.
   onChatChunk: (cb: (text: string) => void): Promise<UnlistenFn> =>
     listen<{ text: string }>("chat_chunk", (e) => cb(e.payload.text)),
+  onChatReasoning: (cb: (text: string) => void): Promise<UnlistenFn> =>
+    listen<{ text: string }>("chat_reasoning", (e) => cb(e.payload.text)),
+  onChatToolCall: (cb: (call: ToolCallEvent) => void): Promise<UnlistenFn> =>
+    listen<ToolCallEvent>("chat_tool_call", (e) => cb(e.payload)),
+  onChatToolResult: (cb: (result: ToolResultEvent) => void): Promise<UnlistenFn> =>
+    listen<ToolResultEvent>("chat_tool_result", (e) => cb(e.payload)),
   onChatBlock: (cb: (block: ChatBlock) => void): Promise<UnlistenFn> =>
     listen<{ block: ChatBlock }>("chat_block", (e) => cb(e.payload.block)),
   onChatDone: (cb: () => void): Promise<UnlistenFn> =>

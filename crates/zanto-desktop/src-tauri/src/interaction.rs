@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::oneshot;
-use zanto_core::chat::{ChatBlock, ChatSink};
+use zanto_core::chat::{ChatBlock, ChatSink, ToolCallView};
 use zanto_core::permissions::{ApprovalResponse, Approver};
 
 struct Inner {
@@ -108,6 +108,23 @@ impl TauriSink {
 impl ChatSink for TauriSink {
     async fn on_text(&self, delta: &str) {
         let _ = self.app.emit("chat_chunk", json!({ "text": delta }));
+    }
+
+    async fn on_reasoning(&self, delta: &str) {
+        let _ = self.app.emit("chat_reasoning", json!({ "text": delta }));
+    }
+
+    async fn on_tool_call(&self, call: &ToolCallView) {
+        let _ = self.app.emit(
+            "chat_tool_call",
+            json!({ "id": call.id, "name": call.name, "args": call.args }),
+        );
+    }
+
+    async fn on_tool_result(&self, id: &str, output: &str, ok: bool) {
+        let _ = self
+            .app
+            .emit("chat_tool_result", json!({ "id": id, "output": output, "ok": ok }));
     }
 
     async fn on_block(&self, block: &ChatBlock) {

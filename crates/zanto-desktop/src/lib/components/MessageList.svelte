@@ -1,0 +1,26 @@
+<script lang="ts">
+  import Message from "./Message.svelte";
+  import { sessionStore } from "$lib/stores/session.svelte";
+
+  let scroller: HTMLDivElement;
+
+  // Pin to bottom as new entries/segments arrive.
+  $effect(() => {
+    sessionStore.convo.length;
+    sessionStore.convo.at(-1)?.segments.length;
+    sessionStore.busy;
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  });
+</script>
+
+<div bind:this={scroller} class="flex-1 overflow-auto p-4 space-y-3">
+  {#each sessionStore.convo as entry, i (i)}
+    <Message {entry} />
+  {/each}
+  {#if sessionStore.busy && !sessionStore.streaming}
+    <div class="text-sm text-muted-foreground">…thinking</div>
+  {/if}
+  {#if sessionStore.convo.length === 0 && !sessionStore.busy}
+    <div class="text-sm text-muted-foreground">Start a conversation.</div>
+  {/if}
+</div>
