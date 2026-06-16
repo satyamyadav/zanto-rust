@@ -1,6 +1,7 @@
 <script lang="ts">
   import Message from "./Message.svelte";
   import Composer from "./Composer.svelte";
+  import HitlForm from "./HitlForm.svelte";
   import { sessionStore } from "$lib/stores/session.svelte";
 
   let scroller: HTMLDivElement;
@@ -25,5 +26,8 @@
       <div class="text-sm text-muted-foreground">Start a conversation.</div>
     {/if}
   </div>
-  <Composer />
+  <div class="relative">
+    <HitlForm />
+    <Composer />
+  </div>
 </div>

@@ -13,7 +13,8 @@ use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{auto_title, unix_now_pub, ContextPolicy, Session, SessionMeta, Store};
 use crate::app::{AppManifest, AppRegistry};
-use crate::catalogue::{artifact_tools, ArtifactDef, Catalogue, SharedDispatcher};
+use crate::catalogue::{shared_tools, ArtifactDef, Catalogue, SharedDispatcher};
+use crate::interaction::TauriInteractor;
 
 pub struct DesktopState {
     pub store: Store,
@@ -21,6 +22,7 @@ pub struct DesktopState {
     pub permissions: Arc<PermissionGuard>,
     pub registry: AppRegistry,
     pub catalogue: Arc<Catalogue>,
+    pub interactor: TauriInteractor,
     pub session: Mutex<Session>,
     pub policy: ContextPolicy,
     // Runtime-mutable so Settings can change them live.
@@ -50,7 +52,7 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
         Some(app) => {
             // Shared artifact tools + the app's domain tools; base fs/shell come
             // from core. SharedDispatcher routes artifact tools then delegates.
-            let mut extra = artifact_tools();
+            let mut extra = shared_tools();
             extra.extend(app.agent_tools());
             ChatConfig {
                 model,
@@ -62,6 +64,7 @@ pub async fn send_message(state: State<'_, DesktopState>, text: String) -> Resul
                     Arc::clone(&state.catalogue),
                     Arc::clone(app),
                     Arc::clone(&state.data),
+                    state.interactor.clone(),
                 ))),
             }
         }

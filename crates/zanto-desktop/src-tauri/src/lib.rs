@@ -1,18 +1,17 @@
 mod app;
-mod approver;
 mod apps;
 mod catalogue;
+mod interaction;
 mod ipc;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::Manager;
 use zanto_core::config::Settings;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{ContextPolicy, Session, Store};
 use crate::app::AppRegistry;
-use crate::approver::{PendingApprovals, TauriApprover};
+use crate::interaction::TauriInteractor;
 use crate::ipc::DesktopState;
 
 // Fixed workspace for the first slice. Directory picker / multi-workspace is future.
@@ -36,11 +35,10 @@ pub fn run() {
                 None => ContextPolicy::default(),
             };
 
-            // HITL approval bridged to the UI. Pending map is shared with the
-            // `approve` command (managed separately so the command can reach it).
-            let pending: Arc<PendingApprovals> = Arc::new(Mutex::new(HashMap::new()));
-            let approver = TauriApprover::new(app.handle().clone(), Arc::clone(&pending));
-            let permissions = Arc::new(PermissionGuard::new(&settings, approver));
+            // One HITL interaction channel: powers permission approvals (Approver)
+            // and agent `ask` forms. Shared by the permission guard and dispatcher.
+            let interactor = TauriInteractor::new(app.handle().clone());
+            let permissions = Arc::new(PermissionGuard::new(&settings, interactor.clone()));
 
             let store = Store::open().expect("open sessions DB");
             let data = Arc::new(DataStore::open(WORKSPACE).expect("open data engine"));
@@ -51,17 +49,17 @@ pub fn run() {
             let catalogue = Arc::new(catalogue::Catalogue::load());
             let session = tokio::sync::Mutex::new(Session::new("", WORKSPACE));
 
-            app.manage(Arc::clone(&pending));
             app.manage(DesktopState {
                 store,
                 data,
                 permissions,
                 registry,
                 catalogue,
+                interactor,
                 session,
                 policy,
-                model: Mutex::new(model),
-                endpoint: Mutex::new(endpoint),
+                model: std::sync::Mutex::new(model),
+                endpoint: std::sync::Mutex::new(endpoint),
                 workspace: WORKSPACE.to_string(),
             });
             Ok(())
@@ -83,7 +81,7 @@ pub fn run() {
             ipc::set_config,
             ipc::pick_folder,
             ipc::add_allowed_path,
-            approver::approve,
+            interaction::respond,
         ])
         .run(tauri::generate_context!())
         .expect("error while running zanto desktop");

@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use zanto_core::chat::{AppDispatcher, AppResult, GenaiTool, Target};
 use zanto_core::data::DataStore;
 use crate::app::App;
+use crate::interaction::TauriInteractor;
 
 const CATALOGUE_JSON: &str = include_str!("../catalogue.json");
 
@@ -64,9 +65,31 @@ impl Catalogue {
     }
 }
 
-/// Tool schemas for the shared artifact tools — added to every app's tool set.
-pub fn artifact_tools() -> Vec<GenaiTool> {
+/// Tool schemas shared by every app: the artifact tools + the `ask` HITL form tool.
+pub fn shared_tools() -> Vec<GenaiTool> {
     vec![
+        GenaiTool::new("ask")
+            .with_description("Ask the user one or more questions (a small form shown above the composer) and get their answers back. Use for intent clarification or follow-ups before acting.")
+            .with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "title": { "type": "string" },
+                    "fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": { "type": "string" },
+                                "label": { "type": "string" },
+                                "type": { "type": "string", "enum": ["text", "select", "confirm"] },
+                                "options": { "type": "array", "items": { "type": "string" } }
+                            },
+                            "required": ["name", "label", "type"]
+                        }
+                    }
+                },
+                "required": ["fields"]
+            })),
         GenaiTool::new("list_artifacts")
             .with_description("List available UI artifacts (id, description, when to use). Call this to discover what you can render.")
             .with_schema(json!({ "type": "object", "properties": {} })),
@@ -97,11 +120,17 @@ pub struct SharedDispatcher {
     catalogue: Arc<Catalogue>,
     app: Arc<dyn App>,
     data: Arc<DataStore>,
+    interactor: TauriInteractor,
 }
 
 impl SharedDispatcher {
-    pub fn new(catalogue: Arc<Catalogue>, app: Arc<dyn App>, data: Arc<DataStore>) -> Self {
-        Self { catalogue, app, data }
+    pub fn new(
+        catalogue: Arc<Catalogue>,
+        app: Arc<dyn App>,
+        data: Arc<DataStore>,
+        interactor: TauriInteractor,
+    ) -> Self {
+        Self { catalogue, app, data, interactor }
     }
 }
 
@@ -109,6 +138,15 @@ impl SharedDispatcher {
 impl AppDispatcher for SharedDispatcher {
     async fn dispatch(&self, name: &str, args: Value) -> Option<Result<AppResult, String>> {
         match name {
+            "ask" => {
+                let title = args.get("title").cloned().unwrap_or(Value::Null);
+                let fields = args.get("fields").cloned().unwrap_or(json!([]));
+                let answers = self
+                    .interactor
+                    .request("form", json!({ "title": title, "steps": [{ "fields": fields }] }))
+                    .await;
+                Some(Ok(AppResult::Data(answers)))
+            }
             "list_artifacts" => Some(Ok(AppResult::Data(self.catalogue.list()))),
             "get_artifact" => {
                 let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");

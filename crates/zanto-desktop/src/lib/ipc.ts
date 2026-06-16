@@ -20,7 +20,24 @@ export type AppManifest = {
   start_actions: StartAction[];
 };
 
-export type ApprovalRequest = { id: string; path: string; op: string; resolved: string };
+export type InteractionField = {
+  name: string;
+  label: string;
+  type: "text" | "select" | "confirm";
+  options?: string[];
+};
+export type InteractionStep = { fields: InteractionField[] };
+export type InteractionRequest = {
+  id: string;
+  kind: "approval" | "form";
+  // approval
+  op?: string;
+  path?: string;
+  resolved?: string;
+  // form
+  title?: string;
+  steps?: InteractionStep[];
+};
 
 export type SessionMeta = {
   id: string;
@@ -74,8 +91,8 @@ export const ipc = {
   pickFolder: () => invoke<string | null>("pick_folder"),
   addAllowedPath: (path: string) => invoke<void>("add_allowed_path", { path }),
 
-  approve: (requestId: string, response: "once" | "session" | "forever" | "deny") =>
-    invoke<void>("approve", { requestId, response }),
-  onApprovalRequest: (cb: (r: ApprovalRequest) => void): Promise<UnlistenFn> =>
-    listen<ApprovalRequest>("approval_request", (e) => cb(e.payload)),
+  // HITL interaction channel (approvals + agent forms)
+  respond: (requestId: string, value: unknown) => invoke<void>("respond", { requestId, value }),
+  onInteractionRequest: (cb: (r: InteractionRequest) => void): Promise<UnlistenFn> =>
+    listen<InteractionRequest>("interaction_request", (e) => cb(e.payload)),
 };

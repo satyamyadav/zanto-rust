@@ -5,7 +5,6 @@
   import Chat from "$lib/components/Chat.svelte";
   import Canvas from "$lib/components/Canvas.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
-  import ApprovalDialog from "$lib/ApprovalDialog.svelte";
   import { appStore, loadApps, mountApp } from "$lib/stores/app.svelte";
   import { newSession } from "$lib/stores/session.svelte";
   import { loadCatalogue } from "$lib/stores/artifacts.svelte";
@@ -40,4 +39,3 @@
 </div>
 
 <SettingsDialog bind:open={settingsOpen} />
-<ApprovalDialog />
