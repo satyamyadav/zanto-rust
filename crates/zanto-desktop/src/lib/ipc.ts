@@ -41,10 +41,18 @@ export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_conte
 
 export type RenderMsg = { role: "user" | "assistant"; text: string };
 
+export type ArtifactDef = {
+  id: string;
+  description: string;
+  when_to_use: string;
+  data_schema: any;
+};
+
 // Thin typed wrappers over the Tauri IPC surface (commands + events).
 export const ipc = {
   sendMessage: (text: string) => invoke<ChatTurn>("send_message", { text }),
   listApps: () => invoke<AppManifest[]>("list_apps"),
+  getCatalogue: () => invoke<ArtifactDef[]>("get_catalogue"),
   mountApp: (id: string) => invoke<void>("mount_app", { id }),
   unmountApp: () => invoke<void>("unmount_app"),
   queryApp: (id: string, query: string, args: any = {}) =>

@@ -3,20 +3,25 @@
   import DOMPurify from "dompurify";
   import type { ChatBlock } from "./ipc";
   import { componentRegistry } from "./registry";
+  import { validateArtifact } from "./stores/artifacts.svelte";
+  import Json from "./blocks/Json.svelte";
 
   let { block }: { block: ChatBlock } = $props();
 
   const html = $derived(
     block.kind === "markdown" ? DOMPurify.sanitize(marked.parse(block.text) as string) : ""
   );
+  const Comp = $derived(block.kind === "component" ? componentRegistry[block.component_id] : undefined);
+  const valid = $derived(
+    block.kind === "component" ? validateArtifact(block.component_id, block.data) : true
+  );
 </script>
 
 {#if block.kind === "component"}
-  {@const Comp = componentRegistry[block.component_id]}
-  {#if Comp}
+  {#if Comp && valid}
     <Comp data={block.data} />
   {:else}
-    <pre class="text-xs bg-muted p-2 rounded overflow-auto">{JSON.stringify(block.data, null, 2)}</pre>
+    <Json data={block.data} />
   {/if}
 {:else}
   <!-- eslint-disable-next-line svelte/no-at-html-tags -->
