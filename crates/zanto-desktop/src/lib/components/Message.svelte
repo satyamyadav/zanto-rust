@@ -3,7 +3,6 @@
   import type { ChatEntry, ChatSegment } from "$lib/stores/session.svelte";
   import { sessionStore } from "$lib/stores/session.svelte";
   import TextSegment from "./segments/TextSegment.svelte";
-  import ReasoningSegment from "./segments/ReasoningSegment.svelte";
   import ToolCallSegment from "./segments/ToolCallSegment.svelte";
   import WorkflowGroup from "./segments/WorkflowGroup.svelte";
   import ThinkingBlock from "./segments/ThinkingBlock.svelte";
@@ -13,21 +12,30 @@
   import { onDestroy } from "svelte";
 
   // `isLast` marks the trailing entry — the only one that can be the live,
-  // streaming turn that lights the agent-spine.
+  // streaming turn whose trailing reasoning animates.
   let { entry, isLast = false }: { entry: ChatEntry; isLast?: boolean } = $props();
 
   type ToolCallSegmentData = Extract<ChatSegment, { kind: "tool_call" }>;
-  // A rendered item is either a workflow run (≥2 consecutive tool_calls) or a
-  // single segment. Walk segments, coalescing maximal runs of consecutive
-  // tool_call segments; a run of length ≥2 becomes a WorkflowGroup, anything
-  // else (including a lone tool_call) renders as a single segment as before.
-  type RenderItem = { kind: "workflow"; steps: ToolCallSegmentData[] } | { kind: "single"; seg: ChatSegment };
+  // A rendered item is one of: a reasoning run (its own collapsible ThinkingBlock),
+  // a workflow run (≥2 consecutive tool_calls → WorkflowGroup), or a single
+  // segment. Walk segments in document order, coalescing maximal runs of
+  // consecutive tool_call segments. Everything renders INLINE in order — the only
+  // collapsible is the reasoning ThinkingBlock; tool calls / workflows / blocks /
+  // text appear where they happened.
+  type RenderItem =
+    | { kind: "reasoning"; seg: Extract<ChatSegment, { kind: "reasoning" }> }
+    | { kind: "workflow"; steps: ToolCallSegmentData[] }
+    | { kind: "single"; seg: ChatSegment };
   const items = $derived.by<RenderItem[]>(() => {
     const out: RenderItem[] = [];
     const segs = entry.segments;
     let i = 0;
     while (i < segs.length) {
-      if (segs[i].kind === "tool_call") {
+      const seg = segs[i];
+      if (seg.kind === "reasoning") {
+        out.push({ kind: "reasoning", seg });
+        i++;
+      } else if (seg.kind === "tool_call") {
         let j = i;
         while (j < segs.length && segs[j].kind === "tool_call") j++;
         const run = segs.slice(i, j) as ToolCallSegmentData[];
@@ -35,71 +43,22 @@
         else out.push({ kind: "single", seg: run[0] });
         i = j;
       } else {
-        out.push({ kind: "single", seg: segs[i] });
+        out.push({ kind: "single", seg });
         i++;
       }
     }
     return out;
   });
 
-  // The agent-activity spine threads the "process" of a turn — reasoning, tool
-  // calls and workflows — as a vertical timeline. Text answers, blocks and error
-  // bubbles are NOT process: they break the spine and render full-width. Group
-  // the item list into ordered groups so consecutive process items share one rail.
-  type ProcessKind = "reasoning" | "tool" | "workflow";
-  type SpineStep = { item: RenderItem; kind: ProcessKind; idx: number };
-  type Group = { kind: "spine"; steps: SpineStep[] } | { kind: "plain"; item: RenderItem };
-
-  // Shape passed to ThinkingBlock (structurally matches its own ProcessItem).
-  type ProcessItem =
-    | { kind: "reasoning"; seg: Extract<ChatSegment, { kind: "reasoning" }> }
-    | { kind: "tool"; seg: ToolCallSegmentData }
-    | { kind: "workflow"; steps: ToolCallSegmentData[] };
-
-  // Map a spine group's steps into ThinkingBlock items.
-  function spineItems(steps: SpineStep[]): ProcessItem[] {
-    return steps.map((s): ProcessItem => {
-      if (s.kind === "workflow" && s.item.kind === "workflow") {
-        return { kind: "workflow", steps: s.item.steps };
-      }
-      const seg = s.item.kind === "single" ? s.item.seg : null;
-      if (s.kind === "reasoning" && seg && seg.kind === "reasoning") {
-        return { kind: "reasoning", seg };
-      }
-      return { kind: "tool", seg: seg as ToolCallSegmentData };
-    });
-  }
-
-  function processKind(item: RenderItem): ProcessKind | null {
-    if (item.kind === "workflow") return "workflow";
-    if (item.seg.kind === "reasoning") return "reasoning";
-    if (item.seg.kind === "tool_call") return "tool";
-    return null;
-  }
-
-  const groups = $derived.by<Group[]>(() => {
-    const out: Group[] = [];
-    for (const item of items) {
-      const pk = processKind(item);
-      if (pk === null) {
-        out.push({ kind: "plain", item });
-        continue;
-      }
-      const last = out[out.length - 1];
-      if (last && last.kind === "spine") last.steps.push({ item, kind: pk, idx: last.steps.length });
-      else out.push({ kind: "spine", steps: [{ item, kind: pk, idx: 0 }] });
-    }
-    return out;
-  });
-
-  // The active step is the final step of the final spine group, but only while
-  // this is the live streaming assistant turn.
+  // The turn is live (streaming) only for the trailing assistant entry.
   const live = $derived(isLast && entry.role === "assistant" && sessionStore.streaming);
 
-  function lastSpineGroupIndex(gs: Group[]): number {
-    for (let i = gs.length - 1; i >= 0; i--) if (gs[i].kind === "spine") return i;
+  // Index of the last reasoning item — the only one that may animate, and only
+  // while the turn is still streaming with no later output trailing it.
+  const lastReasoningIdx = $derived.by(() => {
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === "reasoning") return i;
     return -1;
-  }
+  });
 
   // Concatenated plain text of the message's text/markdown segments.
   const copyText = $derived(
@@ -186,13 +145,15 @@
 
 </script>
 
-{#snippet renderItem(item: RenderItem)}
-  {#if item.kind === "workflow"}
+{#snippet renderItem(item: RenderItem, idx: number)}
+  {#if item.kind === "reasoning"}
+    <!-- Reasoning gets its own collapsible "Thinking" block. Only the trailing
+         reasoning of a still-streaming turn animates. -->
+    <ThinkingBlock text={item.seg.text} live={live && idx === lastReasoningIdx} />
+  {:else if item.kind === "workflow"}
     <WorkflowGroup steps={item.steps} />
   {:else if item.seg.kind === "text"}
     <TextSegment text={item.seg.text} />
-  {:else if item.seg.kind === "reasoning"}
-    <ReasoningSegment text={item.seg.text} />
   {:else if item.seg.kind === "tool_call"}
     <ToolCallSegment name={item.seg.name} args={item.seg.args} output={item.seg.output} ok={item.seg.ok} />
   {:else if item.seg.kind === "block"}
@@ -203,15 +164,8 @@
 {/snippet}
 
 {#snippet assistantBody()}
-  {@const lastSpine = lastSpineGroupIndex(groups)}
-  {#each groups as group, gi (gi)}
-    {#if group.kind === "plain"}
-      {@render renderItem(group.item)}
-    {:else}
-      <!-- The agent's process (reasoning + tool/workflow steps) under a collapsible
-           "Working…/Thought for N steps" header; the spine timeline lives inside it. -->
-      <ThinkingBlock items={spineItems(group.steps)} live={gi === lastSpine && live} />
-    {/if}
+  {#each items as item, i (i)}
+    {@render renderItem(item, i)}
   {/each}
 {/snippet}
 
@@ -221,7 +175,7 @@
       class="flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm"
     >
       {#each items as item, i (i)}
-        {@render renderItem(item)}
+        {@render renderItem(item, i)}
       {/each}
     </div>
   </div>

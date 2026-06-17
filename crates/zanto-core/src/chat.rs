@@ -320,12 +320,16 @@ When a user message contains an @<path> token, treat it as a request to read tha
         .with_capture_reasoning_content(true);
 
     let mut blocks: Vec<ChatBlock> = Vec::new();
+    // Ordered display segments for this assistant turn (reasoning/tool_call/block/
+    // text), assembled as events occur so a reopened turn restores exactly.
+    let mut display = TurnDisplay::default();
     let mut turn = 1;
     loop {
         // Check point 1 — loop top: if cancelled before building the next request,
         // persist whatever we have and return a stopped turn without a model call.
         if cancelled(&config) {
-            push_msg(store, session, ChatMessage::assistant(String::new())).await?;
+            let meta = assistant_turn_meta(&display, &blocks, true);
+            push_msg_meta(store, session, ChatMessage::assistant(String::new()), meta.as_ref()).await?;
             return Ok(ChatTurn { blocks, stopped: true });
         }
 
@@ -361,6 +365,9 @@ When a user message contains an @<path> token, treat it as a request to read tha
                     if let Some(sink) = &config.sink {
                         sink.on_reasoning(&chunk.content).await;
                     }
+                    // Accumulate reasoning into the persisted display segments
+                    // (coalescing consecutive deltas) — dropped before this change.
+                    display.push_reasoning(&chunk.content);
                 }
                 ChatStreamEvent::End(end) => {
                     tool_calls = end.captured_into_tool_calls().unwrap_or_default();
@@ -371,9 +378,18 @@ When a user message contains an @<path> token, treat it as a request to read tha
         // Dropping the stream aborts an in-flight request; do it before returning.
         drop(stream);
 
+        // Record this iteration's prose in the display segments NOW, in document
+        // order — before any tool calls of this iteration. The live frontend pushes
+        // text segments via `onChatChunk` as they stream (interleaved with tool
+        // calls across iterations); appending only at the terminal branch would drop
+        // every intermediate tool-loop iteration's prose. Whitespace-only text is a
+        // no-op (push_text skips it).
+        display.push_text(&answer);
+
         // Cancelled mid-stream: persist the partial assistant text and return it.
         if cancelled(&config) {
-            push_msg(store, session, ChatMessage::assistant(answer.clone())).await?;
+            let meta = assistant_turn_meta(&display, &blocks, true);
+            push_msg_meta(store, session, ChatMessage::assistant(answer.clone()), meta.as_ref()).await?;
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
             }
@@ -387,14 +403,15 @@ When a user message contains an @<path> token, treat it as a request to read tha
             if !fallback.is_empty() {
                 eprintln!("[zanto] warn: model returned unparsed tool call(s), applying fallback parser");
                 push_msg(store, session, ChatMessage::from(fallback.clone())).await?;
-                route_tool_calls(&config, &tools, store, session, &fallback, &mut blocks).await?;
+                route_tool_calls(&config, &tools, store, session, &fallback, &mut blocks, &mut display).await?;
                 turn += 1;
                 continue;
             }
 
-            // Persist the turn's component blocks (the markdown text is already in
-            // `content`) so reopening the thread restores the artifacts, not just text.
-            let meta = component_blocks_meta(&blocks);
+            // Persist the turn's full ordered display segments (reasoning/tool calls/
+            // blocks/text) + the stopped flag so reopening restores it exactly. The
+            // back-compat `blocks` list rides along for old readers.
+            let meta = assistant_turn_meta(&display, &blocks, false);
             push_msg_meta(store, session, ChatMessage::assistant(answer.clone()), meta.as_ref()).await?;
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
@@ -403,13 +420,14 @@ When a user message contains an @<path> token, treat it as a request to read tha
         }
 
         push_msg(store, session, ChatMessage::from(tool_calls.clone())).await?;
-        route_tool_calls(&config, &tools, store, session, &tool_calls, &mut blocks).await?;
+        route_tool_calls(&config, &tools, store, session, &tool_calls, &mut blocks, &mut display).await?;
 
         // Check point 3 (coupling) — `route_tool_calls` stops dispatching on cancel;
         // if cancelled, return the partial turn rather than looping into another model
         // request.
         if cancelled(&config) {
-            push_msg(store, session, ChatMessage::assistant(String::new())).await?;
+            let meta = assistant_turn_meta(&display, &blocks, true);
+            push_msg_meta(store, session, ChatMessage::assistant(String::new()), meta.as_ref()).await?;
             return Ok(ChatTurn { blocks, stopped: true });
         }
 
@@ -428,6 +446,7 @@ async fn route_tool_calls(
     session: &mut Session,
     calls: &[ToolCall],
     blocks: &mut Vec<ChatBlock>,
+    display: &mut TurnDisplay,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut read_batch: Vec<&ToolCall> = Vec::new();
 
@@ -439,7 +458,7 @@ async fn route_tool_calls(
         // next request to a strict provider is rejected for an unanswered tool_use.
         if cancelled(config) {
             // Reads in `read_batch` come from calls[..i]; flushing answers them.
-            flush_parallel(config, tools, store, session, &read_batch).await?;
+            flush_parallel(config, tools, store, session, &read_batch, display).await?;
             // Every call from `i` onward is undispatched — synthesize a tool_result
             // for each so no tool_use id is left unanswered in the persisted log.
             for pending in &calls[i..] {
@@ -457,19 +476,19 @@ async fn route_tool_calls(
                 continue;
             }
             // Mutating base tool: drain pending reads first, then run it.
-            flush_parallel(config, tools, store, session, &read_batch).await?;
+            flush_parallel(config, tools, store, session, &read_batch, display).await?;
             read_batch.clear();
             println!("[TOOL CALL mutating] {} ({:?})", call.fn_name, call.fn_arguments);
-            emit_tool_call(config, call).await;
+            emit_tool_call(config, display, call).await;
             let output = tools.dispatch(&call.fn_name, call.fn_arguments.clone()).await?;
             println!("[TOOL OUTPUT] {}", &output[..output.len().min(120)]);
-            emit_tool_result(config, &call.call_id, &output, true).await;
+            emit_tool_result(config, display, &call.call_id, &output, true).await;
             push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
         } else {
             // Non-base tool (artifact / domain): drain reads, then dispatch to the app.
-            flush_parallel(config, tools, store, session, &read_batch).await?;
+            flush_parallel(config, tools, store, session, &read_batch, display).await?;
             read_batch.clear();
-            emit_tool_call(config, call).await;
+            emit_tool_call(config, display, call).await;
             let (resp_text, ok) = match &config.app_dispatch {
                 Some(disp) => match disp.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
                     Some(Ok(AppResult::Data(v))) => (v.to_string(), true),
@@ -478,6 +497,9 @@ async fn route_tool_calls(
                         if let Some(sink) = &config.sink {
                             sink.on_block(&block).await;
                         }
+                        // Record the block segment in document order: after the
+                        // tool_call, before its result fill — matching the live sink.
+                        display.push_block(&block);
                         blocks.push(block);
                         (data.to_string(), true)
                     }
@@ -486,16 +508,18 @@ async fn route_tool_calls(
                 },
                 None => (format!("error: unknown tool {}", call.fn_name), false),
             };
-            emit_tool_result(config, &call.call_id, &resp_text, ok).await;
+            emit_tool_result(config, display, &call.call_id, &resp_text, ok).await;
             push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), resp_text))).await?;
         }
     }
 
-    flush_parallel(config, tools, store, session, &read_batch).await
+    flush_parallel(config, tools, store, session, &read_batch, display).await
 }
 
-/// Notify the sink (if any) that a tool call is about to be dispatched.
-async fn emit_tool_call(config: &ChatConfig, call: &ToolCall) {
+/// Notify the sink (if any) that a tool call is about to be dispatched, and record
+/// it in the turn's display segments (in the same order the sink sees it).
+async fn emit_tool_call(config: &ChatConfig, display: &mut TurnDisplay, call: &ToolCall) {
+    display.push_tool_call(&call.call_id, &call.fn_name, &call.fn_arguments);
     if let Some(sink) = &config.sink {
         sink.on_tool_call(&ToolCallView {
             id: call.call_id.clone(),
@@ -506,8 +530,10 @@ async fn emit_tool_call(config: &ChatConfig, call: &ToolCall) {
     }
 }
 
-/// Notify the sink (if any) that a tool call finished, with its output and outcome.
-async fn emit_tool_result(config: &ChatConfig, id: &str, output: &str, ok: bool) {
+/// Notify the sink (if any) that a tool call finished, with its output and outcome,
+/// and fill the matching display segment's output/ok.
+async fn emit_tool_result(config: &ChatConfig, display: &mut TurnDisplay, id: &str, output: &str, ok: bool) {
+    display.complete_tool_call(id, output, ok);
     if let Some(sink) = &config.sink {
         sink.on_tool_result(id, output, ok).await;
     }
@@ -536,19 +562,94 @@ async fn push_msg_meta(
     Ok(())
 }
 
-/// Build the persisted metadata for an assistant turn: a `{"blocks": [...]}`
-/// object holding only this turn's `Component` blocks (markdown text lives in the
-/// message `content`). Returns `None` when the turn produced no component blocks,
-/// so plain text turns keep an empty metadata column.
-fn component_blocks_meta(blocks: &[ChatBlock]) -> Option<Value> {
+/// Ordered display-segment list for an assistant turn, mirroring the frontend's
+/// `ChatSegment` shape. Built as the turn streams (reasoning deltas, tool calls,
+/// blocks, final text) so a reopened turn restores exactly as it rendered live:
+/// the reasoning Thinking block, inline tool calls, artifacts, and text — in
+/// document order. Persisted into the assistant message metadata alongside the
+/// (back-compat) `blocks` list and the `stopped` flag.
+#[derive(Default)]
+struct TurnDisplay {
+    segments: Vec<Value>,
+}
+
+impl TurnDisplay {
+    /// Append a reasoning delta, coalescing into a trailing reasoning segment so
+    /// consecutive `ReasoningChunk`s form one block (matching the live assembly).
+    fn push_reasoning(&mut self, delta: &str) {
+        if delta.is_empty() {
+            return;
+        }
+        if let Some(last) = self.segments.last_mut() {
+            if last.get("kind").and_then(Value::as_str) == Some("reasoning") {
+                if let Some(Value::String(t)) = last.get_mut("text") {
+                    t.push_str(delta);
+                    return;
+                }
+            }
+        }
+        self.segments.push(serde_json::json!({ "kind": "reasoning", "text": delta }));
+    }
+
+    /// Append a tool-call segment with its inputs (output/ok filled in later).
+    fn push_tool_call(&mut self, id: &str, name: &str, args: &Value) {
+        self.segments.push(serde_json::json!({
+            "kind": "tool_call", "id": id, "name": name, "args": args,
+        }));
+    }
+
+    /// Fill in a previously-pushed tool call's output/outcome, matched by id.
+    fn complete_tool_call(&mut self, id: &str, output: &str, ok: bool) {
+        for seg in self.segments.iter_mut().rev() {
+            if seg.get("kind").and_then(Value::as_str) == Some("tool_call")
+                && seg.get("id").and_then(Value::as_str) == Some(id)
+            {
+                if let Value::Object(obj) = seg {
+                    obj.insert("output".into(), Value::String(output.to_string()));
+                    obj.insert("ok".into(), Value::Bool(ok));
+                }
+                return;
+            }
+        }
+    }
+
+    /// Append a component block segment, in order.
+    fn push_block(&mut self, block: &ChatBlock) {
+        if let Ok(v) = serde_json::to_value(block) {
+            self.segments.push(serde_json::json!({ "kind": "block", "block": v }));
+        }
+    }
+
+    /// Append the final assistant text answer (skipping empty/whitespace).
+    fn push_text(&mut self, text: &str) {
+        if text.trim().is_empty() {
+            return;
+        }
+        self.segments.push(serde_json::json!({ "kind": "text", "text": text }));
+    }
+}
+
+/// Build the persisted metadata for an assistant turn: the full ordered display
+/// segment list, the `stopped` flag, and (for back-compat) the component blocks.
+/// The frontend prefers `segments` and falls back to `blocks` for legacy sessions.
+///
+/// Returns `None` when the turn produced nothing to render (no segments and no
+/// component blocks) — e.g. a turn stopped before emitting any output — so the
+/// metadata column stays empty and `display_messages_meta` drops the empty turn,
+/// matching the live path that never spawns an empty bubble for such a turn.
+fn assistant_turn_meta(display: &TurnDisplay, blocks: &[ChatBlock], stopped: bool) -> Option<Value> {
     let components: Vec<&ChatBlock> = blocks
         .iter()
         .filter(|b| matches!(b, ChatBlock::Component { .. }))
         .collect();
-    if components.is_empty() {
+    if display.segments.is_empty() && components.is_empty() {
         return None;
     }
-    Some(serde_json::json!({ "blocks": components }))
+    Some(serde_json::json!({
+        "segments": display.segments,
+        "stopped": stopped,
+        "blocks": components,
+    }))
 }
 
 async fn flush_parallel(
@@ -557,6 +658,7 @@ async fn flush_parallel(
     store: &Store,
     session: &mut Session,
     batch: &[&ToolCall],
+    display: &mut TurnDisplay,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if batch.is_empty() {
         return Ok(());
@@ -566,7 +668,7 @@ async fn flush_parallel(
 
     // Surface each read call before the concurrent batch runs.
     for call in batch {
-        emit_tool_call(config, call).await;
+        emit_tool_call(config, display, call).await;
     }
 
     let results = join_all(batch.iter().map(|call| {
@@ -579,7 +681,7 @@ async fn flush_parallel(
     for (call, result) in batch.iter().zip(results) {
         let output = result?;
         println!("[TOOL OUTPUT] {} → {}", call.fn_name, &output[..output.len().min(120)]);
-        emit_tool_result(config, &call.call_id, &output, true).await;
+        emit_tool_result(config, display, &call.call_id, &output, true).await;
         push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
     }
 
@@ -747,7 +849,8 @@ mod tests {
         };
 
         let mut blocks = Vec::new();
-        route_tool_calls(&config, &tools, &store, &mut session, &[call], &mut blocks)
+        let mut display = TurnDisplay::default();
+        route_tool_calls(&config, &tools, &store, &mut session, &[call], &mut blocks, &mut display)
             .await
             .unwrap();
 
@@ -756,12 +859,9 @@ mod tests {
     }
 
     #[test]
-    fn component_blocks_meta_filters_to_components() {
-        // Markdown-only turn → no metadata.
-        let only_text = vec![ChatBlock::Markdown { text: "hi".into() }];
-        assert!(component_blocks_meta(&only_text).is_none());
-
-        // Mixed turn → metadata holds only the component block(s).
+    fn assistant_turn_meta_back_compat_blocks_filter_to_components() {
+        // The back-compat `blocks` field holds only this turn's Component blocks
+        // (markdown lives in the message content), so old readers still restore them.
         let mixed = vec![
             ChatBlock::Markdown { text: "see chart".into() },
             ChatBlock::Component {
@@ -770,11 +870,81 @@ mod tests {
                 target: Target::Canvas,
             },
         ];
-        let meta = component_blocks_meta(&mixed).expect("component present");
+        let meta = assistant_turn_meta(&TurnDisplay::default(), &mixed, false)
+            .expect("component block present → metadata");
         let arr = meta["blocks"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["kind"], "component");
         assert_eq!(arr[0]["component_id"], "chart");
+        assert_eq!(meta["stopped"], serde_json::json!(false));
+
+        // A turn with no segments and no component blocks → no metadata column.
+        assert!(assistant_turn_meta(&TurnDisplay::default(), &[], true).is_none());
+    }
+
+    #[test]
+    fn turn_display_assembles_ordered_segments() {
+        let mut d = TurnDisplay::default();
+        // Reasoning deltas coalesce into one segment.
+        d.push_reasoning("Let me ");
+        d.push_reasoning("think.");
+        // A tool call, then its result fills output/ok by id.
+        d.push_tool_call("c1", "read_file", &serde_json::json!({ "path": "x" }));
+        d.complete_tool_call("c1", "contents", true);
+        // A block, then the final text answer.
+        d.push_block(&ChatBlock::Markdown { text: "inline".into() });
+        d.push_text("done");
+        // Empty/whitespace text is dropped (no trailing empty segment).
+        d.push_text("   ");
+
+        let segs = &d.segments;
+        assert_eq!(segs.len(), 4);
+        assert_eq!(segs[0], serde_json::json!({ "kind": "reasoning", "text": "Let me think." }));
+        assert_eq!(segs[1]["kind"], "tool_call");
+        assert_eq!(segs[1]["id"], "c1");
+        assert_eq!(segs[1]["output"], "contents");
+        assert_eq!(segs[1]["ok"], true);
+        assert_eq!(segs[2]["kind"], "block");
+        assert_eq!(segs[3], serde_json::json!({ "kind": "text", "text": "done" }));
+    }
+
+    #[tokio::test]
+    async fn assistant_turn_segments_round_trip_through_store() {
+        // An assistant turn's full display segments + stopped flag must survive a
+        // store write/read so a reopened session restores the turn exactly.
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = Store::open_at(&dir.path().join("test.db")).unwrap();
+        let mut session = Session::new("test", dir.path().to_str().unwrap());
+        store.save_session(&session).unwrap();
+
+        let mut display = TurnDisplay::default();
+        display.push_reasoning("thinking");
+        display.push_tool_call("c1", "search_files", &serde_json::json!({ "q": "foo" }));
+        display.complete_tool_call("c1", "3 hits", true);
+        display.push_text("here");
+        let meta = assistant_turn_meta(&display, &[], true).expect("non-empty turn → metadata");
+
+        push_msg(&store, &mut session, ChatMessage::user("find foo")).await.unwrap();
+        push_msg_meta(&store, &mut session, ChatMessage::assistant("here"), Some(&meta))
+            .await
+            .unwrap();
+
+        let loaded = store.load_message_meta(&session.id).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded[0].is_none());
+        let stored = loaded[1].as_ref().expect("assistant metadata present");
+
+        // The stopped flag round-trips.
+        assert_eq!(stored["stopped"], serde_json::json!(true));
+        // The ordered segments round-trip intact.
+        let segs = stored["segments"].as_array().expect("segments array");
+        assert_eq!(segs.len(), 3);
+        assert_eq!(segs[0], serde_json::json!({ "kind": "reasoning", "text": "thinking" }));
+        assert_eq!(segs[1]["kind"], "tool_call");
+        assert_eq!(segs[1]["name"], "search_files");
+        assert_eq!(segs[1]["output"], "3 hits");
+        assert_eq!(segs[1]["ok"], true);
+        assert_eq!(segs[2], serde_json::json!({ "kind": "text", "text": "here" }));
     }
 
     #[tokio::test]
@@ -789,11 +959,12 @@ mod tests {
             data: serde_json::json!({ "points": [1, 2, 3] }),
             target: Target::Canvas,
         }];
-        let meta = component_blocks_meta(&blocks);
+        let meta = assistant_turn_meta(&TurnDisplay::default(), &blocks, false)
+            .expect("component block present → metadata");
 
         // Persist a plain user turn, then the assistant turn carrying block metadata.
         push_msg(&store, &mut session, ChatMessage::user("plot it")).await.unwrap();
-        push_msg_meta(&store, &mut session, ChatMessage::assistant("here you go"), meta.as_ref())
+        push_msg_meta(&store, &mut session, ChatMessage::assistant("here you go"), Some(&meta))
             .await
             .unwrap();
 

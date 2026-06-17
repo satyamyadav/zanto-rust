@@ -20,7 +20,7 @@ pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<
     let msgs = loaded
         .display_messages_meta(&meta)
         .into_iter()
-        .map(|(role, text, blocks)| RenderMsg { role, text, blocks })
+        .map(|(role, text, meta)| RenderMsg::from_meta(role, text, meta))
         .collect();
     *state.session.lock().await = loaded;
     Ok(msgs)
@@ -43,7 +43,7 @@ pub async fn load_session_page(
         .into_iter()
         .skip(offset)
         .take(limit)
-        .map(|(role, text, blocks)| RenderMsg { role, text, blocks })
+        .map(|(role, text, meta)| RenderMsg::from_meta(role, text, meta))
         .collect();
     *state.session.lock().await = loaded;
     Ok(page)

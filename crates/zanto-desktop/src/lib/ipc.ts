@@ -94,12 +94,26 @@ export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_conte
   active_provider?: string;
 };
 
+// A persisted display segment for a past assistant turn, mirroring `ChatSegment`
+// (the runtime store type). Tool-call `args` is opaque JSON; `block` is a ChatBlock.
+export type PersistedSegment =
+  | { kind: "text"; text: string }
+  | { kind: "reasoning"; text: string }
+  | { kind: "tool_call"; id: string; name: string; args: any; output?: string; ok?: boolean }
+  | { kind: "block"; block: ChatBlock };
+
 // `blocks` carries persisted component blocks for a past assistant message
 // (D1: `{ blocks: ChatBlock[] }`), restored as block segments on reopen.
+// `segments` carries the full ordered display-segment list of an assistant turn
+// (reasoning/tool_call/block/text) so it restores exactly as it rendered live;
+// `stopped` marks an interrupted turn. Both are absent for legacy sessions, where
+// the reopen path falls back to text + `blocks`.
 export type RenderMsg = {
   role: "user" | "assistant";
   text: string;
   blocks?: { blocks: ChatBlock[] } | null;
+  segments?: PersistedSegment[] | null;
+  stopped?: boolean | null;
 };
 
 // A filesystem entry from `browse_dir` (B1). `path = undefined` lists the

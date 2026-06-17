@@ -196,13 +196,44 @@ export async function newSession() {
 
 function toEntries(msgs: RenderMsg[]): ChatEntry[] {
   return msgs.map((m) => {
+    // Preferred path: the turn persisted its full ordered display segments
+    // (reasoning/tool_call/block/text). Rebuild them in order so the reopened
+    // turn looks identical to how it streamed — the reasoning Thinking block,
+    // inline tool calls, artifacts, and text. `stopped` restores the marker.
+    if (m.segments && m.segments.length > 0) {
+      const segments = m.segments
+        .map((s): ChatSegment | null => {
+          switch (s.kind) {
+            case "text":
+              return { kind: "text", text: s.text };
+            case "reasoning":
+              return { kind: "reasoning", text: s.text };
+            case "tool_call":
+              return { kind: "tool_call", id: s.id, name: s.name, args: s.args, output: s.output, ok: s.ok };
+            case "block":
+              return { kind: "block", block: s.block };
+            default:
+              // Forward-incompatible / corrupted blob: drop the unknown segment
+              // rather than emit an undefined entry that crashes rendering.
+              return null;
+          }
+        })
+        .filter((s): s is ChatSegment => s !== null);
+      const e = entry(m.role, segments);
+      if (m.stopped) e.stopped = true;
+      return e;
+    }
+    // Back-compat: legacy sessions without persisted segments — rebuild from
+    // text + persisted component blocks.
     const segments: ChatSegment[] = [];
     // A blocks-only turn has empty text; skip the empty bubble in that case.
     if (m.text.trim() !== "") segments.push({ kind: "text", text: m.text });
     // Restore persisted component blocks (D1) as block segments after the text.
     // Canvas-targeted blocks render inline on reload — acceptable.
     for (const block of m.blocks?.blocks ?? []) segments.push({ kind: "block", block });
-    return entry(m.role, segments);
+    const e = entry(m.role, segments);
+    if (m.stopped) e.stopped = true;
+    return e;
   });
 }
 
