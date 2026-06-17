@@ -5,16 +5,21 @@
   import Dashboard from "$lib/apps/finance/Dashboard.svelte";
 </script>
 
-<div class="h-full overflow-auto p-4 bg-background">
+<div class="h-full overflow-auto bg-background p-4">
   {#if sessionStore.canvas}
     <Block block={sessionStore.canvas} />
   {:else if appStore.activeId === "finance"}
     <Dashboard />
-  {:else if appStore.activeId}
-    <div class="text-sm text-muted-foreground">
-      {activeApp()?.name} — views open here when the assistant presents them.
-    </div>
   {:else}
-    <div class="text-sm text-muted-foreground">Mount a solution to see its views.</div>
+    <div class="flex h-full items-center justify-center p-6">
+      <div class="max-w-xs text-center font-sans">
+        <p class="text-sm font-medium text-foreground">
+          {activeApp()?.name ?? "Nothing open yet"}
+        </p>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Views and artifacts open here — ask zanto to show data as a table or chart.
+        </p>
+      </div>
+    </div>
   {/if}
 </div>

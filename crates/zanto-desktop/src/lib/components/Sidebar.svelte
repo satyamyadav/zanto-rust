@@ -51,32 +51,62 @@
     const title = window.prompt("Rename session", current);
     if (title != null) await renameSession(id, title);
   }
+
+  // Shared focus ring for bare clickable elements (buttons not built on the ui primitive).
+  const focusRing =
+    "outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
 </script>
 
 <div class="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+  <!-- Brand mark -->
+  <div class="flex items-center gap-2 px-3 pt-3 pb-1">
+    <span
+      class="size-2 rounded-full bg-primary"
+      aria-hidden="true"
+    ></span>
+    <span class="font-display text-sm font-semibold tracking-tight">zanto</span>
+  </div>
+
   <!-- Chat + app switcher -->
-  <div class="p-3 space-y-1">
+  <div class="space-y-0.5 p-3 pt-2">
     {#if chatApp}
+      {@const active = appStore.activeId === chatApp.id}
       <button
-        class="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-md text-sm transition-colors {appStore.activeId ===
-        chatApp.id
-          ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-          : 'hover:bg-sidebar-accent'}"
+        class="relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors {focusRing} {active
+          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+          : 'hover:bg-sidebar-accent/60'}"
+        aria-current={active ? "true" : undefined}
         onclick={() => switchTo(chatApp.id)}
       >
+        {#if active}
+          <span
+            class="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+            aria-hidden="true"
+          ></span>
+        {/if}
         <MessageSquareIcon class="size-4" /> Chat
       </button>
     {/if}
 
     {#if verticalApps.length > 0}
-      <div class="text-[10px] uppercase tracking-wide text-muted-foreground mt-3 mb-1">Apps</div>
+      <div class="mt-3 mb-1 px-2 font-display text-xs uppercase tracking-wide text-muted-foreground">
+        Apps
+      </div>
       {#each verticalApps as a}
+        {@const active = appStore.activeId === a.id}
         <button
-          class="w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors {appStore.activeId === a.id
-            ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-            : 'hover:bg-sidebar-accent'}"
+          class="relative w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors {focusRing} {active
+            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+            : 'hover:bg-sidebar-accent/60'}"
+          aria-current={active ? "true" : undefined}
           onclick={() => switchTo(a.id)}
         >
+          {#if active}
+            <span
+              class="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+              aria-hidden="true"
+            ></span>
+          {/if}
           {a.name}
         </button>
       {/each}
@@ -86,28 +116,50 @@
   <div class="border-t border-sidebar-border"></div>
 
   <!-- Chats (sessions for the active context) -->
-  <div class="px-3 py-2 flex items-center justify-between">
-    <div class="text-[10px] uppercase tracking-wide text-muted-foreground">Chats</div>
-    <Button variant="ghost" size="icon" class="size-6" onclick={newSession} disabled={!appStore.activeId}>
+  <div class="flex items-center justify-between px-3 py-2">
+    <div class="font-display text-xs uppercase tracking-wide text-muted-foreground">Chats</div>
+    <Button
+      variant="ghost"
+      size="icon"
+      class="size-6"
+      onclick={newSession}
+      disabled={!appStore.activeId}
+      title="New chat"
+    >
       <PlusIcon class="size-4" />
     </Button>
   </div>
 
-  <div class="flex-1 overflow-auto px-2 space-y-0.5">
+  <div class="flex-1 space-y-0.5 overflow-auto px-2">
     {#each sessionStore.sessions as s (s.id)}
+      {@const active = sessionStore.activeSessionId === s.id}
       <div
-        class="group flex items-center gap-1 rounded-md px-2 py-1.5 {sessionStore.activeSessionId === s.id
+        class="group relative flex items-center gap-1 rounded-md px-2 py-1.5 transition-colors {active
           ? 'bg-sidebar-accent'
-          : 'hover:bg-sidebar-accent'}"
+          : 'hover:bg-sidebar-accent/60'}"
       >
-        <button class="flex-1 min-w-0 text-left" onclick={() => selectSession(s.id)}>
-          <div class="truncate text-sm">{s.title || "Untitled"}</div>
-          <div class="text-[10px] text-muted-foreground">
+        {#if active}
+          <span
+            class="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+            aria-hidden="true"
+          ></span>
+        {/if}
+        <button
+          class="min-w-0 flex-1 rounded-sm text-left {focusRing}"
+          onclick={() => selectSession(s.id)}
+        >
+          <div class="truncate text-sm {active ? 'text-sidebar-accent-foreground' : ''}">
+            {s.title || "Untitled"}
+          </div>
+          <div class="text-xs text-muted-foreground">
             {relTime(s.updated_at)} · {s.message_count} msgs
           </div>
         </button>
         <DropdownMenu.Root>
-          <DropdownMenu.Trigger class="opacity-0 group-hover:opacity-100 shrink-0">
+          <DropdownMenu.Trigger
+            class="shrink-0 rounded-sm p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 aria-expanded:opacity-100 {focusRing}"
+            title="Chat actions"
+          >
             <MoreVerticalIcon class="size-4" />
           </DropdownMenu.Trigger>
           <DropdownMenu.Content align="end">
@@ -121,14 +173,27 @@
       </div>
     {/each}
     {#if sessionStore.sessions.length === 0}
-      <div class="px-2 text-sm text-muted-foreground">No sessions yet.</div>
+      <div class="px-2 py-6 text-center">
+        <p class="text-sm text-foreground">No chats yet</p>
+        <p class="mt-0.5 text-xs text-muted-foreground">Start a conversation to see it here.</p>
+        <Button
+          variant="outline"
+          size="sm"
+          class="mt-3"
+          onclick={newSession}
+          disabled={!appStore.activeId}
+        >
+          <PlusIcon class="size-4" /> New chat
+        </Button>
+      </div>
     {/if}
 
     <!-- Archived (collapsible) -->
     {#if sessionStore.archivedSessions.length > 0}
       <div class="pt-2">
         <button
-          class="w-full flex items-center gap-1 px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground"
+          class="flex w-full items-center gap-1 rounded-sm px-2 py-1 font-display text-xs uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground {focusRing}"
+          aria-expanded={archivedOpen}
           onclick={() => (archivedOpen = !archivedOpen)}
         >
           {#if archivedOpen}
@@ -140,17 +205,19 @@
         </button>
         {#if archivedOpen}
           {#each sessionStore.archivedSessions as s (s.id)}
-            <div class="group flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-sidebar-accent">
-              <div class="flex-1 min-w-0">
+            <div
+              class="group flex items-center gap-1 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/60"
+            >
+              <div class="min-w-0 flex-1">
                 <div class="truncate text-sm text-muted-foreground">{s.title || "Untitled"}</div>
-                <div class="text-[10px] text-muted-foreground">
+                <div class="text-xs text-muted-foreground">
                   {relTime(s.updated_at)} · {s.message_count} msgs
                 </div>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                class="size-6 opacity-0 group-hover:opacity-100 shrink-0"
+                class="size-6 shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                 title="Unarchive"
                 onclick={() => unarchiveSession(s.id)}
               >
@@ -164,13 +231,13 @@
   </div>
 
   <!-- Footer -->
-  <div class="border-t border-sidebar-border p-2 flex items-center justify-between gap-2">
-    <span class="text-[11px] text-muted-foreground truncate px-1">{appStore.config?.model ?? ""}</span>
+  <div class="flex items-center justify-between gap-2 border-t border-sidebar-border p-2">
+    <span class="truncate px-1 font-mono text-xs text-muted-foreground">{appStore.config?.model ?? ""}</span>
     <div class="flex shrink-0 items-center gap-1">
       <Button variant="ghost" size="icon" class="size-7" onclick={() => (artifactsOpen = true)} title="Artifacts">
         <FolderOpenIcon class="size-4" />
       </Button>
-      <Button variant="ghost" size="icon" class="size-7" onclick={onOpenSettings}>
+      <Button variant="ghost" size="icon" class="size-7" onclick={onOpenSettings} title="Settings">
         <SettingsIcon class="size-4" />
       </Button>
     </div>
