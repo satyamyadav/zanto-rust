@@ -127,6 +127,51 @@ pub fn read_stored_artifact_cmd(id: String) -> Result<Value, String> {
     Ok(out)
 }
 
+/// Save a copy of a stored artifact to a user-chosen path. Reads the artifact's
+/// bytes, pops a save-file dialog seeded with the artifact's blob filename, and
+/// writes the bytes there. Returns `true` if a file was written, `false` if the
+/// user cancelled the dialog.
+#[tauri::command]
+pub async fn save_artifact_copy(app: tauri::AppHandle, id: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (art, bytes) = store().read(&id).map_err(|e| e.to_string())?;
+
+    // Suggest the blob's filename (id.ext) so the saved copy keeps the correct
+    // extension; the title may carry no extension.
+    let suggested = Path::new(&art.rel_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&art.id)
+        .to_string();
+
+    let chosen = app
+        .dialog()
+        .file()
+        .set_file_name(suggested)
+        .set_title(format!("Save a copy of {}", art.title))
+        .blocking_save_file();
+
+    let Some(file_path) = chosen else {
+        return Ok(false); // cancelled
+    };
+    let dest = file_path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Reveal a stored artifact's blob in the OS file manager (Finder/Explorer/etc.)
+/// via the opener plugin. Resolves the absolute blob path through the store.
+#[tauri::command]
+pub fn reveal_artifact(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let path = store().path(&id).map_err(|e| e.to_string())?;
+    app.opener()
+        .reveal_item_in_dir(path)
+        .map_err(|e| e.to_string())
+}
+
 /// Best-effort MIME type from a blob's extension, for the `data:` image URL.
 fn mime_for(rel_path: &str) -> &'static str {
     match Path::new(rel_path)

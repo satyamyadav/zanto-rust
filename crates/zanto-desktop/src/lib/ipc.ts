@@ -178,6 +178,11 @@ export const ipc = {
     invoke<StoredArtifactRef[]>("list_stored_artifacts_cmd", { scope: scope ?? null }),
   readStoredArtifact: (id: string) =>
     invoke<StoredArtifact>("read_stored_artifact_cmd", { id }),
+  // Save a copy of a stored document via a native save dialog. Resolves `true`
+  // when a file was written, `false` if the user cancelled.
+  saveArtifactCopy: (id: string) => invoke<boolean>("save_artifact_copy", { id }),
+  // Reveal a stored document's file in the OS file manager.
+  revealArtifact: (id: string) => invoke<void>("reveal_artifact", { id }),
 
   // Pinned view+data artifacts (4b): persisted catalogue views, reopenable.
   listPinnedArtifacts: () => invoke<PinnedArtifact[]>("list_pinned_artifacts"),

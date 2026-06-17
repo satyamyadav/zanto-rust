@@ -2,7 +2,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
   import { toast } from "svelte-sonner";
-  import { FolderOpen } from "@lucide/svelte";
+  import { FolderOpen, Download } from "@lucide/svelte";
   import Markdown from "$lib/blocks/Markdown.svelte";
   import Block from "$lib/Block.svelte";
   import { openWorkspace } from "$lib/stores/workspace.svelte";
@@ -53,6 +53,27 @@
       selectedDoc = await ipc.readStoredArtifact(id);
     } catch (e) {
       toast.error("Could not open the artifact", { description: `${e}` });
+    }
+  }
+
+  // Save a copy of a document to a user-chosen path (native save dialog).
+  // Documents only — pinned views live in the DB and have no file to copy.
+  async function saveCopy(id: string) {
+    try {
+      const saved = await ipc.saveArtifactCopy(id);
+      if (saved) toast.success("Saved a copy");
+      else toast("Save cancelled");
+    } catch (e) {
+      toast.error("Could not save a copy", { description: `${e}` });
+    }
+  }
+
+  // Reveal a document's file in the OS file manager.
+  async function revealDoc(id: string) {
+    try {
+      await ipc.revealArtifact(id);
+    } catch (e) {
+      toast.error("Could not reveal the file", { description: `${e}` });
     }
   }
 
@@ -220,7 +241,23 @@
       </div>
 
       <!-- Preview -->
-      <div class="flex-1 overflow-auto rounded-md border border-border p-3">
+      <div class="flex flex-1 flex-col overflow-hidden rounded-md border border-border">
+        {#if backend === "documents" && selectedDoc}
+          <!-- Document actions: Save a copy / Reveal in folder (filesystem docs
+               only; not shown for pinned views). -->
+          {@const docId = selectedDoc.id}
+          <div class="flex items-center justify-end gap-2 border-b border-border px-3 py-2">
+            <Button size="sm" variant="outline" onclick={() => saveCopy(docId)}>
+              <Download class="size-4" />
+              Save a copy…
+            </Button>
+            <Button size="sm" variant="outline" onclick={() => revealDoc(docId)}>
+              <FolderOpen class="size-4" />
+              Reveal in folder
+            </Button>
+          </div>
+        {/if}
+        <div class="flex-1 overflow-auto p-3">
         {#if backend === "documents"}
           {#if !selectedDoc}
             <div class="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -246,6 +283,7 @@
             <Block block={viewBlock(selectedView)} />
           {/key}
         {/if}
+        </div>
       </div>
     </div>
   </Dialog.Content>
