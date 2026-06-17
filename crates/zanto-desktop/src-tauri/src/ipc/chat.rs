@@ -1,6 +1,7 @@
 //! `send_message` — runs a chat turn in the active app's context.
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::State;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn};
@@ -88,6 +89,7 @@ pub async fn send_message(
                     state.interactor.clone(),
                 ))),
                 sink: None,
+                cancel: None,
             }
         }
         None => {
@@ -98,11 +100,29 @@ pub async fn send_message(
         }
     };
 
+    // Per-turn cancel flag: a fresh Arc so a prior interrupt never kills this turn.
+    // Stored in `active_cancel` so `interrupt_turn` can set it mid-turn, then cleared
+    // on completion.
+    let cancel = Arc::new(AtomicBool::new(false));
+    *state.active_cancel.lock().unwrap() = Some(Arc::clone(&cancel));
+    config.cancel = Some(Arc::clone(&cancel));
+
     // Stream the turn to the shell: text deltas + blocks live, `chat_done` at end.
     let sink = TauriSink::new(app);
     config.sink = Some(Arc::new(sink.clone()));
 
     let result = chat(config, &state.store, &mut session, &text, &state.policy).await;
+
+    // Clear the active cancel flag now the turn is done (success, stop, or error).
+    *state.active_cancel.lock().unwrap() = None;
+
+    // Emit `chat_stopped` (before `chat_done`) when the turn was interrupted so the
+    // shell can mark the assistant entry.
+    if let Ok(turn) = &result {
+        if turn.stopped {
+            sink.stopped();
+        }
+    }
     sink.finish();
     let turn = result.map_err(|e| e.to_string())?;
 
@@ -112,4 +132,16 @@ pub async fn send_message(
         let _ = state.store.save_session(&session);
     }
     Ok(turn)
+}
+
+/// Interrupt the in-flight turn (if any). Sets the active cancel flag so the core
+/// loop stops at its next check point, and drains pending HITL interactions so a
+/// turn parked on an approval/form unblocks. No-op when no turn is running. Does not
+/// take the session lock, so it is callable mid-turn while `send_message` holds it.
+#[tauri::command]
+pub fn interrupt_turn(state: State<'_, DesktopState>) {
+    if let Some(flag) = state.active_cancel.lock().unwrap().as_ref() {
+        flag.store(true, Ordering::SeqCst);
+    }
+    state.interactor.cancel_all();
 }

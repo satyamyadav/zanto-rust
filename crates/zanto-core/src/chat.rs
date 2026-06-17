@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use async_trait::async_trait;
 use futures::future::join_all;
 use futures::StreamExt;
@@ -22,6 +23,10 @@ use crate::tools::ToolService;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatTurn {
     pub blocks: Vec<ChatBlock>,
+    /// True when the turn was interrupted (cancel flag set); the blocks hold the
+    /// partial output collected before the stop. Default false.
+    #[serde(default)]
+    pub stopped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +121,10 @@ pub struct ChatConfig {
     /// Optional streaming sink. When set, the turn's text deltas and blocks are
     /// emitted live; when `None`, `chat` behaves as a synchronous turn.
     pub sink: Option<Arc<dyn ChatSink>>,
+    /// Optional per-turn cancel flag. When set to `true` mid-turn, `chat` stops at
+    /// the next safe check point and returns the partial turn with `stopped = true`.
+    /// `None` (the default) means the turn cannot be interrupted.
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 impl ChatConfig {
@@ -130,8 +139,14 @@ impl ChatConfig {
             extra_tools: Vec::new(),
             app_dispatch: None,
             sink: None,
+            cancel: None,
         }
     }
+}
+
+/// True when this config's cancel flag has been set (the turn should stop).
+fn cancelled(c: &ChatConfig) -> bool {
+    c.cancel.as_ref().map_or(false, |f| f.load(Ordering::SeqCst))
 }
 
 // ---- System prompt ----
@@ -275,6 +290,13 @@ When a user message contains an @<path> token, treat it as a request to read tha
     let mut blocks: Vec<ChatBlock> = Vec::new();
     let mut turn = 1;
     loop {
+        // Check point 1 — loop top: if cancelled before building the next request,
+        // persist whatever we have and return a stopped turn without a model call.
+        if cancelled(&config) {
+            push_msg(store, session, ChatMessage::assistant(String::new())).await?;
+            return Ok(ChatTurn { blocks, stopped: true });
+        }
+
         println!("--- TURN {turn} ---");
 
         let mut send_messages = vec![system_prompt.clone()];
@@ -291,6 +313,11 @@ When a user message contains an @<path> token, treat it as a request to read tha
         let mut answer = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         while let Some(event) = stream.next().await {
+            // Check point 2 — per stream event: on cancel, drop the stream (which
+            // aborts the genai/reqwest request) and break out.
+            if cancelled(&config) {
+                break;
+            }
             match event? {
                 ChatStreamEvent::Chunk(chunk) => {
                     if let Some(sink) = &config.sink {
@@ -308,6 +335,17 @@ When a user message contains an @<path> token, treat it as a request to read tha
                 }
                 _ => {}
             }
+        }
+        // Dropping the stream aborts an in-flight request; do it before returning.
+        drop(stream);
+
+        // Cancelled mid-stream: persist the partial assistant text and return it.
+        if cancelled(&config) {
+            push_msg(store, session, ChatMessage::assistant(answer.clone())).await?;
+            if !answer.trim().is_empty() || blocks.is_empty() {
+                blocks.push(ChatBlock::Markdown { text: answer });
+            }
+            return Ok(ChatTurn { blocks, stopped: true });
         }
 
         if tool_calls.is_empty() {
@@ -329,11 +367,19 @@ When a user message contains an @<path> token, treat it as a request to read tha
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
             }
-            return Ok(ChatTurn { blocks });
+            return Ok(ChatTurn { blocks, stopped: false });
         }
 
         push_msg(store, session, ChatMessage::from(tool_calls.clone())).await?;
         route_tool_calls(&config, &tools, store, session, &tool_calls, &mut blocks).await?;
+
+        // Check point 3 (coupling) — `route_tool_calls` stops dispatching on cancel;
+        // if cancelled, return the partial turn rather than looping into another model
+        // request.
+        if cancelled(&config) {
+            push_msg(store, session, ChatMessage::assistant(String::new())).await?;
+            return Ok(ChatTurn { blocks, stopped: true });
+        }
 
         turn += 1;
     }
@@ -353,7 +399,26 @@ async fn route_tool_calls(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut read_batch: Vec<&ToolCall> = Vec::new();
 
-    for call in calls {
+    for (i, call) in calls.iter().enumerate() {
+        // Stop dispatching on cancel: flush any pending reads (so their tool
+        // responses are persisted), then synthesize a response for every
+        // not-yet-dispatched call. The assistant message persisted before this fn
+        // carries all N tool_use ids; every one needs a matching tool_result or the
+        // next request to a strict provider is rejected for an unanswered tool_use.
+        if cancelled(config) {
+            // Reads in `read_batch` come from calls[..i]; flushing answers them.
+            flush_parallel(config, tools, store, session, &read_batch).await?;
+            // Every call from `i` onward is undispatched — synthesize a tool_result
+            // for each so no tool_use id is left unanswered in the persisted log.
+            for pending in &calls[i..] {
+                let msg = ChatMessage::from(ToolResponse::new(
+                    pending.call_id.clone(),
+                    "interrupted: turn stopped by user".to_string(),
+                ));
+                push_msg(store, session, msg).await?;
+            }
+            return Ok(());
+        }
         if ToolService::owns(&call.fn_name) {
             if ToolService::is_readonly(&call.fn_name) {
                 read_batch.push(call);
@@ -718,6 +783,41 @@ mod tests {
             }
             _ => panic!("expected component block"),
         }
+    }
+
+    #[tokio::test]
+    async fn chat_returns_stopped_when_pre_cancelled_without_model_call() {
+        // A pre-set cancel flag must be seen at the loop top, so chat() returns a
+        // stopped turn promptly without ever hitting the network. The endpoint is
+        // unreachable on purpose — if the loop tried a request, this would error.
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = Store::open_at(&dir.path().join("test.db")).unwrap();
+        let mut session = Session::new("test", dir.path().to_str().unwrap());
+
+        let permissions = Arc::new(PermissionGuard::new(
+            &crate::config::Settings::default(),
+            DenyApprover,
+        ));
+
+        let mut config = ChatConfig::new(
+            "qwen2.5:0.5b".to_string(),
+            "http://127.0.0.1:1/".to_string(),
+            permissions,
+        );
+        config.cancel = Some(Arc::new(AtomicBool::new(true)));
+
+        let turn = chat(
+            config,
+            &store,
+            &mut session,
+            "hello",
+            &ContextPolicy::default(),
+        )
+        .await
+        .expect("pre-cancelled chat returns Ok");
+
+        assert!(turn.stopped, "turn should be marked stopped");
+        assert!(turn.blocks.is_empty(), "no model output, no blocks");
     }
 
     #[test]

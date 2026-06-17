@@ -9,6 +9,7 @@ pub mod files;
 pub mod session;
 pub mod skills;
 
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -35,6 +36,9 @@ pub struct DesktopState {
     /// User-selected markdown skill (file stem), appended to the app skill on
     /// each turn. `None` means no extra skill.
     pub selected_skill: StdMutex<Option<String>>,
+    /// Cancel flag for the in-flight turn (if any). `send_message` installs a fresh
+    /// flag per turn and clears it on completion; `interrupt_turn` sets it to stop.
+    pub active_cancel: StdMutex<Option<Arc<AtomicBool>>>,
 }
 
 impl DesktopState {

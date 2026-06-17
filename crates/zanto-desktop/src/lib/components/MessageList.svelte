@@ -1,8 +1,8 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { ArrowDown, MessagesSquare } from "@lucide/svelte";
+  import { ArrowDown, MessagesSquare, Square, X } from "@lucide/svelte";
   import Message from "./Message.svelte";
-  import { sessionStore, loadOlder } from "$lib/stores/session.svelte";
+  import { sessionStore, loadOlder, removeQueued } from "$lib/stores/session.svelte";
 
   // The trailing entry is the only one that can be the live, streaming turn;
   // pass a flag down so Message lights the agent-spine for the active turn.
@@ -57,6 +57,7 @@
     sessionStore.convo.at(-1)?.segments.length;
     sessionStore.busy;
     sessionStore.streaming;
+    sessionStore.queue.length;
     if (!atBottom) return;
     tick().then(() => {
       scrollToBottom();
@@ -85,6 +86,12 @@
         {/if}
         {#each sessionStore.convo as entry (entry.id)}
           <Message {entry} isLast={entry.id === lastId} />
+          {#if entry.stopped}
+            <div class="flex items-center gap-1.5 -mt-2 text-xs text-muted-foreground">
+              <Square class="size-3 fill-current" />
+              <span>Stopped</span>
+            </div>
+          {/if}
         {/each}
         {#if sessionStore.busy && !sessionStore.streaming}
           <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -96,6 +103,23 @@
             <span>thinking</span>
           </div>
         {/if}
+        {#each sessionStore.queue as q, i (i)}
+          <div class="flex justify-end">
+            <div
+              class="flex max-w-[85%] items-center gap-2 rounded-2xl rounded-br-sm border border-dashed border-border bg-muted/50 px-4 py-2.5 text-sm leading-relaxed text-muted-foreground"
+            >
+              <span class="whitespace-pre-wrap">{q}</span>
+              <button
+                type="button"
+                onclick={() => removeQueued(i)}
+                aria-label="Remove queued message"
+                class="shrink-0 rounded hover:text-foreground"
+              >
+                <X class="size-3.5" />
+              </button>
+            </div>
+          </div>
+        {/each}
         {#if sessionStore.convo.length === 0 && !sessionStore.busy}
           <div class="mx-auto flex max-w-sm flex-col items-center gap-3 py-12 text-center">
             <span class="flex size-11 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">

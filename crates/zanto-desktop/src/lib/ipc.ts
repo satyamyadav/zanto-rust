@@ -128,6 +128,7 @@ export type StoredArtifact = StoredArtifactRef & {
 // Thin typed wrappers over the Tauri IPC surface (commands + events).
 export const ipc = {
   sendMessage: (text: string) => invoke<ChatTurn>("send_message", { text }),
+  interruptTurn: () => invoke<void>("interrupt_turn"),
   listApps: () => invoke<AppManifest[]>("list_apps"),
   getCatalogue: () => invoke<ArtifactDef[]>("get_catalogue"),
   mountApp: (id: string) => invoke<void>("mount_app", { id }),
@@ -188,4 +189,7 @@ export const ipc = {
     listen<{ block: ChatBlock }>("chat_block", (e) => cb(e.payload.block)),
   onChatDone: (cb: () => void): Promise<UnlistenFn> =>
     listen<null>("chat_done", () => cb()),
+  // Emitted before `chat_done` when a turn was interrupted (Stop).
+  onChatStopped: (cb: () => void): Promise<UnlistenFn> =>
+    listen<null>("chat_stopped", () => cb()),
 };

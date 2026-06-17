@@ -70,11 +70,13 @@ pub fn run() {
                 endpoint: std::sync::Mutex::new(endpoint),
                 workspace: WORKSPACE.to_string(),
                 selected_skill: std::sync::Mutex::new(None),
+                active_cancel: std::sync::Mutex::new(None),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             ipc::chat::send_message,
+            ipc::chat::interrupt_turn,
             ipc::apps::list_apps,
             ipc::apps::get_catalogue,
             ipc::apps::mount_app,

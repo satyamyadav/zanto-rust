@@ -3,13 +3,14 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { toast } from "svelte-sonner";
   import SendIcon from "@lucide/svelte/icons/send";
+  import SquareIcon from "@lucide/svelte/icons/square";
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
   import XIcon from "@lucide/svelte/icons/x";
   import FileIcon from "@lucide/svelte/icons/file";
   import FolderIcon from "@lucide/svelte/icons/folder";
   import TerminalIcon from "@lucide/svelte/icons/terminal";
   import LoaderIcon from "@lucide/svelte/icons/loader";
-  import { sessionStore, send, newSession } from "$lib/stores/session.svelte";
+  import { sessionStore, send, newSession, interrupt } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
   import { ipc, type FileEntry } from "$lib/ipc";
 
@@ -51,7 +52,8 @@
   }
 
   async function submit() {
-    if (sessionStore.busy) return;
+    // While busy, Enter queues the message (send() handles the FIFO queue); the
+    // Stop button — not submit — interrupts the running turn.
     const text = composeMessage();
     if (!text) return;
     input = "";
@@ -390,12 +392,22 @@
         {oninput}
         onblur={closeMenu}
         rows={2}
-        placeholder={appStore.activeId ? `Ask ${appStore.activeId}…` : "Message zanto…"}
+        placeholder={sessionStore.queue.length > 0
+          ? "Message queued — sent when the turn finishes"
+          : appStore.activeId
+            ? `Ask ${appStore.activeId}…`
+            : "Message zanto…"}
         class="resize-none"
       />
     </div>
-    <Button type="submit" size="icon" disabled={sessionStore.busy}>
-      <SendIcon class="size-4" />
-    </Button>
+    {#if sessionStore.busy}
+      <Button type="button" size="icon" variant="secondary" onclick={interrupt} aria-label="Stop">
+        <SquareIcon class="size-4" />
+      </Button>
+    {:else}
+      <Button type="submit" size="icon">
+        <SendIcon class="size-4" />
+      </Button>
+    {/if}
   </div>
 </form>

@@ -13,7 +13,12 @@ export type ChatSegment =
   | { kind: "block"; block: ChatBlock }
   | { kind: "error"; message: string; retryText: string };
 
-export type ChatEntry = { id: number; role: "user" | "assistant"; segments: ChatSegment[] };
+export type ChatEntry = {
+  id: number;
+  role: "user" | "assistant";
+  segments: ChatSegment[];
+  stopped?: boolean; // true when this assistant turn was interrupted (Stop)
+};
 
 // Monotonic id for stable {#each} keying. Entry ids must survive both streaming
 // (segment-by-segment object replacement) and loadOlder() prepends, so keying by
@@ -30,6 +35,7 @@ export const sessionStore = $state({
   convo: [] as ChatEntry[], // chat thread (role-tagged segment entries)
   canvas: null as ChatBlock | null, // right-panel view
   promotedLink: null as string | null, // a link promoted to the canvas panel
+  queue: [] as string[], // messages typed while busy, dispatched FIFO when free
   busy: false,
   streaming: false, // assistant tokens currently arriving
   hasMore: false, // older history exists above the loaded window
@@ -45,6 +51,15 @@ let loadedOffset = 0;
 // Index of the live assistant entry currently being streamed (or null when the
 // next streamed segment should open a fresh assistant entry).
 let streamIdx: number | null = null;
+
+/** Reset the live-turn state when switching sessions. The interrupted turn's own
+ * finally is guarded to no-op once the active session changed, so the new session
+ * must clear busy/streaming/streamIdx itself to start clean. */
+function resetLiveTurn() {
+  sessionStore.busy = false;
+  sessionStore.streaming = false;
+  streamIdx = null;
+}
 
 /** Ensure a live assistant entry exists and return its index. */
 function ensureLiveEntry(): number {
@@ -115,6 +130,16 @@ export function initStreaming() {
     setSegments(idx, segs);
   });
 
+  ipc.onChatStopped(() => {
+    // Mark the live assistant entry as stopped so MessageList shows the marker.
+    // Arrives before chat_done (which clears streamIdx), so the live entry — if the
+    // turn produced any output — is still addressable. When the turn was stopped
+    // before emitting anything (streamIdx null), there's no content to mark; the
+    // vanished thinking indicator is feedback enough, so don't spawn an empty bubble.
+    if (streamIdx === null) return;
+    sessionStore.convo[streamIdx] = { ...sessionStore.convo[streamIdx], stopped: true };
+  });
+
   ipc.onChatDone(() => {
     streamIdx = null;
     sessionStore.streaming = false;
@@ -133,6 +158,11 @@ export async function loadArchived() {
 
 export async function newSession() {
   try {
+    // Switching away from a live turn: stop it and drop any pending queued messages
+    // so they don't dispatch into the new session.
+    if (sessionStore.busy) await interrupt();
+    resetLiveTurn();
+    sessionStore.queue = [];
     sessionStore.activeSessionId = await ipc.newSession();
     sessionStore.canvas = null;
     loadedOffset = 0;
@@ -177,6 +207,10 @@ function toEntries(msgs: RenderMsg[]): ChatEntry[] {
 
 export async function selectSession(id: string) {
   try {
+    // Switching away from a live turn: stop it and drop pending queued messages.
+    if (sessionStore.busy) await interrupt();
+    resetLiveTurn();
+    sessionStore.queue = [];
     // Full load sets the active session in core state and gives the total count;
     // we only render the most-recent page, then page older on scrollback.
     const all = await ipc.loadSession(id);
@@ -263,22 +297,59 @@ export async function unarchiveSession(id: string) {
  * is not re-rendered to avoid duplication.
  */
 export async function send(text: string): Promise<void> {
+  // Busy: queue the message (FIFO) and return without invoking. The running turn's
+  // `finally` dispatches the next queued message when it frees up.
+  if (sessionStore.busy) {
+    sessionStore.queue.push(text);
+    return;
+  }
+  // Snapshot the session this turn belongs to. If the user switches sessions while
+  // the turn is in flight (interrupt + select/new), this turn's late-resolving
+  // promise must NOT touch the new session's shared turn state or queue.
+  const turnSessionId = sessionStore.activeSessionId;
   sessionStore.convo.push(entry("user", [{ kind: "text", text }]));
   sessionStore.busy = true;
   streamIdx = null;
   try {
     await ipc.sendMessage(text);
   } catch (e) {
+    // The session was switched mid-turn; the new session owns the thread now.
+    if (sessionStore.activeSessionId !== turnSessionId) return;
     // Surface the failed turn inline so it can be retried, not just a toast.
     const message = `${e}`;
     toast.error(message);
     sessionStore.convo.push(entry("assistant", [{ kind: "error", message, retryText: text }]));
   } finally {
-    sessionStore.busy = false;
-    sessionStore.streaming = false;
-    streamIdx = null;
-    await loadSessions(); // titles/timestamps may have changed
+    // Only reconcile shared state / dispatch the queue when still on this session.
+    // After a mid-turn switch, a new turn may already own busy/streaming/streamIdx
+    // and the queue belongs to the new session — leave them untouched.
+    if (sessionStore.activeSessionId === turnSessionId) {
+      sessionStore.busy = false;
+      sessionStore.streaming = false;
+      streamIdx = null;
+      await loadSessions(); // titles/timestamps may have changed
+      // Dispatch the next queued message, if any (FIFO; recursion is fine).
+      if (sessionStore.queue.length > 0) {
+        const next = sessionStore.queue.shift()!;
+        void send(next);
+      }
+    }
   }
+}
+
+/** Interrupt the in-flight turn. The running send()'s promise then resolves (core
+ * returns the partial), its `finally` runs, and the next queued message dispatches. */
+export async function interrupt(): Promise<void> {
+  try {
+    await ipc.interruptTurn();
+  } catch (e) {
+    toast.error(`${e}`);
+  }
+}
+
+/** Remove a queued (not-yet-sent) message by index. */
+export function removeQueued(i: number) {
+  sessionStore.queue.splice(i, 1);
 }
 
 /**

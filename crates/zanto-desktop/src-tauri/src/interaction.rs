@@ -60,6 +60,16 @@ impl TauriInteractor {
             let _ = tx.send(value);
         }
     }
+
+    /// Resolve every pending interaction with `Null`, unparking any turn waiting on
+    /// the user. An approval resolves to `Deny`; an `ask` form returns empty. Used by
+    /// `interrupt_turn` so a turn stalled on a HITL prompt reaches a cancel check.
+    pub fn cancel_all(&self) {
+        let pending: Vec<_> = self.inner.pending.lock().unwrap().drain().collect();
+        for (_id, tx) in pending {
+            let _ = tx.send(Value::Null);
+        }
+    }
 }
 
 #[async_trait]
@@ -101,6 +111,12 @@ impl TauriSink {
     /// Signal the end of the turn so the shell can finalize the streaming message.
     pub fn finish(&self) {
         let _ = self.app.emit("chat_done", ());
+    }
+
+    /// Mark the live turn as stopped (user interruption). Emitted before `finish()`
+    /// so the shell can flag the assistant entry before it finalizes.
+    pub fn stopped(&self) {
+        let _ = self.app.emit("chat_stopped", ());
     }
 }
 
