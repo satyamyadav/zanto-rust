@@ -23,11 +23,9 @@ consolidated `.prose-zanto`, global reduced-motion, and the agent-spine keyframe
   active bars use `primary`), the accent reverts to violet everywhere automatically — the
   agent spine and primary buttons become violet again with **no component edits**.
 
-## Open question
-- The signature spine "pulses amber" was the one bold mark. Reverting `--primary` to violet
-  makes the spine **violet**. If you want to keep an amber activity signal *while* the rest
-  of the theme is violet, add a dedicated `--activity` token (amber) and point the spine at
-  it. **Default for this spec: spine follows `--primary` (violet), no extra token.**
+## Resolved (user)
+- Spine **follows `--primary` (violet)** — no extra token. Reverting `--primary` flips the
+  spine, primary buttons, and active bars to violet automatically; no component edits.
 
 ## Affected files
 - `crates/zanto-desktop/src/app.css` (only).

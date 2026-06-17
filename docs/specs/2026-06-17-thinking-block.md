@@ -6,9 +6,10 @@
 ## Problem / interpretation
 The reasoning segment (C4) only renders when the model streams reasoning tokens — most
 local models (Ollama/qwen) never do, so the user sees no "thinking" while the agent works.
-**Interpretation:** show a turn-level **Thinking/Working block** that is always present
-during a running turn (independent of model reasoning), summarizing what the agent is
-doing, and that collapses to a summary when done. (Confirm this reading before building.)
+**Resolved (user): always-on working block.** Show a turn-level **Thinking/Working block**
+that is always present during a running turn (independent of model reasoning), summarizing
+what the agent is doing, collapsing to a summary when done. Real model reasoning (when
+present) renders inside it.
 
 ## Design
 - A per-assistant-turn header block, shown from the moment a turn starts streaming until

@@ -48,10 +48,11 @@ opened from the Sidebar, or a left-rail section:
   `crates/zanto-desktop/src/lib/components/Workspace.svelte` (the surface) + Sidebar entry +
   a composer context chip; remove the old Settings context list.
 
-## Open questions
-- Where should the Workspace surface live — a Sidebar dialog (like Artifacts), a left-rail
-  section, or a right-canvas mode? (Recommend: a dialog opened from a Sidebar "Workspace"
-  button, consistent with Settings/Artifacts.)
+## Resolved (user)
+- The Workspace surface is a **Sidebar dialog** (a "Workspace" button, consistent with
+  Settings/Artifacts) holding Project dir + context sources; a context chip sits by the composer.
+
+## Open question
 - Single project per app/workspace (recommended) vs per-session?
 
 ## Acceptance

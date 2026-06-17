@@ -32,11 +32,9 @@ navigate the shell; instead show a controlled preview with an explicit "open in 
   binding isn't already present (the Rust plugin is initialized in `lib.rs`).
 - No core change.
 
-## Open questions
-- Popup vs canvas as the **default** — spec assumes **popup**, with a one-click promote to
-  canvas. Confirm.
-- Allowlist/denylist of domains, or open anything? (Default: open any http(s) after the
-  explicit user click — the popup *is* the confirmation.)
+## Resolved (user)
+- **Popup default, with a one-click "View in panel" promote to canvas.** Open any http(s)
+  after the explicit user click (the popup is the confirmation); refuse non-http(s).
 
 ## Acceptance
 - `pnpm check` 0 / `build:web` clean. Manual: clicking a link in an assistant message opens

@@ -1,62 +1,67 @@
-# Artifact persistence model — save documents, not view blocks
+# Artifact persistence model — route by what the artifact IS
 
 - **Date:** 2026-06-17
-- **Ask:** "all artifacts are not saved — only some artifacts like complete page, md file
-  will be saved; others will be chat block or canvas views."
+- **Ask:** "all artifacts are not saved — only some (complete page, md file) saved; others
+  are chat block / canvas views."
+- **Resolved (user):** persistent **view+data** → **DB store**; **file** (md/image) →
+  **filesystem store**; choose **working (project) dir vs global** by what's present, and
+  **ask the user to set a working dir** when context calls for it.
 
-## Problem
-Today two overlapping concepts exist: `render_artifact` (catalogue → ephemeral chat/canvas
-block) and `store_artifact` (A3 → writes a file to disk, any kind). Nothing in the model
-says *which* artifacts are durable. The intent: **documents are saved; views are ephemeral.**
+## Three classes
+1. **Ephemeral view** — pure presentation over transient data (`table`, `metric`, `list`,
+   `kv`, `json`, `chart`, `nba`, finance views). Shown via `render_artifact` as a chat block
+   or canvas view. **Not persisted** to any durable store; survives only inside the session
+   (D1 message metadata for thread replay).
+2. **Persistent view+data** — a view the user wants to keep and re-open (a pinned chart, a
+   saved report/page that composes components + their data). Persisted as a **record in the
+   DataStore (DB)**: `{ component_id, data, target, title, created_at }`, so it can be
+   **re-rendered** later and listed in the browser. Structured/queryable, not a file.
+3. **File document** — a real file: **markdown document** or **image** (a "complete page"
+   exported as markdown counts here). Persisted to the **filesystem artifact store (A3)**.
 
-## Model
-Split artifacts into two classes:
+## Storage routing
+- **render_artifact(id, data, target)** → ephemeral view (class 1). Never writes a store.
+- **save_artifact(...)** → persist, routing by class:
+  - **file kind** (markdown / image / page-as-markdown) → **filesystem** store, at
+    `<project>/.zanto/artifacts` when a working/project dir is set, else the **global** store.
+  - **view kind** (a view+data the user pins) → **DataStore** record (component_id + data).
+- **Browser (E4)** lists **both** backends: filesystem documents + DB-pinned views; opening a
+  DB view re-renders it as a block, a file opens its markdown/image.
 
-- **Documents (persistable → A3 store, browseable):** a **markdown document**, a **complete
-  page** (a composed multi-section report/page), and **images**. These are saved to
-  `<project>/.zanto/artifacts` (or global), listed in the Artifact Browser, and can be
-  re-opened later.
-- **Views (ephemeral → chat block / canvas only):** `table`, `metric`, `list`, `kv`,
-  `json`, `chart`, `nba`, and the finance views. These render via `render_artifact` and are
-  **not** written to disk. They persist only inside the session (D1 stores them in message
-  metadata for thread replay) — not in the global artifact store.
+## Working-dir vs global + the prompt
+- Resolution order for file saves: `project_dir` if set → else global.
+- **Ask when context calls for it:** when the agent saves a file-class artifact and
+  `project_dir` is unset, surface a HITL prompt (reuse the `ask`/confirm channel): "Save to a
+  project folder or the global store?" with a folder picker → on pick, set `project_dir`
+  (and allow-path) so future outputs land there. Don't silently choose project when none
+  exists; don't nag when global is fine. (Ties into the Workspace spec, which owns setting
+  `project_dir`.)
 
-## Design
-- **Catalogue:** add a `persist: "document" | "view"` (or `savable: bool`) field to each
-  `ArtifactDef` in `catalogue.json`. Views = `view`; markdown + a new `page` = `document`.
-- **Tool roles, made explicit:**
-  - `render_artifact(id, data, target)` — display a **view** inline/canvas. If called on a
-    `document`-class id, it still renders, but does not by itself persist.
-  - `store_artifact(kind, title, content)` — persist a **document** (markdown/page/image)
-    to the store; restrict/guide it to document kinds (drop `text`/`json` as storable, or
-    keep but de-emphasize). Returns a ref the agent can mention; the doc opens in the
-    Artifact Browser / a markdown view.
-  - Update tool descriptions + the system-prompt artifact protocol to state: "render a
-    table/chart to show it (not saved); save a markdown document or page with store_artifact
-    (durable, appears in Artifacts)."
-- **New `page` document artifact:** a "complete page" = an ordered list of sections (heading
-  + markdown/blocks) rendered as a full document and savable. Schema:
-  `{ title, sections: [{ heading?, markdown }] }` (v1: markdown sections; embedding view
-  blocks inside a page is a later extension). Component: `Page.svelte` (reuses `Markdown`).
-- **Artifact Browser (E4):** already lists only the store → automatically shows only
-  documents/images. No change beyond the new `page` kind rendering.
+## Tooling + catalogue
+- Catalogue `ArtifactDef` gains a class hint so the model knows save behavior, e.g.
+  `storage: "ephemeral" | "view" | "file"` (table/chart… = ephemeral-or-view; markdown/page/
+  image = file). Render vs save is the *action*; storage backend follows the class above.
+- **One save tool** `save_artifact` (route internally) is simpler for the model than two;
+  keep `render_artifact` strictly for display. Update the system-prompt artifact protocol +
+  tool descriptions: "render a table/chart to **show** it (not saved); **save** a markdown
+  doc/page (file) or pin a view (kept in your data) with save_artifact."
+- "Complete page": a `page` = ordered sections (heading + markdown), rendered by a
+  `Page.svelte`; saved as a **markdown file** (class 3) by default, or as a **DB view** if it
+  embeds live view+data components.
 
 ## Affected files
-- `crates/zanto-desktop/src-tauri/catalogue.json` (add `persist`/`page`),
-  `crates/zanto-desktop/src/lib/registry.ts` + new `lib/blocks/Page.svelte`,
-  `crates/zanto-desktop/src-tauri/src/catalogue.rs` (carry the field; render_artifact
-  unaffected), `crates/zanto-core/src/tools/artifacts/store_artifact.rs` (guide kinds +
-  description), `ipc/chat.rs` ARTIFACT_PROTOCOL (clarify save-vs-show), `artifacts/mod.rs`
-  `ArtifactKind` add `Page` if stored as its own kind (or store pages as markdown).
+- `crates/zanto-core/src/artifacts/mod.rs` (fs store; project-vs-global already supported) +
+  a **DataStore-backed** view-pin path (new small module or reuse `data`), `tools/artifacts/`
+  (`save_artifact` routing + descriptions), `crates/zanto-desktop/src-tauri/catalogue.json`
+  (`storage` field + `page`), `catalogue.rs`, `registry.ts` + new `lib/blocks/Page.svelte`,
+  `ipc/artifacts.rs` + `ArtifactBrowser.svelte` (list both backends), `ipc/chat.rs`
+  ARTIFACT_PROTOCOL.
 
 ## Open questions
-- Is "complete page" a distinct savable type (recommended: yes, a `page` document), or just
-  "a long markdown doc"? Spec assumes a `page` document type with sections.
-- Should `store_artifact` auto-render the saved document inline too (save **and** show), or
-  just save + return a link/ref? (Recommend: save and show a compact "Saved: <title>" card
-  with an open action.)
+- One `save_artifact` (recommended) vs separate `store_document` + `pin_view`?
+- DB-pinned views: a new `artifacts` logical DataStore, or fold into an existing store?
 
 ## Acceptance
-- Build-check clean; `catalogue.json` still parses (Rust `Catalogue::load`). Manual: asking
-  for a table/chart renders a view that does **not** appear in the Artifact Browser; saving a
-  markdown doc / page **does** appear and re-opens.
+- Build-check clean; catalogue parses. Manual: a table/chart renders but is **not** in the
+  browser; saving a markdown doc writes a file (project if set, else global, with the prompt
+  when unset); pinning a chart stores it in the DB and it re-renders from the browser.
