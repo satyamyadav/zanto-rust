@@ -3,6 +3,7 @@
   import { ipc } from "$lib/ipc";
   import { send } from "$lib/stores/session.svelte";
   import Chart from "$lib/blocks/Chart.svelte";
+  import Onboarding from "./Onboarding.svelte";
   import { Plus, Receipt, Wallet, TrendingDown } from "@lucide/svelte";
 
   type Category = { category: string; total: number };
@@ -15,18 +16,39 @@
     top_categories?: Category[];
     series?: { labels: string[]; data: number[] };
   };
+  type Profile = {
+    setup: boolean;
+    currency?: string;
+    monthly_income?: number | null;
+    categories?: string[];
+  };
 
   let overview = $state<Overview | null>(null);
   let error = $state<string | null>(null);
+  // When there is no data, first-run onboarding takes over the empty state until
+  // a profile exists or the user skips it for this mount.
+  let needsOnboarding = $state(false);
 
   async function load() {
     overview = null;
     error = null;
     try {
       overview = await ipc.queryApp("finance", "overview");
+      if (overview?.empty) {
+        const profile: Profile = await ipc.queryApp("finance", "profile");
+        needsOnboarding = !profile?.setup;
+      } else {
+        needsOnboarding = false;
+      }
     } catch (e) {
       error = `${e}`;
     }
+  }
+
+  // After saving or skipping onboarding, dismiss it and refresh the overview.
+  function onboardingDone() {
+    needsOnboarding = false;
+    load();
   }
 
   onMount(load);
@@ -43,6 +65,8 @@
     <div class="text-sm text-destructive">Couldn't load overview: {error}</div>
   {:else if !overview}
     <div class="text-sm text-muted-foreground">Loading overview…</div>
+  {:else if overview.empty && needsOnboarding}
+    <Onboarding onDone={onboardingDone} />
   {:else if overview.empty}
     <div class="flex h-full flex-col items-center justify-center gap-4 text-center">
       <div class="rounded-full bg-muted p-4">

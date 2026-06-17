@@ -11,6 +11,11 @@ use zanto_core::session::{format_ts_display, unix_now_pub};
 use crate::app::{App, AppManifest, ComponentDecl, StartAction};
 
 const STORE: &str = "transactions";
+const PROFILE_STORE: &str = "finance_profile";
+
+/// Default expense categories seeded when a profile omits them.
+const DEFAULT_CATEGORIES: &[&str] =
+    &["groceries", "dining", "transport", "utilities", "rent", "entertainment", "other"];
 
 pub struct FinanceApp {
     manifest: AppManifest,
@@ -22,7 +27,7 @@ impl FinanceApp {
             id: "finance".to_string(),
             name: "Personal Finance".to_string(),
             description: "Track expenses and view spending summaries.".to_string(),
-            stores: vec![STORE.to_string()],
+            stores: vec![STORE.to_string(), PROFILE_STORE.to_string()],
             components: vec![
                 ComponentDecl {
                     id: "transactions_table".to_string(),
@@ -48,6 +53,21 @@ impl FinanceApp {
                 StartAction { label: "This month's summary".into(), prompt: "Show me this month's spending summary".into() },
                 StartAction { label: "Recent transactions".into(), prompt: "Show my recent transactions".into() },
                 StartAction { label: "Set a budget".into(), prompt: "Help me set a monthly budget".into() },
+                // F6 — canned multi-step workflows. Each prompt asks the agent to run a
+                // sequence of finance tools (≥2 tool calls), so the C6 workflow view groups them.
+                StartAction {
+                    label: "Import & categorize a statement".into(),
+                    prompt: "Import a bank statement: for each line item I give you, record it with \
+                             add_transaction (inferring a sensible category), then call \
+                             query_transactions to show the imported rows and monthly_summary for the \
+                             affected month so I can review the categorization.".into(),
+                },
+                StartAction {
+                    label: "Monthly review".into(),
+                    prompt: "Run my monthly review: call monthly_summary for the current month, then \
+                             query_transactions for that month to list the underlying transactions, \
+                             and finish with a short written takeaway of where my money went.".into(),
+                },
             ],
         };
         Arc::new(FinanceApp { manifest })
@@ -173,6 +193,72 @@ impl FinanceApp {
             "series": { "labels": months, "data": series },
         }))
     }
+
+    // ---- onboarding / profile (F2) ----
+
+    fn ensure_profile_store(&self, data: &DataStore) -> Result<(), String> {
+        data.create_store(PROFILE_STORE).map_err(|e| e.to_string())
+    }
+
+    /// The saved onboarding profile, or `{ "setup": false }` when none exists.
+    /// Picks the row with the greatest `saved_at` (last write wins) rather than
+    /// relying on the store's scan order, which is not contractually defined.
+    fn get_profile(&self, data: &DataStore) -> Result<Value, String> {
+        self.ensure_profile_store(data)?;
+        let rows = data.query(PROFILE_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let latest = rows
+            .into_iter()
+            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
+        match latest {
+            Some(r) => Ok(r.data),
+            None => Ok(json!({ "setup": false })),
+        }
+    }
+
+    /// Persist the onboarding profile. Idempotent at the read layer: each save stamps
+    /// a `saved_at`, and `get_profile` returns the row with the greatest `saved_at`, so
+    /// a re-run effectively overwrites the active profile (the DataStore API is
+    /// insert-only — no in-place update). Categories default when omitted.
+    fn do_save_profile(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        self.ensure_profile_store(data)?;
+
+        let currency = args
+            .get("currency")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("USD")
+            .to_string();
+
+        let monthly_income = args.get("monthly_income").and_then(|v| v.as_f64());
+
+        let categories: Vec<String> = match args.get("categories").and_then(|v| v.as_array()) {
+            Some(arr) => {
+                let cats: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if cats.is_empty() {
+                    DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect()
+                } else {
+                    cats
+                }
+            }
+            None => DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect(),
+        };
+
+        let profile = json!({
+            "setup": true,
+            "currency": currency,
+            "monthly_income": monthly_income,
+            "categories": categories,
+            "saved_at": unix_now_pub(),
+        });
+
+        data.insert(PROFILE_STORE, &profile).map_err(|e| e.to_string())?;
+        Ok(profile)
+    }
 }
 
 impl App for FinanceApp {
@@ -186,7 +272,14 @@ impl App for FinanceApp {
          add_transaction. To list transactions call query_transactions. For spending totals \
          call monthly_summary — never compute totals yourself. When the user asks to open, \
          show in a panel, or view a dashboard, pass target=\"canvas\"; otherwise omit it \
-         (defaults to inline)."
+         (defaults to inline).\n\n\
+         Inbuilt multi-step workflows — when the user asks for one of these, run the whole \
+         tool sequence in a single turn (do not stop after the first tool):\n\
+         - Import & categorize a statement: for each line item, call add_transaction with an \
+         inferred category, then call query_transactions and monthly_summary for the affected \
+         month so the user can review the result.\n\
+         - Monthly review: call monthly_summary for the target month, then query_transactions \
+         for that month, and finish with a short written takeaway."
             .to_string()
     }
 
@@ -249,6 +342,7 @@ impl App for FinanceApp {
             "list_transactions" => self.compute_transactions(data, args),
             "monthly_summary" => self.compute_monthly_summary(data, args),
             "overview" => self.compute_overview(data),
+            "profile" => self.get_profile(data),
             other => Err(format!("unknown query: {other}")),
         }
     }
@@ -256,6 +350,7 @@ impl App for FinanceApp {
     fn action(&self, data: &DataStore, name: &str, args: Value) -> Result<Value, String> {
         match name {
             "add_transaction" => self.do_add_transaction(data, args),
+            "save_profile" => self.do_save_profile(data, args),
             other => Err(format!("unknown action: {other}")),
         }
     }
