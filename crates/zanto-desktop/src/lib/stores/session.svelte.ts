@@ -165,6 +165,7 @@ export async function newSession() {
     sessionStore.queue = [];
     sessionStore.activeSessionId = await ipc.newSession();
     sessionStore.canvas = null;
+    sessionStore.promotedLink = null;
     loadedOffset = 0;
     sessionStore.hasMore = false;
     sessionStore.loadingOlder = false;
@@ -221,6 +222,7 @@ export async function selectSession(id: string) {
     sessionStore.hasMore = start > 0;
     sessionStore.loadingOlder = false;
     sessionStore.canvas = null;
+    sessionStore.promotedLink = null;
     sessionStore.activeSessionId = id;
   } catch (e) {
     toast.error(`${e}`);
