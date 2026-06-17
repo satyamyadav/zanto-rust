@@ -107,6 +107,8 @@ pub fn run() {
             ipc::files::browse_dir,
             ipc::artifacts::list_stored_artifacts_cmd,
             ipc::artifacts::read_stored_artifact_cmd,
+            ipc::artifacts::list_pinned_artifacts,
+            ipc::artifacts::read_pinned_artifact,
             interaction::respond,
         ])
         .run(tauri::generate_context!())

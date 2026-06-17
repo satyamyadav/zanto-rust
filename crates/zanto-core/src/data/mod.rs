@@ -387,6 +387,31 @@ mod tests {
     }
 
     #[test]
+    fn pinned_artifact_record_round_trips() {
+        // Mirrors the desktop `pin_artifact` path: a view+data record persisted to a
+        // logical store and read back newest-first.
+        let (ds, _dir) = store("default");
+        ds.create_store("pinned_artifacts").unwrap();
+        let record = json!({
+            "component_id": "chart",
+            "data": { "points": [1, 2, 3] },
+            "target": "canvas",
+            "title": "Spend",
+            "created_at": 1700000000u64,
+        });
+        let id = ds.insert("pinned_artifacts", &record).unwrap();
+
+        let q = Query { sort: Some(Sort { field: "created_at".into(), dir: Dir::Desc }), ..Default::default() };
+        let rows = ds.query("pinned_artifacts", &q).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, id);
+        assert_eq!(rows[0].data["component_id"], "chart");
+        assert_eq!(rows[0].data["target"], "canvas");
+        assert_eq!(rows[0].data["title"], "Spend");
+        assert_eq!(rows[0].data["data"]["points"], json!([1, 2, 3]));
+    }
+
+    #[test]
     fn unknown_store_errors() {
         let (ds, _dir) = store("/ws");
         assert!(matches!(ds.query("nope", &Query::default()), Err(DataError::UnknownStore(_))));

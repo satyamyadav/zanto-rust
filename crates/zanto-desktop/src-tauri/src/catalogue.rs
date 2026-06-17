@@ -119,8 +119,23 @@ pub fn shared_tools() -> Vec<GenaiTool> {
                 },
                 "required": ["id", "data"]
             })),
+        GenaiTool::new("pin_artifact")
+            .with_description("Persist a view+data artifact so the user can reopen it later from the Artifacts browser. Unlike render_artifact (which only shows it now and is not saved), pin_artifact saves the view and its data to the database. Call get_artifact(id) first to read its dataSchema, then call this with `data` matching that schema. For file documents (markdown/notes) use store_artifact instead. Pinning does not display anything — call render_artifact separately if you also want to show it now.")
+            .with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" },
+                    "data": { "type": "object" },
+                    "target": { "type": "string", "enum": ["inline", "canvas"] },
+                    "title": { "type": "string" }
+                },
+                "required": ["id", "data"]
+            })),
     ]
 }
+
+/// Logical DataStore name where pinned view+data artifacts are persisted.
+pub const PINNED_STORE: &str = "pinned_artifacts";
 
 /// Dispatcher layered over each app: handles the shared artifact tools, then
 /// delegates anything else to the app's own domain tools.
@@ -185,6 +200,53 @@ impl AppDispatcher for SharedDispatcher {
                     },
                 }
             }
+            "pin_artifact" => {
+                let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let data = args.get("data").cloned().unwrap_or(Value::Null);
+                let target = match args.get("target").and_then(|v| v.as_str()) {
+                    Some("canvas") => "canvas",
+                    _ => "inline",
+                };
+                let title = args.get("title").and_then(|v| v.as_str()).map(str::to_string);
+                let def = match self.catalogue.get(&id) {
+                    None => {
+                        return Some(Ok(AppResult::Data(json!({
+                            "error": format!("unknown artifact id '{id}'. pin_artifact only persists artifacts from the catalogue. Call list_artifacts for valid ids (e.g. \"chart\", \"table\", \"metric\"), then pin with that id."),
+                        }))));
+                    }
+                    Some(def) => def,
+                };
+                if def.storage == "file" {
+                    return Some(Ok(AppResult::Data(json!({
+                        "error": format!("artifact '{id}' is a file document, not a view. Use store_artifact to save it (pin_artifact only persists view+data artifacts)."),
+                    }))));
+                }
+                if let Err(details) = self.catalogue.validate(&id, &data) {
+                    return Some(Ok(AppResult::Data(json!({
+                        "error": "data did not match the artifact's dataSchema. Fix `data` to match the `dataSchema` below, then call pin_artifact again.",
+                        "details": details,
+                        "dataSchema": def.data_schema.clone(),
+                    }))));
+                }
+                let record = json!({
+                    "component_id": id,
+                    "data": data,
+                    "target": target,
+                    "title": title,
+                    "created_at": zanto_core::session::unix_now_pub(),
+                });
+                if let Err(e) = self.data.create_store(PINNED_STORE) {
+                    return Some(Err(format!("could not open pinned artifacts store: {e}")));
+                }
+                match self.data.insert(PINNED_STORE, &record) {
+                    Ok(record_id) => Some(Ok(AppResult::Data(json!({
+                        "pinned": true,
+                        "id": record_id,
+                        "title": title,
+                    })))),
+                    Err(e) => Some(Err(format!("could not pin artifact: {e}"))),
+                }
+            }
             _ => self.app.dispatch_tool(&self.data, name, args),
         }
     }
@@ -199,6 +261,14 @@ mod tests {
         let cat = Catalogue::load();
         assert_eq!(cat.get("chart").unwrap().storage, "view");
         assert_eq!(cat.get("markdown").unwrap().storage, "file");
+    }
+
+    #[test]
+    fn file_class_artifact_is_not_pinnable() {
+        // pin_artifact must reject "file"-class ids (model should use store_artifact).
+        let cat = Catalogue::load();
+        assert_eq!(cat.get("markdown").unwrap().storage, "file");
+        assert_eq!(cat.get("chart").unwrap().storage, "view");
     }
 
     #[test]

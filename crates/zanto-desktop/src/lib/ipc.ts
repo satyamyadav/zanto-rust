@@ -130,6 +130,18 @@ export type StoredArtifact = StoredArtifactRef & {
   content: string;
 };
 
+// A pinned view+data artifact (4b): a catalogue view persisted to the DB so it
+// can be reopened. The browser re-renders it as
+// `{ kind: "component", component_id, data, target }`.
+export type PinnedArtifact = {
+  id: number;
+  component_id: string;
+  title: string | null;
+  target: Target;
+  created_at: number;
+  data: any;
+};
+
 // Thin typed wrappers over the Tauri IPC surface (commands + events).
 export const ipc = {
   sendMessage: (text: string) => invoke<ChatTurn>("send_message", { text }),
@@ -159,6 +171,11 @@ export const ipc = {
     invoke<StoredArtifactRef[]>("list_stored_artifacts_cmd", { scope: scope ?? null }),
   readStoredArtifact: (id: string) =>
     invoke<StoredArtifact>("read_stored_artifact_cmd", { id }),
+
+  // Pinned view+data artifacts (4b): persisted catalogue views, reopenable.
+  listPinnedArtifacts: () => invoke<PinnedArtifact[]>("list_pinned_artifacts"),
+  readPinnedArtifact: (id: number) =>
+    invoke<PinnedArtifact>("read_pinned_artifact", { id }),
 
   // Config
   getConfig: () => invoke<Config>("get_config"),

@@ -27,7 +27,11 @@ without calling `render_artifact` in the same turn. \
 Tool roles differ: `render_artifact` SHOWS a view (table/chart/metric/etc) — it is \
 ephemeral and is not saved or browsable. `store_artifact` SAVES a durable document (a \
 markdown file or note) that the user can later open in the Artifacts browser; it displays \
-nothing. Use render_artifact to display, store_artifact to persist a document.";
+nothing. Use render_artifact to display, store_artifact to persist a document. \
+`pin_artifact` KEEPS a view+data artifact so the user can reopen it later from the \
+Artifacts browser — use it for a view worth saving (vs render_artifact, which only \
+shows it now, and store_artifact, which saves a file document). Pinning does not display; \
+call render_artifact too if you also want to show it now.";
 
 #[tauri::command]
 pub async fn send_message(

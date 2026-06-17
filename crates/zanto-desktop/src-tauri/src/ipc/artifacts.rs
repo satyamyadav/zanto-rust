@@ -9,9 +9,67 @@
 use std::path::Path;
 
 use base64::Engine;
+use serde::Serialize;
 use serde_json::{json, Value};
+use tauri::State;
 use zanto_core::artifacts::{ArtifactKind, ArtifactRef, ArtifactStore, Scope};
 use zanto_core::config::Settings;
+use zanto_core::data::{Dir, Query, Sort};
+
+use crate::catalogue::PINNED_STORE;
+use super::DesktopState;
+
+/// A pinned view+data artifact persisted in the `pinned_artifacts` DataStore (4b).
+/// The browser (4d) re-renders it by building a `{kind:"component", component_id,
+/// data, target}` block from these fields.
+#[derive(Serialize)]
+pub struct PinnedArtifact {
+    pub id: i64,
+    pub component_id: String,
+    pub title: Option<String>,
+    pub target: String,
+    pub created_at: u64,
+    pub data: Value,
+}
+
+/// Map a DataStore record into a `PinnedArtifact`. The persisted JSON shape is
+/// `{ component_id, data, target, title, created_at }` (see `pin_artifact`).
+fn pinned_from_record(rec: zanto_core::data::Record) -> PinnedArtifact {
+    let obj = &rec.data;
+    PinnedArtifact {
+        id: rec.id,
+        component_id: obj.get("component_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        title: obj.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        target: obj.get("target").and_then(|v| v.as_str()).unwrap_or("inline").to_string(),
+        created_at: obj.get("created_at").and_then(|v| v.as_u64()).unwrap_or(rec.created_at),
+        data: obj.get("data").cloned().unwrap_or(Value::Null),
+    }
+}
+
+/// List pinned view+data artifacts, newest first. Empty when nothing pinned yet
+/// (the store may not exist until the first `pin_artifact`).
+#[tauri::command]
+pub fn list_pinned_artifacts(state: State<'_, DesktopState>) -> Result<Vec<PinnedArtifact>, String> {
+    // Ensure the store exists so a never-pinned workspace returns [] not an error.
+    state.data.create_store(PINNED_STORE).map_err(|e| e.to_string())?;
+    let q = Query {
+        sort: Some(Sort { field: "created_at".into(), dir: Dir::Desc }),
+        ..Default::default()
+    };
+    let rows = state.data.query(PINNED_STORE, &q).map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(pinned_from_record).collect())
+}
+
+/// Read one pinned artifact by its record id.
+#[tauri::command]
+pub fn read_pinned_artifact(state: State<'_, DesktopState>, id: i64) -> Result<PinnedArtifact, String> {
+    state.data.create_store(PINNED_STORE).map_err(|e| e.to_string())?;
+    let rows = state.data.query(PINNED_STORE, &Query::default()).map_err(|e| e.to_string())?;
+    rows.into_iter()
+        .find(|r| r.id == id)
+        .map(pinned_from_record)
+        .ok_or_else(|| format!("pinned artifact not found: {id}"))
+}
 
 /// Build a store rooted at the configured project dir (project scope) and the
 /// data dir (global scope).
