@@ -4,6 +4,7 @@
   import type { ChatBlock } from "./ipc";
   import { componentRegistry } from "./registry";
   import { validateArtifact } from "./stores/artifacts.svelte";
+  import { interceptLinks } from "./links.svelte";
   import Json from "./blocks/Json.svelte";
 
   let { block }: { block: ChatBlock } = $props();
@@ -31,5 +32,5 @@
   {/if}
 {:else}
   <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-  <div class="prose-zanto">{@html html}</div>
+  <div use:interceptLinks class="prose-zanto">{@html html}</div>
 {/if}

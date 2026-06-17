@@ -29,6 +29,7 @@ export const sessionStore = $state({
   activeSessionId: null as string | null,
   convo: [] as ChatEntry[], // chat thread (role-tagged segment entries)
   canvas: null as ChatBlock | null, // right-panel view
+  promotedLink: null as string | null, // a link promoted to the canvas panel
   busy: false,
   streaming: false, // assistant tokens currently arriving
   hasMore: false, // older history exists above the loaded window
