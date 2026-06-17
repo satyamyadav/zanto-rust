@@ -224,8 +224,34 @@ pub async fn chat(
 
     push_msg(store, session, ChatMessage::user(question)).await?;
 
+    // Running-summary trigger (ContextPolicy::Summarize): once per turn, fold the
+    // history beyond the last `keep_last` turns into the session's stored summary so
+    // `effective_messages` can prepend it. A summarize failure is logged and skipped
+    // — the turn proceeds without an updated summary rather than aborting.
+    if let ContextPolicy::Summarize { keep_last } = policy {
+        let turn_count = session
+            .messages
+            .iter()
+            .filter(|m| matches!(m.role, genai::chat::ChatRole::User))
+            .count();
+        if crate::summarize::should_summarize(turn_count, *keep_last) {
+            let older = crate::session::messages_before_last_turns(&session.messages, *keep_last);
+            if !older.is_empty() {
+                match crate::summarize::summarize_messages(&client, &config.model, &older).await {
+                    Ok(summary) if !summary.trim().is_empty() => {
+                        store.set_summary(&session.id, Some(&summary))?;
+                        session.summary = Some(summary);
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("[zanto] warn: summarize failed, proceeding without summary: {e}"),
+                }
+            }
+        }
+    }
+
     let base_prompt =
-        "You are a helpful assistant. Use the provided tools to answer questions about the filesystem.";
+        "You are a helpful assistant. Use the provided tools to answer questions about the filesystem. \
+When a user message contains an @<path> token, treat it as a request to read that file with the read_file tool before answering.";
     let system_text = build_system_prompt(
         base_prompt,
         &crate::session::system_info(),
@@ -243,7 +269,8 @@ pub async fn chat(
     // accumulated per-chunk so the sink can render it live.
     let stream_options = ChatOptions::default()
         .with_capture_content(true)
-        .with_capture_tool_calls(true);
+        .with_capture_tool_calls(true)
+        .with_capture_reasoning_content(true);
 
     let mut blocks: Vec<ChatBlock> = Vec::new();
     let mut turn = 1;

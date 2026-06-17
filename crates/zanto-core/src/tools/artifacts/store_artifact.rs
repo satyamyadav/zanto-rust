@@ -16,7 +16,7 @@ pub struct Args {
         description = "Content: UTF-8 text for markdown/json/text; base64-encoded bytes for image"
     )]
     pub content: String,
-    #[schemars(description = "Scope: project (default) or global")]
+    #[schemars(description = "Scope: global (default) or project")]
     #[serde(default)]
     pub scope: Option<Scope>,
 }
@@ -47,7 +47,7 @@ impl ToolBase for StoreArtifact {
 
 impl AsyncTool<super::ArtifactTools> for StoreArtifact {
     async fn invoke(svc: &super::ArtifactTools, args: Args) -> Result<String, ErrorData> {
-        let scope = args.scope.unwrap_or(Scope::Project);
+        let scope = args.scope.unwrap_or(Scope::Global);
 
         // Images arrive base64-encoded; text kinds are stored verbatim. Models
         // often wrap base64 across lines, so strip ASCII whitespace and accept

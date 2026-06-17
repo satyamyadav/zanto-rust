@@ -207,8 +207,19 @@ fn count_turns(messages: &[ChatMessage]) -> usize {
         .count()
 }
 
-fn trim_to_turns(messages: &[ChatMessage], max_turns: usize) -> Vec<ChatMessage> {
-    // Split into turns at User boundaries; system messages are excluded (caller injects them).
+/// The older messages that `trim_to_turns(.., keep_last)` would drop: everything
+/// except the last `keep_last` turns. System messages are excluded (the inverse of
+/// the kept tail). Empty when there are `keep_last` turns or fewer. Used to feed the
+/// summarizer the history being folded out of the live window.
+pub fn messages_before_last_turns(messages: &[ChatMessage], keep_last: usize) -> Vec<ChatMessage> {
+    let turns = split_into_turns(messages);
+    let end = turns.len().saturating_sub(keep_last);
+    turns[..end].iter().flatten().cloned().collect()
+}
+
+/// Split messages into conversation turns at non-system `User` boundaries; system
+/// messages are excluded (the caller injects them).
+fn split_into_turns(messages: &[ChatMessage]) -> Vec<Vec<ChatMessage>> {
     let conv: Vec<&ChatMessage> = messages
         .iter()
         .filter(|m| !matches!(m.role, ChatRole::System))
@@ -216,7 +227,6 @@ fn trim_to_turns(messages: &[ChatMessage], max_turns: usize) -> Vec<ChatMessage>
 
     let mut turns: Vec<Vec<ChatMessage>> = Vec::new();
     let mut current: Vec<ChatMessage> = Vec::new();
-
     for msg in conv {
         if matches!(msg.role, ChatRole::User) && !current.is_empty() {
             turns.push(std::mem::take(&mut current));
@@ -226,7 +236,11 @@ fn trim_to_turns(messages: &[ChatMessage], max_turns: usize) -> Vec<ChatMessage>
     if !current.is_empty() {
         turns.push(current);
     }
+    turns
+}
 
+fn trim_to_turns(messages: &[ChatMessage], max_turns: usize) -> Vec<ChatMessage> {
+    let turns = split_into_turns(messages);
     let start = turns.len().saturating_sub(max_turns);
     turns[start..].iter().flatten().cloned().collect()
 }
@@ -886,6 +900,33 @@ mod tests {
         assert!(effective[0].content.first_text().unwrap().contains("earlier recap"));
         assert_eq!(effective[1].content.first_text().unwrap(), "q2");
         assert_eq!(effective[3].content.first_text().unwrap(), "q3");
+    }
+
+    #[test]
+    fn messages_before_last_turns_returns_older_complement() {
+        let mut msgs = Vec::new();
+        // 4 turns: user+assistant each.
+        for i in 0..4u8 {
+            msgs.push(ChatMessage::user(format!("q{i}")));
+            msgs.push(ChatMessage::assistant(format!("a{i}")));
+        }
+
+        // keep_last=2 → older = turns 0,1 (4 messages: q0,a0,q1,a1).
+        let older = messages_before_last_turns(&msgs, 2);
+        assert_eq!(older.len(), 4);
+        assert_eq!(older[0].content.first_text().unwrap(), "q0");
+        assert_eq!(older[3].content.first_text().unwrap(), "a1");
+        // The kept tail (q2,q3) must NOT appear in the older slice.
+        assert!(!older.iter().any(|m| m.content.first_text() == Some("q2")));
+
+        // Within budget → nothing older.
+        assert!(messages_before_last_turns(&msgs, 4).is_empty());
+        assert!(messages_before_last_turns(&msgs, 10).is_empty());
+        // System messages are excluded from the older slice.
+        let mut with_sys = vec![ChatMessage::system("sys")];
+        with_sys.extend(msgs.clone());
+        let older_sys = messages_before_last_turns(&with_sys, 2);
+        assert!(!older_sys.iter().any(|m| matches!(m.role, ChatRole::System)));
     }
 
     #[test]
