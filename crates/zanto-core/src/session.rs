@@ -441,12 +441,13 @@ impl Store {
     }
 
     /// List non-archived sessions, optionally filtered by workspace/app.
+    /// Unpaginated (all rows). Prefer `list_sessions_page` for large lists.
     pub fn list_sessions(
         &self,
         workspace_filter: Option<&str>,
         app_filter: Option<&str>,
     ) -> Result<Vec<SessionMeta>, SessionError> {
-        self.list_sessions_filtered(workspace_filter, app_filter, false)
+        self.list_sessions_filtered(workspace_filter, app_filter, false, 0, None)
     }
 
     /// List archived sessions, optionally filtered by workspace/app.
@@ -455,14 +456,31 @@ impl Store {
         workspace_filter: Option<&str>,
         app_filter: Option<&str>,
     ) -> Result<Vec<SessionMeta>, SessionError> {
-        self.list_sessions_filtered(workspace_filter, app_filter, true)
+        self.list_sessions_filtered(workspace_filter, app_filter, true, 0, None)
     }
 
+    /// List one page of sessions (newest-first), windowed by `offset`/`limit`.
+    /// `archived` selects the active (false) or archived (true) list.
+    pub fn list_sessions_page(
+        &self,
+        workspace_filter: Option<&str>,
+        app_filter: Option<&str>,
+        archived: bool,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<SessionMeta>, SessionError> {
+        self.list_sessions_filtered(workspace_filter, app_filter, archived, offset, Some(limit))
+    }
+
+    /// Shared list query. `limit == None` returns all rows from `offset`
+    /// onward; `Some(n)` windows to at most `n` rows. Ordered newest-first.
     fn list_sessions_filtered(
         &self,
         workspace_filter: Option<&str>,
         app_filter: Option<&str>,
         archived: bool,
+        offset: usize,
+        limit: Option<usize>,
     ) -> Result<Vec<SessionMeta>, SessionError> {
         let conn = self.conn.lock().unwrap();
 
@@ -484,6 +502,14 @@ impl Store {
         sql.push_str(" WHERE ");
         sql.push_str(&conds.join(" AND "));
         sql.push_str(" GROUP BY s.id ORDER BY s.updated_at DESC");
+        // LIMIT/OFFSET bound as params. SQLite needs a LIMIT to honour an OFFSET,
+        // so an unbounded page (limit None) uses LIMIT -1 (all rows).
+        match limit {
+            Some(n) => binds.push(n.to_string()),
+            None => binds.push("-1".to_string()),
+        }
+        binds.push(offset.to_string());
+        sql.push_str(" LIMIT ? OFFSET ?");
 
         let mut stmt = conn.prepare(&sql)?;
         stmt.query_map(rusqlite::params_from_iter(binds.iter()), row_to_meta)?
@@ -1061,6 +1087,42 @@ mod tests {
         assert_eq!(arch.len(), 1);
         assert_eq!(arch[0].id, archived.id);
         assert!(arch[0].archived);
+    }
+
+    #[test]
+    fn list_sessions_page_windows_newest_first() {
+        let (store, _dir) = temp_store();
+        // Insert 25 sessions with strictly increasing updated_at so order is
+        // deterministic (newest-first = highest updated_at first).
+        let mut ids = Vec::new();
+        for i in 0..25u64 {
+            let mut s = make_session("/ws");
+            s.updated_at = 1000 + i;
+            store.save_session(&s).unwrap();
+            ids.push(s.id);
+        }
+        // ids[24] is newest. Page through in chunks of 10.
+        let page_size = 10;
+        let p0 = store.list_sessions_page(Some("/ws"), None, false, 0, page_size).unwrap();
+        assert_eq!(p0.len(), 10);
+        assert_eq!(p0[0].id, ids[24]); // newest first
+        assert_eq!(p0[9].id, ids[15]);
+
+        let p1 = store.list_sessions_page(Some("/ws"), None, false, 10, page_size).unwrap();
+        assert_eq!(p1.len(), 10);
+        assert_eq!(p1[0].id, ids[14]);
+        assert_eq!(p1[9].id, ids[5]);
+
+        let p2 = store.list_sessions_page(Some("/ws"), None, false, 20, page_size).unwrap();
+        assert_eq!(p2.len(), 5); // remainder
+        assert_eq!(p2[0].id, ids[4]);
+        assert_eq!(p2[4].id, ids[0]);
+
+        // Offset past the end yields empty.
+        assert!(store.list_sessions_page(Some("/ws"), None, false, 100, page_size).unwrap().is_empty());
+
+        // Unpaginated list still returns all rows.
+        assert_eq!(store.list_sessions(Some("/ws"), None).unwrap().len(), 25);
     }
 
     #[test]

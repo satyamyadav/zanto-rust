@@ -178,6 +178,8 @@ export const ipc = {
     invoke<any>("run_app_action", { id, action, args }),
   // Sessions (scoped to the active app)
   listSessions: () => invoke<SessionMeta[]>("list_sessions"),
+  listSessionsPage: (offset: number, limit: number) =>
+    invoke<SessionMeta[]>("list_sessions_page", { offset, limit }),
   loadSession: (id: string) => invoke<RenderMsg[]>("load_session", { id }),
   loadSessionPage: (id: string, offset: number, limit: number) =>
     invoke<RenderMsg[]>("load_session_page", { id, offset, limit }),

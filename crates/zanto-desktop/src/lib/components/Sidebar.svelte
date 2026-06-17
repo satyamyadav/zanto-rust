@@ -22,6 +22,7 @@
     renameSession,
     archiveSession,
     unarchiveSession,
+    loadMoreSessions,
   } from "$lib/stores/session.svelte";
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
@@ -30,14 +31,35 @@
 
   let archivedOpen = $state(false);
 
+  // True while an app switch is in flight: drives the loading affordance and
+  // guards against concurrent switches racing the session list.
+  let switching = $state(false);
+
   // The general "Chat" app is surfaced separately from the vertical apps.
   const chatApp = $derived(appStore.apps.find((a) => a.id === "chat"));
   const verticalApps = $derived(appStore.apps.filter((a) => a.id !== "chat"));
 
   async function switchTo(id: string) {
-    await mountApp(id);
-    sessionStore.canvas = null;
-    await newSession(); // clears the thread, opens a fresh chat, reloads the list
+    // Race guard: ignore further clicks while a switch is already running, so
+    // rapid switches can't run mountApp/newSession concurrently and leave the
+    // session list mismatched with the active app.
+    if (switching) return;
+    switching = true;
+    try {
+      await mountApp(id);
+      sessionStore.canvas = null;
+      await newSession(); // clears the thread, opens a fresh chat, reloads the list
+    } finally {
+      switching = false;
+    }
+  }
+
+  // Infinite scroll: when the session list nears the bottom and more pages
+  // exist, fetch the next page.
+  function onSessionsScroll(e: Event) {
+    const el = e.currentTarget as HTMLElement;
+    if (!sessionStore.sessionsHasMore || sessionStore.loadingMoreSessions) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) loadMoreSessions();
   }
 
   function relTime(unixSecs: number): string {
@@ -75,10 +97,11 @@
     {#if chatApp}
       {@const active = appStore.activeId === chatApp.id}
       <button
-        class="relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors {focusRing} {active
+        class="relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 {focusRing} {active
           ? 'bg-sidebar-accent text-sidebar-accent-foreground'
           : 'hover:bg-sidebar-accent/60'}"
         aria-current={active ? "true" : undefined}
+        disabled={switching}
         onclick={() => switchTo(chatApp.id)}
       >
         {#if active}
@@ -98,10 +121,11 @@
       {#each verticalApps as a}
         {@const active = appStore.activeId === a.id}
         <button
-          class="relative w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors {focusRing} {active
+          class="relative w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-60 {focusRing} {active
             ? 'bg-sidebar-accent text-sidebar-accent-foreground'
             : 'hover:bg-sidebar-accent/60'}"
           aria-current={active ? "true" : undefined}
+          disabled={switching}
           onclick={() => switchTo(a.id)}
         >
           {#if active}
@@ -133,7 +157,12 @@
     </Button>
   </div>
 
-  <div class="flex-1 space-y-0.5 overflow-auto px-2">
+  <div
+    class="flex-1 space-y-0.5 overflow-auto px-2 transition-opacity {switching
+      ? 'pointer-events-none opacity-50'
+      : ''}"
+    onscroll={onSessionsScroll}
+  >
     {#each sessionStore.sessions as s (s.id)}
       {@const active = sessionStore.activeSessionId === s.id}
       <div
@@ -175,6 +204,9 @@
         </DropdownMenu.Root>
       </div>
     {/each}
+    {#if sessionStore.loadingMoreSessions}
+      <div class="px-2 py-2 text-center text-xs text-muted-foreground">Loading…</div>
+    {/if}
     {#if sessionStore.sessions.length === 0}
       <div class="px-2 py-6 text-center">
         <p class="text-sm text-foreground">No chats yet</p>

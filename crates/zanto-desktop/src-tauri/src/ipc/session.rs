@@ -13,6 +13,21 @@ pub fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionMeta>,
         .map_err(|e| e.to_string())
 }
 
+/// One page of the active app's non-archived sessions (newest-first), windowed
+/// by `offset`/`limit`. Backs the sidebar's infinite-scroll session list.
+#[tauri::command]
+pub fn list_sessions_page(
+    state: State<'_, DesktopState>,
+    offset: usize,
+    limit: usize,
+) -> Result<Vec<SessionMeta>, String> {
+    let app_id = state.active_app_id();
+    state
+        .store
+        .list_sessions_page(Some(&state.workspace), app_id.as_deref(), false, offset, limit)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<Vec<RenderMsg>, String> {
     let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;

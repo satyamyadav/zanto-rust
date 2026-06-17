@@ -2,7 +2,7 @@
 // thread (segment-modeled entries), and the right-panel canvas block.
 import { toast } from "svelte-sonner";
 import { ipc, type ChatBlock, type RenderMsg, type SessionMeta } from "$lib/ipc";
-import { activeApp } from "$lib/stores/app.svelte";
+import { activeApp, appStore } from "$lib/stores/app.svelte";
 
 // A chat entry is a sequence of typed segments rather than a single block, so
 // thinking/tool-call/component renderers are independent segment components.
@@ -40,6 +40,8 @@ export const sessionStore = $state({
   streaming: false, // assistant tokens currently arriving
   hasMore: false, // older history exists above the loaded window
   loadingOlder: false, // a loadOlder() fetch is in flight
+  sessionsHasMore: false, // more session-list pages exist below the loaded window
+  loadingMoreSessions: false, // a loadMoreSessions() fetch is in flight
 });
 
 // How many display messages to show on first open / fetch per scrollback page.
@@ -47,6 +49,13 @@ const PAGE_SIZE = 30;
 // Offset (into the filtered display list) of the oldest message currently in
 // `convo`. Older pages live at [loadedOffset - PAGE_SIZE, loadedOffset).
 let loadedOffset = 0;
+
+// How many sessions to fetch per session-list page (infinite scroll).
+const SESSIONS_PAGE_SIZE = 30;
+// Bumped on every full session-list refresh / app switch / new session. A
+// loadMoreSessions() in flight captures it and discards its page if the
+// generation moved, so a stale append can't land on a freshly-refreshed list.
+let sessionsLoadGen = 0;
 
 // Index of the live assistant entry currently being streamed (or null when the
 // next streamed segment should open a fresh assistant entry).
@@ -146,14 +155,62 @@ export function initStreaming() {
   });
 }
 
-/** Refresh the session list for the active app. */
+/** Refresh the session list for the active app, preserving how many rows are
+ * currently shown so an infinite-scrolled list isn't collapsed back to one page
+ * by an unrelated refresh (rename/delete/turn-finish all call this). Bumps the
+ * load generation, which invalidates any loadMoreSessions() in flight.
+ *
+ * Captures the active app id at call time and only commits the result if that
+ * app is still active when the IPC resolves, so a slow load from app A cannot
+ * overwrite app B's list after a switch. */
 export async function loadSessions() {
-  sessionStore.sessions = await ipc.listSessions();
+  const appId = appStore.activeId;
+  ++sessionsLoadGen; // invalidate any loadMoreSessions() in flight
+  // Re-fetch at least one page, or enough to cover everything already scrolled
+  // into view (rounded up to a whole page), so the visible window is preserved.
+  const want = Math.max(SESSIONS_PAGE_SIZE, ceilToPage(sessionStore.sessions.length));
+  const page = await ipc.listSessionsPage(0, want);
+  if (appStore.activeId !== appId) return; // stale: app switched mid-load
+  sessionStore.sessions = page;
+  sessionStore.sessionsHasMore = page.length === want;
+  sessionStore.loadingMoreSessions = false;
 }
 
-/** Refresh the archived-session list for the active app. */
+/** Append the next page of sessions (infinite scroll). Guarded against both an
+ * app switch and a concurrent full refresh (generation bump) landing first. */
+export async function loadMoreSessions() {
+  if (!sessionStore.sessionsHasMore || sessionStore.loadingMoreSessions) return;
+  const appId = appStore.activeId;
+  const gen = sessionsLoadGen;
+  sessionStore.loadingMoreSessions = true;
+  try {
+    const offset = sessionStore.sessions.length;
+    const page = await ipc.listSessionsPage(offset, SESSIONS_PAGE_SIZE);
+    // Discard the page if the list was refreshed or the app switched mid-fetch,
+    // so it can't append onto a list it no longer lines up with.
+    if (appStore.activeId !== appId || sessionsLoadGen !== gen) return;
+    sessionStore.sessions = [...sessionStore.sessions, ...page];
+    sessionStore.sessionsHasMore = page.length === SESSIONS_PAGE_SIZE;
+  } catch (e) {
+    toast.error(`${e}`);
+  } finally {
+    if (appStore.activeId === appId && sessionsLoadGen === gen) {
+      sessionStore.loadingMoreSessions = false;
+    }
+  }
+}
+
+/** Round a count up to a whole number of session pages. */
+function ceilToPage(n: number): number {
+  return Math.ceil(n / SESSIONS_PAGE_SIZE) * SESSIONS_PAGE_SIZE;
+}
+
+/** Refresh the archived-session list for the active app. Active-id guarded. */
 export async function loadArchived() {
-  sessionStore.archivedSessions = await ipc.listArchivedSessions();
+  const appId = appStore.activeId;
+  const list = await ipc.listArchivedSessions();
+  if (appStore.activeId !== appId) return; // stale: app switched mid-load
+  sessionStore.archivedSessions = list;
 }
 
 export async function newSession() {
@@ -169,6 +226,12 @@ export async function newSession() {
     loadedOffset = 0;
     sessionStore.hasMore = false;
     sessionStore.loadingOlder = false;
+    // Reset session-list paging: a new session / app switch starts the list at
+    // page 0 (clearing the window also stops loadSessions from re-fetching the
+    // previous app's larger scrolled window).
+    sessionStore.sessions = [];
+    sessionStore.sessionsHasMore = false;
+    sessionStore.loadingMoreSessions = false;
     // Seed the chat-start NBA from the active app's suggested actions.
     const app = activeApp();
     sessionStore.convo =
