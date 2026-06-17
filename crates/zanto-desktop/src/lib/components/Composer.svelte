@@ -7,6 +7,7 @@
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
   import XIcon from "@lucide/svelte/icons/x";
   import FileIcon from "@lucide/svelte/icons/file";
+  import ImageIcon from "@lucide/svelte/icons/image";
   import FolderIcon from "@lucide/svelte/icons/folder";
   import TerminalIcon from "@lucide/svelte/icons/terminal";
   import LoaderIcon from "@lucide/svelte/icons/loader";
@@ -40,9 +41,17 @@
 
   type Paste = { id: number; text: string; lines: number };
 
-  // Attached files (button or drag-drop). Lazy `@path` references — the agent
-  // reads them with `read_document`; no eager extraction here.
-  type Attachment = { id: number; path: string; name: string };
+  // Attached files (button or drag-drop). Documents are lazy `@path` references
+  // (the agent reads them with `read_document`); images ride the user message as
+  // vision input when the model supports it (see session.send / send_message).
+  type Attachment = { id: number; path: string; name: string; isImage: boolean };
+
+  // Image extensions sent as vision input rather than `@path` document refs.
+  const IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif", "bmp"];
+  function isImagePath(path: string): boolean {
+    const ext = path.split(".").pop()?.toLowerCase() ?? "";
+    return IMAGE_EXTS.includes(ext);
+  }
 
   let input = $state("");
   let pastes = $state<Paste[]>([]);
@@ -65,7 +74,10 @@
   async function addAttachments(paths: string[]) {
     for (const path of paths) {
       if (!path || attachments.some((a) => a.path === path)) continue;
-      attachments = [...attachments, { id: nextId++, path, name: basename(path) }];
+      attachments = [
+        ...attachments,
+        { id: nextId++, path, name: basename(path), isImage: isImagePath(path) },
+      ];
       try {
         await ipc.addAllowedPath(dirname(path));
       } catch (e) {
@@ -120,9 +132,13 @@
   function composeMessage(): string {
     const typed = input.trim();
     const pasted = pastes.map((p) => p.text).join("\n\n");
-    // Attachments become `@<path>` tokens (same convention as the @-tag picker)
-    // so the agent reads them via `read_document`.
-    const attached = attachments.map((a) => `@${a.path}`).join(" ");
+    // Document attachments become `@<path>` tokens (same convention as the @-tag
+    // picker) so the agent reads them via `read_document`. Image attachments are
+    // sent separately as vision input (see submit), not as `@path` tokens.
+    const attached = attachments
+      .filter((a) => !a.isImage)
+      .map((a) => `@${a.path}`)
+      .join(" ");
     return [typed, pasted, attached].filter((s) => s.length > 0).join("\n\n");
   }
 
@@ -130,13 +146,16 @@
     // While busy, Enter queues the message (send() handles the FIFO queue); the
     // Stop button — not submit — interrupts the running turn.
     const text = composeMessage();
-    if (!text) return;
+    // Image attachments carry no `@path` text, so allow a send with images even
+    // when the composed text is empty.
+    const imagePaths = attachments.filter((a) => a.isImage).map((a) => a.path);
+    if (!text && imagePaths.length === 0) return;
     input = "";
     pastes = [];
     attachments = [];
     closeMenu();
     try {
-      await send(text);
+      await send(text, imagePaths);
     } catch (e) {
       toast.error(`${e}`);
     }
@@ -397,7 +416,11 @@
           class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
           title={a.path}
         >
-          <FileIcon class="size-3.5" />
+          {#if a.isImage}
+            <ImageIcon class="size-3.5" />
+          {:else}
+            <FileIcon class="size-3.5" />
+          {/if}
           <span class="max-w-48 truncate font-mono">{a.name}</span>
           <button
             type="button"

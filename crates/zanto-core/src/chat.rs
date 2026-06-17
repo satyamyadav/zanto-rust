@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use futures::StreamExt;
 use genai::{Client, ServiceTarget};
-use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ToolCall, ToolResponse};
+use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent, ToolCall, ToolResponse};
 // Re-exported so downstream crates (the desktop app) can build tool schemas
 // without depending on genai directly.
 pub use genai::chat::Tool as GenaiTool;
@@ -104,6 +104,17 @@ pub trait ChatSink: Send + Sync {
 
 // ---- Config ----
 
+/// An image attached to a turn, sent to the model as vision content (a base64
+/// binary content part on the first user message). The caller is responsible for
+/// gating by provider capability — `chat()` attaches whatever it is given.
+#[derive(Debug, Clone)]
+pub struct ImageAttachment {
+    /// MIME type, e.g. "image/png".
+    pub mime: String,
+    /// Base64-encoded image bytes (no data-URL prefix).
+    pub b64: String,
+}
+
 pub struct ChatConfig {
     pub model: String,
     pub endpoint: String,
@@ -125,6 +136,10 @@ pub struct ChatConfig {
     /// the next safe check point and returns the partial turn with `stopped = true`.
     /// `None` (the default) means the turn cannot be interrupted.
     pub cancel: Option<Arc<AtomicBool>>,
+    /// Images to attach to this turn as vision content on the first user message.
+    /// Empty (the default) means a plain text user message. The caller decides
+    /// whether the active provider can read images before populating this.
+    pub images: Vec<ImageAttachment>,
 }
 
 impl ChatConfig {
@@ -140,6 +155,7 @@ impl ChatConfig {
             app_dispatch: None,
             sink: None,
             cancel: None,
+            images: Vec::new(),
         }
     }
 }
@@ -193,7 +209,7 @@ pub fn build_system_prompt(
 // ---- Chat loop ----
 
 pub async fn chat(
-    config: ChatConfig,
+    mut config: ChatConfig,
     store: &Store,
     session: &mut Session,
     question: &str,
@@ -237,7 +253,23 @@ pub async fn chat(
         .with_auth_resolver(auth_resolver)
         .build();
 
-    push_msg(store, session, ChatMessage::user(question)).await?;
+    // Build the first user message. With image attachments and a multimodal
+    // provider, send a multipart message (text + one image binary part each) so
+    // the model sees the images as vision input. Otherwise a plain text message.
+    let user_msg = if config.images.is_empty() {
+        ChatMessage::user(question)
+    } else {
+        let mut parts: Vec<ContentPart> = Vec::with_capacity(config.images.len() + 1);
+        if !question.is_empty() {
+            parts.push(ContentPart::from_text(question));
+        }
+        // Move each base64 payload into the content part (no clone of the bytes).
+        for img in std::mem::take(&mut config.images) {
+            parts.push(ContentPart::from_binary_base64(img.mime, img.b64, None));
+        }
+        ChatMessage::user(MessageContent::from_parts(parts))
+    };
+    push_msg(store, session, user_msg).await?;
 
     // Running-summary trigger (ContextPolicy::Summarize): once per turn, fold the
     // history beyond the last `keep_last` turns into the session's stored summary so

@@ -298,9 +298,11 @@ export async function unarchiveSession(id: string) {
  * `chat_done` via {@link initStreaming}); the awaited return is authoritative but
  * is not re-rendered to avoid duplication.
  */
-export async function send(text: string): Promise<void> {
+export async function send(text: string, imagePaths: string[] = []): Promise<void> {
   // Busy: queue the message (FIFO) and return without invoking. The running turn's
-  // `finally` dispatches the next queued message when it frees up.
+  // `finally` dispatches the next queued message when it frees up. The queue is
+  // text-only; image attachments queued mid-turn are not carried (a rare edge —
+  // attaching images while a turn is already running).
   if (sessionStore.busy) {
     sessionStore.queue.push(text);
     return;
@@ -313,7 +315,7 @@ export async function send(text: string): Promise<void> {
   sessionStore.busy = true;
   streamIdx = null;
   try {
-    await ipc.sendMessage(text);
+    await ipc.sendMessage(text, imagePaths);
   } catch (e) {
     // The session was switched mid-turn; the new session owns the thread now.
     if (sessionStore.activeSessionId !== turnSessionId) return;

@@ -151,7 +151,8 @@ export type PinnedArtifact = {
 
 // Thin typed wrappers over the Tauri IPC surface (commands + events).
 export const ipc = {
-  sendMessage: (text: string) => invoke<ChatTurn>("send_message", { text }),
+  sendMessage: (text: string, imagePaths: string[] = []) =>
+    invoke<ChatTurn>("send_message", { text, imagePaths }),
   interruptTurn: () => invoke<void>("interrupt_turn"),
   listApps: () => invoke<AppManifest[]>("list_apps"),
   getCatalogue: () => invoke<ArtifactDef[]>("get_catalogue"),
