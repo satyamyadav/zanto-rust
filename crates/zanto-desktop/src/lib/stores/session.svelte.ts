@@ -25,6 +25,7 @@ function entry(role: "user" | "assistant", segments: ChatSegment[]): ChatEntry {
 
 export const sessionStore = $state({
   sessions: [] as SessionMeta[],
+  archivedSessions: [] as SessionMeta[], // archived sessions for the active app
   activeSessionId: null as string | null,
   convo: [] as ChatEntry[], // chat thread (role-tagged segment entries)
   canvas: null as ChatBlock | null, // right-panel view
@@ -124,6 +125,11 @@ export async function loadSessions() {
   sessionStore.sessions = await ipc.listSessions();
 }
 
+/** Refresh the archived-session list for the active app. */
+export async function loadArchived() {
+  sessionStore.archivedSessions = await ipc.listArchivedSessions();
+}
+
 export async function newSession() {
   try {
     sessionStore.activeSessionId = await ipc.newSession();
@@ -150,6 +156,7 @@ export async function newSession() {
           ]
         : [];
     await loadSessions();
+    await loadArchived();
   } catch (e) {
     toast.error(`${e}`);
   }
@@ -210,6 +217,31 @@ export async function deleteSession(id: string) {
     await ipc.deleteSession(id);
     if (sessionStore.activeSessionId === id) await newSession();
     else await loadSessions();
+    await loadArchived();
+  } catch (e) {
+    toast.error(`${e}`);
+  }
+}
+
+/** Archive a session: move it out of the active list. If it's the open one,
+ * start a fresh session so the thread doesn't reference an archived session. */
+export async function archiveSession(id: string) {
+  try {
+    await ipc.archiveSession(id);
+    if (sessionStore.activeSessionId === id) await newSession();
+    else await loadSessions();
+    await loadArchived();
+  } catch (e) {
+    toast.error(`${e}`);
+  }
+}
+
+/** Unarchive a session: restore it to the active list. */
+export async function unarchiveSession(id: string) {
+  try {
+    await ipc.unarchiveSession(id);
+    await loadSessions();
+    await loadArchived();
   } catch (e) {
     toast.error(`${e}`);
   }

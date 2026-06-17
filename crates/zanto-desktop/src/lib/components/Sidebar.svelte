@@ -5,6 +5,9 @@
   import PlusIcon from "@lucide/svelte/icons/plus";
   import MoreVerticalIcon from "@lucide/svelte/icons/ellipsis-vertical";
   import MessageSquareIcon from "@lucide/svelte/icons/message-square";
+  import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+  import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
+  import ArchiveRestoreIcon from "@lucide/svelte/icons/archive-restore";
   import { appStore, mountApp } from "$lib/stores/app.svelte";
   import {
     sessionStore,
@@ -12,9 +15,13 @@
     selectSession,
     deleteSession,
     renameSession,
+    archiveSession,
+    unarchiveSession,
   } from "$lib/stores/session.svelte";
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
+
+  let archivedOpen = $state(false);
 
   // The general "Chat" app is surfaced separately from the vertical apps.
   const chatApp = $derived(appStore.apps.find((a) => a.id === "chat"));
@@ -101,6 +108,7 @@
           </DropdownMenu.Trigger>
           <DropdownMenu.Content align="end">
             <DropdownMenu.Item onclick={() => doRename(s.id, s.title)}>Rename</DropdownMenu.Item>
+            <DropdownMenu.Item onclick={() => archiveSession(s.id)}>Archive</DropdownMenu.Item>
             <DropdownMenu.Item class="text-destructive" onclick={() => deleteSession(s.id)}>
               Delete
             </DropdownMenu.Item>
@@ -110,6 +118,44 @@
     {/each}
     {#if sessionStore.sessions.length === 0}
       <div class="px-2 text-sm text-muted-foreground">No sessions yet.</div>
+    {/if}
+
+    <!-- Archived (collapsible) -->
+    {#if sessionStore.archivedSessions.length > 0}
+      <div class="pt-2">
+        <button
+          class="w-full flex items-center gap-1 px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground"
+          onclick={() => (archivedOpen = !archivedOpen)}
+        >
+          {#if archivedOpen}
+            <ChevronDownIcon class="size-3" />
+          {:else}
+            <ChevronRightIcon class="size-3" />
+          {/if}
+          Archived ({sessionStore.archivedSessions.length})
+        </button>
+        {#if archivedOpen}
+          {#each sessionStore.archivedSessions as s (s.id)}
+            <div class="group flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-sidebar-accent">
+              <div class="flex-1 min-w-0">
+                <div class="truncate text-sm text-muted-foreground">{s.title || "Untitled"}</div>
+                <div class="text-[10px] text-muted-foreground">
+                  {relTime(s.updated_at)} · {s.message_count} msgs
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-6 opacity-0 group-hover:opacity-100 shrink-0"
+                title="Unarchive"
+                onclick={() => unarchiveSession(s.id)}
+              >
+                <ArchiveRestoreIcon class="size-4" />
+              </Button>
+            </div>
+          {/each}
+        {/if}
+      </div>
     {/if}
   </div>
 

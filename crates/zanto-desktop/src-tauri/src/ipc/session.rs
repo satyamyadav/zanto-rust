@@ -68,3 +68,22 @@ pub fn rename_session(state: State<'_, DesktopState>, id: String, title: String)
     s.updated_at = unix_now_pub();
     state.store.save_session(&s).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn archive_session(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
+    state.store.set_archived(&id, true).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn unarchive_session(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
+    state.store.set_archived(&id, false).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_archived_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionMeta>, String> {
+    let app_id = state.active_app_id();
+    state
+        .store
+        .list_sessions_archived(Some(&state.workspace), app_id.as_deref())
+        .map_err(|e| e.to_string())
+}

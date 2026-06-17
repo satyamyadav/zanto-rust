@@ -47,6 +47,7 @@ export type SessionMeta = {
   created_at: number;
   updated_at: number;
   message_count: number;
+  archived: boolean;
 };
 
 export type ProviderDto = {
@@ -111,6 +112,9 @@ export const ipc = {
   newSession: () => invoke<string>("new_session"),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
   renameSession: (id: string, title: string) => invoke<void>("rename_session", { id, title }),
+  archiveSession: (id: string) => invoke<void>("archive_session", { id }),
+  unarchiveSession: (id: string) => invoke<void>("unarchive_session", { id }),
+  listArchivedSessions: () => invoke<SessionMeta[]>("list_archived_sessions"),
 
   // Config
   getConfig: () => invoke<Config>("get_config"),
