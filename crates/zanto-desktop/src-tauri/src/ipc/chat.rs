@@ -19,8 +19,10 @@ that displays an artifact; describing it in your reply shows the user nothing. F
 `list_artifacts` to see options, `get_artifact(id)` to read its dataSchema, then \
 `render_artifact({id, data, target})` with `data` matching that schema (target \
 \"inline\" for the chat, \"canvas\" for the side panel). If `render_artifact` returns a \
-schema error, fix `data` and call it again. Never announce a chart or table without \
-calling `render_artifact` in the same turn.";
+schema error, fix `data` and call it again. The `id` must be one returned by \
+`list_artifacts` (e.g. \"chart\") — never invent an id, and never use `store_artifact` \
+(which only saves a file to disk) to display something. Never announce a chart or table \
+without calling `render_artifact` in the same turn.";
 
 #[tauri::command]
 pub async fn send_message(

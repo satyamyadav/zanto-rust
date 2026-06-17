@@ -163,12 +163,18 @@ impl AppDispatcher for SharedDispatcher {
                     Some("canvas") => Target::Canvas,
                     _ => Target::Inline,
                 };
-                match self.catalogue.validate(&id, &data) {
-                    Ok(()) => Some(Ok(AppResult::Block { component_id: id, data, target })),
-                    Err(details) => Some(Ok(AppResult::Data(json!({
-                        "error": "data did not match the artifact's dataSchema; fix and retry",
-                        "details": details
+                match self.catalogue.get(&id) {
+                    None => Some(Ok(AppResult::Data(json!({
+                        "error": format!("unknown artifact id '{id}'. render_artifact only displays artifacts from the catalogue — it does not create them, and store_artifact does not display anything. Call list_artifacts for valid ids (e.g. \"chart\", \"table\", \"metric\"), then render with that id."),
                     })))),
+                    Some(def) => match self.catalogue.validate(&id, &data) {
+                        Ok(()) => Some(Ok(AppResult::Block { component_id: id, data, target })),
+                        Err(details) => Some(Ok(AppResult::Data(json!({
+                            "error": "data did not match the artifact's dataSchema. Fix `data` to match the `dataSchema` below, then call render_artifact again.",
+                            "details": details,
+                            "dataSchema": def.data_schema.clone(),
+                        })))),
+                    },
                 }
             }
             _ => self.app.dispatch_tool(&self.data, name, args),
