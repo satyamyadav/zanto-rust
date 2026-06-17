@@ -70,6 +70,30 @@
     }
   },
   {
+    "id": "page",
+    "storage": "file",
+    "description": "A complete multi-section document — an ordered list of markdown sections, each with an optional heading, rendered as one composed page.",
+    "when_to_use": "Composed reports or documents made of several titled sections; save as a markdown file with store_artifact.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "heading": { "type": "string" },
+              "markdown": { "type": "string" }
+            },
+            "required": ["markdown"]
+          }
+        }
+      },
+      "required": ["sections"]
+    }
+  },
+  {
     "id": "list",
     "storage": "view",
     "description": "A bulleted list of items.",
