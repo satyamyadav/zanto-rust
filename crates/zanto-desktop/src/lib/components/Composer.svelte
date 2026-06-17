@@ -8,6 +8,7 @@
   import FileIcon from "@lucide/svelte/icons/file";
   import FolderIcon from "@lucide/svelte/icons/folder";
   import TerminalIcon from "@lucide/svelte/icons/terminal";
+  import LoaderIcon from "@lucide/svelte/icons/loader";
   import { sessionStore, send, newSession } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
   import { ipc, type FileEntry } from "$lib/ipc";
@@ -82,6 +83,7 @@
   let dirStack = $state<string[]>([]); // breadcrumb of descended paths
   let tagStart = -1; // index of the `@` that opened the file menu
   let query = $state(""); // text typed after `@` (or `/`)
+  let loadingDir = $state(false); // a directory listing fetch is in flight
 
   function clearInput() {
     input = "";
@@ -108,11 +110,14 @@
   const itemCount = $derived(menu === "file" ? filteredEntries.length : filteredCommands.length);
 
   async function loadDir(path?: string) {
+    loadingDir = true;
     try {
       entries = await ipc.browseDir(path);
     } catch (e) {
       toast.error(`${e}`);
       closeMenu();
+    } finally {
+      loadingDir = false;
     }
   }
 
@@ -261,6 +266,8 @@
       if (e.key === "Escape") {
         e.preventDefault();
         closeMenu();
+        // Return focus to the composer so typing can resume immediately.
+        queueMicrotask(() => textarea?.focus());
         return;
       }
     }
@@ -310,12 +317,18 @@
             <div
               class="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground border-b border-border"
             >
-              <FolderIcon class="size-3.5" />
-              {dirStack.length > 0 ? dirStack[dirStack.length - 1] : "Allowed roots"}
+              <FolderIcon class="size-3.5 shrink-0" />
+              <span class="truncate font-mono">{dirStack.length > 0 ? dirStack[dirStack.length - 1] : "Allowed roots"}</span>
             </div>
           {/if}
           <div class="max-h-64 overflow-y-auto p-1">
             {#if menu === "file"}
+              {#if loadingDir}
+                <div class="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
+                  <LoaderIcon class="size-4 shrink-0 animate-spin" />
+                  Loading…
+                </div>
+              {:else}
               {#each filteredEntries as e, i (e.path)}
                 <button
                   type="button"
@@ -336,11 +349,12 @@
                   {:else}
                     <FileIcon class="size-4 shrink-0 text-muted-foreground" />
                   {/if}
-                  <span class="truncate">{e.name}</span>
+                  <span class="truncate font-mono">{e.name}</span>
                 </button>
               {:else}
                 <div class="px-2 py-1.5 text-sm text-muted-foreground">No matches</div>
               {/each}
+              {/if}
             {:else}
               {#each filteredCommands as c, i (c.name)}
                 <button
@@ -358,7 +372,7 @@
                   onmousemove={() => (active = i)}
                 >
                   <TerminalIcon class="size-4 shrink-0 text-muted-foreground" />
-                  <span class="font-medium">/{c.name}</span>
+                  <span class="font-mono font-medium">/{c.name}</span>
                   <span class="ml-auto truncate text-xs text-muted-foreground">{c.hint}</span>
                 </button>
               {:else}
@@ -376,7 +390,7 @@
         {oninput}
         onblur={closeMenu}
         rows={2}
-        placeholder={appStore.activeId ? `Ask ${appStore.activeId}…` : "Pick a solution to begin…"}
+        placeholder={appStore.activeId ? `Ask ${appStore.activeId}…` : "Message zanto…"}
         class="resize-none"
       />
     </div>

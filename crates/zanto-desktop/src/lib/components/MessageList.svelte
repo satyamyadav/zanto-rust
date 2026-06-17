@@ -1,8 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { ArrowDown } from "@lucide/svelte";
+  import { ArrowDown, MessagesSquare } from "@lucide/svelte";
   import Message from "./Message.svelte";
   import { sessionStore, loadOlder } from "$lib/stores/session.svelte";
+
+  // The trailing entry is the only one that can be the live, streaming turn;
+  // pass a flag down so Message lights the agent-spine for the active turn.
+  const lastId = $derived(sessionStore.convo.at(-1)?.id);
 
   let scroller: HTMLDivElement;
   // True while the viewport is parked at (or near) the bottom. Drives both the
@@ -80,7 +84,7 @@
           </div>
         {/if}
         {#each sessionStore.convo as entry (entry.id)}
-          <Message {entry} />
+          <Message {entry} isLast={entry.id === lastId} />
         {/each}
         {#if sessionStore.busy && !sessionStore.streaming}
           <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -93,7 +97,18 @@
           </div>
         {/if}
         {#if sessionStore.convo.length === 0 && !sessionStore.busy}
-          <div class="text-sm text-muted-foreground">Start a conversation.</div>
+          <div class="mx-auto flex max-w-sm flex-col items-center gap-3 py-12 text-center">
+            <span class="flex size-11 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
+              <MessagesSquare class="size-5" />
+            </span>
+            <div class="flex flex-col gap-1">
+              <p class="font-display text-base font-medium text-foreground">Start a conversation</p>
+              <p class="text-sm text-muted-foreground">
+                Ask zanto a question or type <span class="font-mono">/</span> for commands and
+                <span class="font-mono">@</span> to attach a file.
+              </p>
+            </div>
+          </div>
         {/if}
       </div>
     </div>
