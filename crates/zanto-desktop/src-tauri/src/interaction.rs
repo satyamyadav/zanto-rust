@@ -8,7 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::oneshot;
 use zanto_core::chat::{ChatBlock, ChatSink, ToolCallView};
 use zanto_core::permissions::{ApprovalResponse, Approver};
@@ -52,6 +53,26 @@ impl TauriInteractor {
             self.inner.pending.lock().unwrap().remove(&id);
             return Value::Null;
         }
+
+        // A gated turn now parks until the user answers. Notify when the window is
+        // backgrounded so the wait isn't silent. Best-effort; never blocks the turn.
+        if !self
+            .inner
+            .app
+            .get_webview_window("main")
+            .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false)
+        {
+            let _ = self
+                .inner
+                .app
+                .notification()
+                .builder()
+                .title("zanto")
+                .body("zanto needs your input")
+                .show();
+        }
+
         rx.await.unwrap_or(Value::Null)
     }
 

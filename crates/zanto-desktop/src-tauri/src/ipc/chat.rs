@@ -3,7 +3,8 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Manager, State};
+use tauri_plugin_notification::NotificationExt;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn};
 use zanto_core::config::Settings;
 use crate::catalogue::{shared_tools, SharedDispatcher};
@@ -116,7 +117,7 @@ pub async fn send_message(
     config.cancel = Some(Arc::clone(&cancel));
 
     // Stream the turn to the shell: text deltas + blocks live, `chat_done` at end.
-    let sink = TauriSink::new(app);
+    let sink = TauriSink::new(app.clone());
     config.sink = Some(Arc::new(sink.clone()));
 
     let result = chat(config, &state.store, &mut session, &text, &state.policy).await;
@@ -133,6 +134,18 @@ pub async fn send_message(
     }
     sink.finish();
     let turn = result.map_err(|e| e.to_string())?;
+
+    // Notify the user a turn finished while the window is in the background, so a
+    // long-running reply isn't missed. Skip when focused; never fail the turn on a
+    // notification error.
+    if !app
+        .get_webview_window("main")
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false)
+    {
+        let body = if turn.stopped { "Turn stopped" } else { "Reply ready" };
+        let _ = app.notification().builder().title("zanto").body(body).show();
+    }
 
     // Auto-title a fresh session from its first user message.
     if session.title.is_empty() {

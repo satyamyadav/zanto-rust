@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { platform as osPlatform } from "@tauri-apps/plugin-os";
+
+// OS platform string (e.g. "macos", "windows", "linux") so the UI can show the
+// right shortcut glyphs (⌘ vs Ctrl).
+export const platform = (): string => osPlatform();
+export const isMac = (): boolean => osPlatform() === "macos";
 
 export type Target = "inline" | "canvas";
 
