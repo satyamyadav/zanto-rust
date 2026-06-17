@@ -1,4 +1,5 @@
 pub mod artifacts;
+pub mod docs;
 pub mod fs;
 pub mod shell;
 pub mod web;
@@ -12,6 +13,7 @@ use crate::permissions::PermissionGuard;
 
 pub struct ToolService {
     fs: fs::FsTools,
+    docs: docs::DocTools,
     shell: shell::ShellTools,
     artifacts: artifacts::ArtifactTools,
     web: web::WebTools,
@@ -26,6 +28,7 @@ impl ToolService {
         let store = Arc::new(ArtifactStore::new(project_dir.as_deref()));
         Self {
             fs: fs::FsTools::new(Arc::clone(&permissions)),
+            docs: docs::DocTools::new(Arc::clone(&permissions)),
             shell: shell::ShellTools::new(permissions),
             artifacts: artifacts::ArtifactTools::new(store),
             web: web::WebTools::new(),
@@ -34,6 +37,7 @@ impl ToolService {
 
     pub fn all_tools() -> Vec<GenaiTool> {
         let mut tools = fs::schemas();
+        tools.extend(docs::schemas());
         tools.extend(shell::schemas());
         tools.extend(artifacts::schemas());
         tools.extend(web::schemas());
@@ -48,6 +52,8 @@ impl ToolService {
         // Route by which category owns the tool name — explicit, not Err-fallthrough.
         if fs::owns(name) {
             fs::dispatch(&self.fs, name, args).await
+        } else if docs::owns(name) {
+            docs::dispatch(&self.docs, name, args).await
         } else if shell::owns(name) {
             shell::dispatch(&self.shell, name, args).await
         } else if artifacts::owns(name) {
@@ -61,13 +67,18 @@ impl ToolService {
 
     pub fn is_readonly(name: &str) -> bool {
         fs::is_readonly(name)
+            || docs::is_readonly(name)
             || shell::is_readonly(name)
             || artifacts::is_readonly(name)
             || web::is_readonly(name)
     }
 
-    /// Whether `name` is a built-in base tool (fs, shell, artifacts, or web).
+    /// Whether `name` is a built-in base tool (fs, docs, shell, artifacts, or web).
     pub fn owns(name: &str) -> bool {
-        fs::owns(name) || shell::owns(name) || artifacts::owns(name) || web::owns(name)
+        fs::owns(name)
+            || docs::owns(name)
+            || shell::owns(name)
+            || artifacts::owns(name)
+            || web::owns(name)
     }
 }

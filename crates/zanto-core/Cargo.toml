@@ -27,6 +27,12 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 # Reuse the reqwest/rustls already pulled in transitively by genai (no duplicate copy).
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "charset", "http2"] }
 url = "2"
+# Document extraction for read_document. All three are pure Rust (no native/system libs):
+# calamine (xlsx/xls/ods), pdf-extract (PDF text; pulls lopdf + font crates — biggest of the three),
+# docx-rust (docx paragraph text via zip+xml).
+calamine = "0.35"
+pdf-extract = "0.10"
+docx-rust = "0.1"
 
 [dev-dependencies]
 tempfile = "3"

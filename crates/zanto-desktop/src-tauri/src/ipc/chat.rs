@@ -32,7 +32,11 @@ nothing. Use render_artifact to display, store_artifact to persist a document. \
 `pin_artifact` KEEPS a view+data artifact so the user can reopen it later from the \
 Artifacts browser — use it for a view worth saving (vs render_artifact, which only \
 shows it now, and store_artifact, which saves a file document). Pinning does not display; \
-call render_artifact too if you also want to show it now.";
+call render_artifact too if you also want to show it now. \
+To read a non-plaintext document — PDF, Word (.docx), Excel/OpenDocument spreadsheet \
+(.xlsx/.xls/.ods) — call `read_document` (not `read_file`, which only handles UTF-8 text). \
+`read_document` also handles CSV, HTML, and plain text, so prefer it whenever a path might \
+be a binary document. Images are not OCR'd; attach them to a vision-capable model instead.";
 
 #[tauri::command]
 pub async fn send_message(
