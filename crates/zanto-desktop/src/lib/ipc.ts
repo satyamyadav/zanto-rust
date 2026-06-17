@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { platform as osPlatform } from "@tauri-apps/plugin-os";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 // OS platform string (e.g. "macos", "windows", "linux") so the UI can show the
 // right shortcut glyphs (⌘ vs Ctrl).
@@ -187,6 +188,15 @@ export const ipc = {
   getConfig: () => invoke<Config>("get_config"),
   setConfig: (patch: ConfigPatch) => invoke<void>("set_config", { patch }),
   pickFolder: () => invoke<string | null>("pick_folder"),
+  // Multi-select open-file dialog via the (already-registered) dialog plugin.
+  // Returns the chosen absolute paths, or [] if cancelled.
+  pickFiles: async (): Promise<string[]> => {
+    const res = await invoke<string[] | string | null>("plugin:dialog|open", {
+      options: { multiple: true, directory: false },
+    });
+    if (res == null) return [];
+    return Array.isArray(res) ? res : [res];
+  },
   browseDir: (path?: string) => invoke<FileEntry[]>("browse_dir", { path: path ?? null }),
   addAllowedPath: (path: string) => invoke<void>("add_allowed_path", { path }),
   addContextSource: (path: string) => invoke<void>("add_context_source", { path }),
@@ -223,4 +233,21 @@ export const ipc = {
   // Emitted before `chat_done` when a turn was interrupted (Stop).
   onChatStopped: (cb: () => void): Promise<UnlistenFn> =>
     listen<null>("chat_stopped", () => cb()),
+
+  // Native file drag-and-drop onto the window. Fires `enter`/`leave` (for the
+  // dragover visual state) and `drop` (with the dropped absolute paths).
+  onFileDrop: (handlers: {
+    onEnter?: () => void;
+    onLeave?: () => void;
+    onDrop?: (paths: string[]) => void;
+  }): Promise<UnlistenFn> =>
+    getCurrentWebviewWindow().onDragDropEvent((e) => {
+      const t = e.payload.type;
+      if (t === "enter" || t === "over") handlers.onEnter?.();
+      else if (t === "leave") handlers.onLeave?.();
+      else if (t === "drop") {
+        handlers.onLeave?.();
+        handlers.onDrop?.(e.payload.paths);
+      }
+    }),
 };

@@ -10,6 +10,7 @@
   import FolderIcon from "@lucide/svelte/icons/folder";
   import TerminalIcon from "@lucide/svelte/icons/terminal";
   import LoaderIcon from "@lucide/svelte/icons/loader";
+  import { onMount } from "svelte";
   import { sessionStore, send, newSession, interrupt } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
   import { openWorkspace } from "$lib/stores/workspace.svelte";
@@ -39,10 +40,63 @@
 
   type Paste = { id: number; text: string; lines: number };
 
+  // Attached files (button or drag-drop). Lazy `@path` references — the agent
+  // reads them with `read_document`; no eager extraction here.
+  type Attachment = { id: number; path: string; name: string };
+
   let input = $state("");
   let pastes = $state<Paste[]>([]);
+  let attachments = $state<Attachment[]>([]);
+  let dragOver = $state(false);
   let nextId = 0;
   let textarea = $state<HTMLTextAreaElement | null>(null);
+
+  function basename(path: string): string {
+    return path.split(/[/\\]/).filter(Boolean).pop() ?? path;
+  }
+
+  function dirname(path: string): string {
+    const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    return i > 0 ? path.slice(0, i) : path;
+  }
+
+  // Add picked/dropped paths as chips and auto-grant read on each (so
+  // `read_document` needs no separate approval). Skips already-attached paths.
+  async function addAttachments(paths: string[]) {
+    for (const path of paths) {
+      if (!path || attachments.some((a) => a.path === path)) continue;
+      attachments = [...attachments, { id: nextId++, path, name: basename(path) }];
+      try {
+        await ipc.addAllowedPath(dirname(path));
+      } catch (e) {
+        toast.error(`${e}`);
+      }
+    }
+  }
+
+  function removeAttachment(id: number) {
+    attachments = attachments.filter((a) => a.id !== id);
+  }
+
+  async function pickFiles() {
+    try {
+      const paths = await ipc.pickFiles();
+      if (paths.length > 0) await addAttachments(paths);
+    } catch (e) {
+      toast.error(`${e}`);
+    }
+  }
+
+  onMount(() => {
+    const unlisten = ipc.onFileDrop({
+      onEnter: () => (dragOver = true),
+      onLeave: () => (dragOver = false),
+      onDrop: (paths) => void addAttachments(paths),
+    });
+    return () => {
+      unlisten.then((fn) => fn()).catch(() => {});
+    };
+  });
 
   function lineCount(text: string): number {
     return text.split("\n").length;
@@ -65,8 +119,11 @@
 
   function composeMessage(): string {
     const typed = input.trim();
-    const attached = pastes.map((p) => p.text).join("\n\n");
-    return [typed, attached].filter((s) => s.length > 0).join("\n\n");
+    const pasted = pastes.map((p) => p.text).join("\n\n");
+    // Attachments become `@<path>` tokens (same convention as the @-tag picker)
+    // so the agent reads them via `read_document`.
+    const attached = attachments.map((a) => `@${a.path}`).join(" ");
+    return [typed, pasted, attached].filter((s) => s.length > 0).join("\n\n");
   }
 
   async function submit() {
@@ -76,6 +133,7 @@
     if (!text) return;
     input = "";
     pastes = [];
+    attachments = [];
     closeMenu();
     try {
       await send(text);
@@ -108,6 +166,7 @@
   function clearInput() {
     input = "";
     pastes = [];
+    attachments = [];
   }
 
   function closeMenu() {
@@ -300,13 +359,22 @@
 </script>
 
 <form
-  class="border-t border-border p-3 flex flex-col gap-2"
+  class="relative border-t border-border p-3 flex flex-col gap-2 {dragOver
+    ? 'ring-2 ring-inset ring-primary/60'
+    : ''}"
   onsubmit={(e) => {
     e.preventDefault();
     submit();
   }}
 >
-  {#if pastes.length > 0}
+  {#if dragOver}
+    <div
+      class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/70 text-sm font-medium text-muted-foreground"
+    >
+      Drop files to attach
+    </div>
+  {/if}
+  {#if pastes.length > 0 || attachments.length > 0}
     <div class="flex flex-wrap gap-1.5">
       {#each pastes as p (p.id)}
         <span
@@ -324,9 +392,26 @@
           </button>
         </span>
       {/each}
+      {#each attachments as a (a.id)}
+        <span
+          class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
+          title={a.path}
+        >
+          <FileIcon class="size-3.5" />
+          <span class="max-w-48 truncate font-mono">{a.name}</span>
+          <button
+            type="button"
+            onclick={() => removeAttachment(a.id)}
+            aria-label="Remove attachment"
+            class="rounded hover:text-foreground"
+          >
+            <XIcon class="size-3.5" />
+          </button>
+        </span>
+      {/each}
     </div>
   {/if}
-  <div>
+  <div class="flex items-center gap-2">
     <button
       type="button"
       onclick={openWorkspace}
@@ -336,6 +421,11 @@
       <span class="text-primary" aria-hidden="true">◇</span>
       {contextLabel}
     </button>
+    {#if attachments.length > 0}
+      <span class="text-xs text-muted-foreground">
+        {attachments.length} attached
+      </span>
+    {/if}
   </div>
   <div class="flex items-end gap-2">
     <div class="relative flex-1">
@@ -429,6 +519,16 @@
         class="resize-none"
       />
     </div>
+    <Button
+      type="button"
+      size="icon"
+      variant="ghost"
+      onclick={pickFiles}
+      aria-label="Attach files"
+      title="Attach files"
+    >
+      <PaperclipIcon class="size-4" />
+    </Button>
     {#if sessionStore.busy}
       <Button type="button" size="icon" variant="secondary" onclick={interrupt} aria-label="Stop">
         <SquareIcon class="size-4" />
