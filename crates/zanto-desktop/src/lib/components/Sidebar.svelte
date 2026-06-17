@@ -8,6 +8,8 @@
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
   import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
   import ArchiveRestoreIcon from "@lucide/svelte/icons/archive-restore";
+  import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
+  import ArtifactBrowser from "./ArtifactBrowser.svelte";
   import { appStore, mountApp } from "$lib/stores/app.svelte";
   import {
     sessionStore,
@@ -20,6 +22,8 @@
   } from "$lib/stores/session.svelte";
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
+
+  let artifactsOpen = $state(false);
 
   let archivedOpen = $state(false);
 
@@ -162,8 +166,15 @@
   <!-- Footer -->
   <div class="border-t border-sidebar-border p-2 flex items-center justify-between gap-2">
     <span class="text-[11px] text-muted-foreground truncate px-1">{appStore.config?.model ?? ""}</span>
-    <Button variant="ghost" size="icon" class="size-7 shrink-0" onclick={onOpenSettings}>
-      <SettingsIcon class="size-4" />
-    </Button>
+    <div class="flex shrink-0 items-center gap-1">
+      <Button variant="ghost" size="icon" class="size-7" onclick={() => (artifactsOpen = true)} title="Artifacts">
+        <FolderOpenIcon class="size-4" />
+      </Button>
+      <Button variant="ghost" size="icon" class="size-7" onclick={onOpenSettings}>
+        <SettingsIcon class="size-4" />
+      </Button>
+    </div>
   </div>
 </div>
+
+<ArtifactBrowser bind:open={artifactsOpen} />
