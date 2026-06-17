@@ -28,6 +28,31 @@
     }
   },
   {
+    "id": "chart",
+    "description": "A bar, line, pie, or doughnut chart over labelled datasets.",
+    "when_to_use": "Visualising trends, comparisons, or distributions across categories.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["bar", "line", "pie", "doughnut"] },
+        "title": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "datasets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "data": { "type": "array", "items": { "type": "number" } }
+            },
+            "required": ["data"]
+          }
+        }
+      },
+      "required": ["type", "labels", "datasets"]
+    }
+  },
+  {
     "id": "list",
     "description": "A bulleted list of items.",
     "when_to_use": "Simple enumerations.",
