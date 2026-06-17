@@ -9,6 +9,19 @@ use crate::catalogue::{shared_tools, SharedDispatcher};
 use crate::interaction::TauriSink;
 use super::DesktopState;
 
+/// Injected into the system prompt whenever the shared artifact tools are active.
+/// Weaker local models otherwise discover artifacts but never call `render_artifact`,
+/// narrating "a chart will appear" while the user sees nothing.
+const ARTIFACT_PROTOCOL: &str = "\
+To show the user any data UI — a table, chart, metric, list, key/values, or markdown \
+document — you MUST call the `render_artifact` tool. That tool call is the only thing \
+that displays an artifact; describing it in your reply shows the user nothing. Flow: \
+`list_artifacts` to see options, `get_artifact(id)` to read its dataSchema, then \
+`render_artifact({id, data, target})` with `data` matching that schema (target \
+\"inline\" for the chat, \"canvas\" for the side panel). If `render_artifact` returns a \
+schema error, fix `data` and call it again. Never announce a chart or table without \
+calling `render_artifact` in the same turn.";
+
 #[tauri::command]
 pub async fn send_message(
     app: tauri::AppHandle,
@@ -54,6 +67,11 @@ pub async fn send_message(
             // from core. SharedDispatcher routes artifact tools then delegates.
             let mut extra = shared_tools();
             extra.extend(app.agent_tools());
+            // Prepend the artifact protocol since render_artifact is available here.
+            let skill = Some(match &skill {
+                Some(s) => format!("{ARTIFACT_PROTOCOL}\n\n{s}"),
+                None => ARTIFACT_PROTOCOL.to_string(),
+            });
             ChatConfig {
                 model,
                 endpoint,

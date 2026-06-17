@@ -101,7 +101,7 @@ pub fn shared_tools() -> Vec<GenaiTool> {
                 "required": ["id"]
             })),
         GenaiTool::new("render_artifact")
-            .with_description("Render an artifact in the chat (target=inline) or the right canvas (target=canvas). `data` must match the artifact's dataSchema.")
+            .with_description("Display an artifact to the user. This tool call is the ONLY way to show a table, chart, metric, list, or document — describing it in your reply renders nothing. Call get_artifact(id) first to read its dataSchema, then call this with `data` matching that schema. target=inline shows it in the chat, target=canvas in the side panel. Never claim a chart/table will appear without calling this in the same turn.")
             .with_schema(json!({
                 "type": "object",
                 "properties": {
