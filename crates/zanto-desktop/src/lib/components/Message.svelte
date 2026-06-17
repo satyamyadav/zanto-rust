@@ -1,15 +1,42 @@
 <script lang="ts">
   import Block from "$lib/Block.svelte";
-  import type { ChatEntry } from "$lib/stores/session.svelte";
+  import type { ChatEntry, ChatSegment } from "$lib/stores/session.svelte";
   import TextSegment from "./segments/TextSegment.svelte";
   import ReasoningSegment from "./segments/ReasoningSegment.svelte";
   import ToolCallSegment from "./segments/ToolCallSegment.svelte";
+  import WorkflowGroup from "./segments/WorkflowGroup.svelte";
   import ErrorSegment from "./segments/ErrorSegment.svelte";
   import CopyIcon from "@lucide/svelte/icons/copy";
   import CheckIcon from "@lucide/svelte/icons/check";
   import { onDestroy } from "svelte";
 
   let { entry }: { entry: ChatEntry } = $props();
+
+  type ToolCallSegmentData = Extract<ChatSegment, { kind: "tool_call" }>;
+  // A rendered item is either a workflow run (≥2 consecutive tool_calls) or a
+  // single segment. Walk segments, coalescing maximal runs of consecutive
+  // tool_call segments; a run of length ≥2 becomes a WorkflowGroup, anything
+  // else (including a lone tool_call) renders as a single segment as before.
+  type RenderItem = { kind: "workflow"; steps: ToolCallSegmentData[] } | { kind: "single"; seg: ChatSegment };
+  const items = $derived.by<RenderItem[]>(() => {
+    const out: RenderItem[] = [];
+    const segs = entry.segments;
+    let i = 0;
+    while (i < segs.length) {
+      if (segs[i].kind === "tool_call") {
+        let j = i;
+        while (j < segs.length && segs[j].kind === "tool_call") j++;
+        const run = segs.slice(i, j) as ToolCallSegmentData[];
+        if (run.length >= 2) out.push({ kind: "workflow", steps: run });
+        else out.push({ kind: "single", seg: run[0] });
+        i = j;
+      } else {
+        out.push({ kind: "single", seg: segs[i] });
+        i++;
+      }
+    }
+    return out;
+  });
 
   // Concatenated plain text of the message's text/markdown segments.
   const copyText = $derived(
@@ -96,17 +123,19 @@
 </script>
 
 {#snippet segments()}
-  {#each entry.segments as seg, i (i)}
-    {#if seg.kind === "text"}
-      <TextSegment text={seg.text} />
-    {:else if seg.kind === "reasoning"}
-      <ReasoningSegment text={seg.text} />
-    {:else if seg.kind === "tool_call"}
-      <ToolCallSegment name={seg.name} args={seg.args} output={seg.output} ok={seg.ok} />
-    {:else if seg.kind === "block"}
-      <Block block={seg.block} />
-    {:else if seg.kind === "error"}
-      <ErrorSegment message={seg.message} retryText={seg.retryText} />
+  {#each items as item, i (i)}
+    {#if item.kind === "workflow"}
+      <WorkflowGroup steps={item.steps} />
+    {:else if item.seg.kind === "text"}
+      <TextSegment text={item.seg.text} />
+    {:else if item.seg.kind === "reasoning"}
+      <ReasoningSegment text={item.seg.text} />
+    {:else if item.seg.kind === "tool_call"}
+      <ToolCallSegment name={item.seg.name} args={item.seg.args} output={item.seg.output} ok={item.seg.ok} />
+    {:else if item.seg.kind === "block"}
+      <Block block={item.seg.block} />
+    {:else if item.seg.kind === "error"}
+      <ErrorSegment message={item.seg.message} retryText={item.seg.retryText} />
     {/if}
   {/each}
 {/snippet}
