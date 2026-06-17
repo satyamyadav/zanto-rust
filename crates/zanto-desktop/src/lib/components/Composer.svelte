@@ -165,12 +165,22 @@
   // A single overlay drives both menus; `menu` selects which is active.
   type Menu = "none" | "file" | "slash";
 
-  // Slash-command registry. Add entries here to extend the menu.
+  // Slash-command registry. `$derived` so `/clear` only appears when there's
+  // something to clear (typed input — excluding the trailing `/clear` fragment
+  // itself — or any paste-chips / attachments); when the composer is otherwise
+  // empty it clears nothing, so showing it is a confusing no-op.
   type SlashCommand = { name: string; hint: string; run: () => void };
-  const SLASH_COMMANDS: SlashCommand[] = [
+  const hasClearable = $derived(
+    input.replace(/(^|\n)\/[^\s]*$/, "").trim().length > 0 ||
+      pastes.length > 0 ||
+      attachments.length > 0,
+  );
+  const SLASH_COMMANDS = $derived<SlashCommand[]>([
     { name: "new", hint: "Start a new session", run: () => newSession() },
-    { name: "clear", hint: "Clear the composer", run: clearInput },
-  ];
+    ...(hasClearable
+      ? [{ name: "clear", hint: "Clear input", run: clearInput }]
+      : []),
+  ]);
 
   let menu = $state<Menu>("none");
   let active = $state(0); // highlighted item index

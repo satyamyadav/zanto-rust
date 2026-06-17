@@ -72,9 +72,11 @@
     const fg = readVar("--muted-foreground");
     const grid = readVar("--border");
     const surface = readVar("--card");
-    // Floor to a token color so pick() never indexes an empty array.
+    // Floor to a token color so pick() never indexes an empty array. The RAF
+    // deferral in the $effect should mean CSS tokens are resolved by now, but
+    // keep the floor as a hard guarantee a series color is never empty.
     const colors = palette();
-    if (colors.length === 0) colors.push(readVar("--foreground") || "currentColor");
+    if (colors.length === 0) colors.push(readVar("--foreground") || "#6e56cf");
     const pick = (i: number) => colors[i % colors.length];
 
     const datasets = d.datasets.map((ds, i) => {
@@ -123,8 +125,21 @@
 
   $effect(() => {
     if (!canvas) return;
-    chart = build(canvas, data);
+    const el = canvas;
+    // Read `data` synchronously so the effect tracks it as a dependency and
+    // re-runs (recreating the chart) when it changes — a read inside the RAF
+    // callback below would run outside the tracking scope and be missed.
+    const d = data;
+    // Defer one frame so the webview has resolved CSS custom properties before
+    // palette()/readVar() run — otherwise getComputedStyle returns empty strings
+    // and the series render colorless. Re-runs on data change; cleanup cancels a
+    // pending frame and destroys the chart so there's no leak or double-draw.
+    let raf = requestAnimationFrame(() => {
+      raf = 0;
+      chart = build(el, d);
+    });
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       chart?.destroy();
       chart = undefined;
     };
