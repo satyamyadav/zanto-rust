@@ -20,8 +20,16 @@ pub struct ArtifactDef {
     pub description: String,
     #[serde(default)]
     pub when_to_use: String,
+    /// Storage class: "view" (ephemeral, render-only) or "file" (durable file
+    /// document). Defaults to "view" so any artifact lacking the field renders.
+    #[serde(default = "default_storage")]
+    pub storage: String,
     #[serde(rename = "data_schema", alias = "dataSchema")]
     pub data_schema: Value,
+}
+
+fn default_storage() -> String {
+    "view".to_string()
 }
 
 pub struct Catalogue {
@@ -48,7 +56,7 @@ impl Catalogue {
         Value::Array(
             self.defs
                 .iter()
-                .map(|d| json!({ "id": d.id, "description": d.description, "when_to_use": d.when_to_use }))
+                .map(|d| json!({ "id": d.id, "description": d.description, "when_to_use": d.when_to_use, "storage": d.storage }))
                 .collect(),
         )
     }
@@ -179,5 +187,25 @@ impl AppDispatcher for SharedDispatcher {
             }
             _ => self.app.dispatch_tool(&self.data, name, args),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storage_class_parses_from_catalogue() {
+        let cat = Catalogue::load();
+        assert_eq!(cat.get("chart").unwrap().storage, "view");
+        assert_eq!(cat.get("markdown").unwrap().storage, "file");
+    }
+
+    #[test]
+    fn missing_storage_defaults_to_view() {
+        let def: ArtifactDef =
+            serde_json::from_str(r#"{ "id": "x", "description": "d", "data_schema": {} }"#)
+                .expect("parse def without storage");
+        assert_eq!(def.storage, "view");
     }
 }

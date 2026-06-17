@@ -34,8 +34,11 @@ impl ToolBase for StoreArtifact {
 
     fn description() -> Option<Cow<'static, str>> {
         Some(
-            "Persist a durable artifact (markdown, image, json, or text) the user can browse later. \
-             Returns the artifact reference as JSON. Distinct from desktop render artifacts."
+            "Save a durable file document (markdown, image, json, or text) to the artifact store, \
+             where the user can browse it later — project `.zanto/artifacts` if a project dir is \
+             set, else global. Returns the artifact reference as JSON. This is NOT how you display \
+             a table, chart, or other view: use render_artifact for those (they are ephemeral and \
+             not saved). Use store_artifact only to persist a document."
                 .into(),
         )
     }

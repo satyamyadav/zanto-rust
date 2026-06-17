@@ -23,7 +23,11 @@ that displays an artifact; describing it in your reply shows the user nothing. F
 schema error, fix `data` and call it again. The `id` must be one returned by \
 `list_artifacts` (e.g. \"chart\") — never invent an id, and never use `store_artifact` \
 (which only saves a file to disk) to display something. Never announce a chart or table \
-without calling `render_artifact` in the same turn.";
+without calling `render_artifact` in the same turn. \
+Tool roles differ: `render_artifact` SHOWS a view (table/chart/metric/etc) — it is \
+ephemeral and is not saved or browsable. `store_artifact` SAVES a durable document (a \
+markdown file or note) that the user can later open in the Artifacts browser; it displays \
+nothing. Use render_artifact to display, store_artifact to persist a document.";
 
 #[tauri::command]
 pub async fn send_message(

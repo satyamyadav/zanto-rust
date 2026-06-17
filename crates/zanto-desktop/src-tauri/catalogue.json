@@ -1,6 +1,7 @@
 [
   {
     "id": "table",
+    "storage": "view",
     "description": "A table with named columns and rows.",
     "when_to_use": "Tabular data — lists of records, comparisons.",
     "data_schema": {
@@ -15,6 +16,7 @@
   },
   {
     "id": "metric",
+    "storage": "view",
     "description": "A single headline value with a label.",
     "when_to_use": "A KPI, total, or one important number.",
     "data_schema": {
@@ -29,6 +31,7 @@
   },
   {
     "id": "chart",
+    "storage": "view",
     "description": "A bar, line, pie, or doughnut chart over labelled datasets.",
     "when_to_use": "Visualising trends, comparisons, or distributions across categories.",
     "data_schema": {
@@ -54,6 +57,7 @@
   },
   {
     "id": "markdown",
+    "storage": "file",
     "description": "Rendered markdown document — sanitized HTML from a markdown string.",
     "when_to_use": "Agent-produced prose documents, notes, or previewing stored markdown.",
     "data_schema": {
@@ -67,6 +71,7 @@
   },
   {
     "id": "list",
+    "storage": "view",
     "description": "A bulleted list of items.",
     "when_to_use": "Simple enumerations.",
     "data_schema": {
@@ -80,6 +85,7 @@
   },
   {
     "id": "kv",
+    "storage": "view",
     "description": "Key/value pairs.",
     "when_to_use": "Attributes or a small record.",
     "data_schema": {
@@ -100,12 +106,14 @@
   },
   {
     "id": "json",
+    "storage": "view",
     "description": "Raw JSON, pretty-printed. Fallback for anything structured.",
     "when_to_use": "When no specific artifact fits the data.",
     "data_schema": { "type": "object" }
   },
   {
     "id": "nba",
+    "storage": "view",
     "description": "Next best actions — suggested actions as clickable buttons; each sends its prompt as a new message.",
     "when_to_use": "Offer the user concrete follow-up actions to take next.",
     "data_schema": {
@@ -130,6 +138,7 @@
   },
   {
     "id": "transactions_table",
+    "storage": "view",
     "description": "Finance transactions table.",
     "when_to_use": "Showing the user's transactions.",
     "data_schema": {
@@ -140,6 +149,7 @@
   },
   {
     "id": "monthly_summary",
+    "storage": "view",
     "description": "Finance monthly spending summary (total + per-category).",
     "when_to_use": "Monthly spending totals and breakdown.",
     "data_schema": {
