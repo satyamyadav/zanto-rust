@@ -63,11 +63,16 @@ export type ProviderPatch = {
   endpoint: string | null;
 };
 
+// A context source (input): a file/dir path fed to every turn, with an enable
+// toggle so it can be silenced without deleting.
+export type ContextSource = { path: string; enabled: boolean };
+
 export type Config = {
   model: string;
   endpoint: string;
   allowed_paths: string[];
-  context_sources: string[];
+  project_dir: string | null;
+  context_sources: ContextSource[];
   selected_skill: string | null;
   max_context_turns: number | null;
   providers: ProviderDto[];
@@ -163,6 +168,9 @@ export const ipc = {
   addAllowedPath: (path: string) => invoke<void>("add_allowed_path", { path }),
   addContextSource: (path: string) => invoke<void>("add_context_source", { path }),
   removeContextSource: (path: string) => invoke<void>("remove_context_source", { path }),
+  toggleContextSource: (path: string, enabled: boolean) =>
+    invoke<void>("toggle_context_source", { path, enabled }),
+  setProjectDir: (path: string) => invoke<void>("set_project_dir", { path }),
   setApiKey: (provider: string, key: string) => invoke<void>("set_api_key", { provider, key }),
   clearApiKey: (provider: string) => invoke<void>("clear_api_key", { provider }),
 

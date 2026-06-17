@@ -12,7 +12,25 @@
   import LoaderIcon from "@lucide/svelte/icons/loader";
   import { sessionStore, send, newSession, interrupt } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
+  import { openWorkspace } from "$lib/stores/workspace.svelte";
   import { ipc, type FileEntry } from "$lib/ipc";
+
+  // Active-context summary: enabled context sources + the project's base name.
+  // Opens the Workspace dialog so it's obvious what's feeding the agent.
+  const enabledCount = $derived(
+    (appStore.config?.context_sources ?? []).filter((s) => s.enabled).length,
+  );
+  const projectName = $derived(
+    appStore.config?.project_dir?.split(/[/\\]/).filter(Boolean).pop() ?? null,
+  );
+  const contextLabel = $derived(
+    [
+      enabledCount > 0 ? `${enabledCount} source${enabledCount === 1 ? "" : "s"}` : null,
+      projectName,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "No active context",
+  );
 
   // Large pastes become collapsed chips instead of flooding the textarea; the
   // full text is still spliced into the final message on send.
@@ -308,6 +326,17 @@
       {/each}
     </div>
   {/if}
+  <div>
+    <button
+      type="button"
+      onclick={openWorkspace}
+      title="Open the Workspace"
+      class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span class="text-primary" aria-hidden="true">◇</span>
+      {contextLabel}
+    </button>
+  </div>
   <div class="flex items-end gap-2">
     <div class="relative flex-1">
       {#if menu !== "none"}

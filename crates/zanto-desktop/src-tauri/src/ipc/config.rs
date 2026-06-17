@@ -1,7 +1,7 @@
 //! Configuration IPC commands.
 
 use tauri::State;
-use zanto_core::config::{self, Provider, ProviderConfig, Settings};
+use zanto_core::config::{self, ContextSource, Provider, ProviderConfig, Settings};
 use super::{ConfigDto, ConfigPatch, DesktopState, ProviderDto};
 
 /// Default provider list when none are configured.
@@ -59,8 +59,9 @@ pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
         model: state.model.lock().unwrap().clone(),
         endpoint: state.endpoint.lock().unwrap().clone(),
         allowed_paths: settings.allowed_paths,
-        // Report project-layer context sources only: that's the set add/remove
-        // mutate, so the UI list stays in sync with what removal can affect.
+        project_dir: settings.project_dir,
+        // Report project-layer context sources only: that's the set add/remove/
+        // toggle mutate, so the UI list stays in sync with what they can affect.
         context_sources: load_project_settings().context_sources,
         selected_skill: state.selected_skill.lock().unwrap().clone(),
         max_context_turns: settings.max_context_turns,
@@ -145,13 +146,17 @@ fn load_project_settings() -> Settings {
         .unwrap_or_default()
 }
 
-/// Add a context source (file or folder) and persist it to project config.
+/// Add a context source (file or folder), enabled by default, and persist it to
+/// project config. Also grants read access so the agent may actually read it.
 #[tauri::command]
-pub fn add_context_source(path: String) -> Result<(), String> {
+pub fn add_context_source(state: State<'_, DesktopState>, path: String) -> Result<(), String> {
     let mut settings = load_project_settings();
-    if !settings.context_sources.contains(&path) {
-        settings.context_sources.push(path);
+    if !settings.context_sources.iter().any(|s| s.path == path) {
+        settings.context_sources.push(ContextSource { path: path.clone(), enabled: true });
         settings.save().map_err(|e| e.to_string())?;
+        // Inputs auto-grant read: keep the intent + security layers consistent.
+        state.permissions.add_allowed(&path);
+        Settings::persist_allowed_path(&path);
     }
     Ok(())
 }
@@ -161,10 +166,40 @@ pub fn add_context_source(path: String) -> Result<(), String> {
 pub fn remove_context_source(path: String) -> Result<(), String> {
     let mut settings = load_project_settings();
     let before = settings.context_sources.len();
-    settings.context_sources.retain(|p| p != &path);
+    settings.context_sources.retain(|s| s.path != path);
     if settings.context_sources.len() != before {
         settings.save().map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Toggle a context source's `enabled` flag and persist. No-op if not found.
+#[tauri::command]
+pub fn toggle_context_source(path: String, enabled: bool) -> Result<(), String> {
+    let mut settings = load_project_settings();
+    let mut changed = false;
+    for s in settings.context_sources.iter_mut() {
+        if s.path == path && s.enabled != enabled {
+            s.enabled = enabled;
+            changed = true;
+        }
+    }
+    if changed {
+        settings.save().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Set the active project directory: persist it to project config and grant
+/// read access (so the agent may read the project tree). Outputs land in
+/// `<dir>/.zanto/artifacts`.
+#[tauri::command]
+pub fn set_project_dir(state: State<'_, DesktopState>, path: String) -> Result<(), String> {
+    let mut settings = load_project_settings();
+    settings.project_dir = Some(path.clone());
+    settings.save().map_err(|e| e.to_string())?;
+    state.permissions.add_allowed(&path);
+    Settings::persist_allowed_path(&path);
     Ok(())
 }
 

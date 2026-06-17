@@ -98,6 +98,8 @@ pub fn run() {
             ipc::config::add_allowed_path,
             ipc::config::add_context_source,
             ipc::config::remove_context_source,
+            ipc::config::toggle_context_source,
+            ipc::config::set_project_dir,
             ipc::config::set_api_key,
             ipc::config::clear_api_key,
             ipc::skills::list_skills,

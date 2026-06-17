@@ -13,6 +13,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use zanto_core::config::ContextSource;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{ContextPolicy, Session, Store};
@@ -70,7 +71,12 @@ pub struct ConfigDto {
     pub model: String,
     pub endpoint: String,
     pub allowed_paths: Vec<String>,
-    pub context_sources: Vec<String>,
+    /// The active project directory (outputs land in `<dir>/.zanto/artifacts`),
+    /// or `None` when no project is set.
+    pub project_dir: Option<String>,
+    /// Context sources with per-source `enabled` toggles (serialized as
+    /// `{ path, enabled }`).
+    pub context_sources: Vec<ContextSource>,
     pub selected_skill: Option<String>,
     pub max_context_turns: Option<usize>,
     pub providers: Vec<ProviderDto>,

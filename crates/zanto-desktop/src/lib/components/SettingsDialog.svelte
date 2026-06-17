@@ -11,7 +11,6 @@
   import EyeIcon from "@lucide/svelte/icons/eye";
   import EyeOffIcon from "@lucide/svelte/icons/eye-off";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
-  import XIcon from "@lucide/svelte/icons/x";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -132,28 +131,6 @@
     }
   }
 
-  async function addContextSource() {
-    try {
-      const f = await ipc.pickFolder();
-      if (!f) return;
-      await ipc.addContextSource(f);
-      await refreshConfig();
-      toast.success("Context source added", { description: f });
-    } catch (e) {
-      toast.error("Could not add the context source", { description: `${e}` });
-    }
-  }
-
-  async function removeContextSource(path: string) {
-    try {
-      await ipc.removeContextSource(path);
-      await refreshConfig();
-      toast.success("Context source removed", { description: path });
-    } catch (e) {
-      toast.error("Could not remove the context source", { description: `${e}` });
-    }
-  }
-
   async function selectSkill(name: string) {
     activeSkill = name;
     try {
@@ -178,7 +155,6 @@
 
   const activeProviderLabel = $derived(providerLabels[activeProvider] ?? activeProvider);
   const allowedPaths = $derived(appStore.config?.allowed_paths ?? []);
-  const contextSources = $derived(appStore.config?.context_sources ?? []);
   const activeSkillLabel = $derived(
     activeSkill === NO_SKILL ? "None" : activeSkill
   );
@@ -351,36 +327,6 @@
         <Button size="sm" variant="outline" onclick={pickFolder}>
           <FolderPlusIcon class="size-3.5" />
           Add folder…
-        </Button>
-      </section>
-
-      <!-- Context sources -->
-      <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Context sources</h3>
-        {#if contextSources.length === 0}
-          <p class="text-xs text-muted-foreground">
-            No context sources yet. Add a folder of notes to inject into every turn.
-          </p>
-        {:else}
-          <ul class="space-y-1">
-            {#each contextSources as path (path)}
-              <li class="flex items-center gap-2 rounded-md bg-muted px-2.5 py-1.5">
-                <span class="flex-1 truncate font-mono text-xs text-foreground" title={path}>{path}</span>
-                <button
-                  type="button"
-                  class="grid size-5 place-items-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onclick={() => removeContextSource(path)}
-                  aria-label="Remove context source"
-                >
-                  <XIcon class="size-3.5" />
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        <Button size="sm" variant="outline" onclick={addContextSource}>
-          <FolderPlusIcon class="size-3.5" />
-          Add source…
         </Button>
       </section>
 

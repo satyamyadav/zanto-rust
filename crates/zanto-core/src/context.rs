@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
 
+use crate::config::ContextSource;
+
 /// Max bytes read from any single context file. Larger files are truncated.
 pub const PER_FILE_CAP: usize = 16 * 1024;
 /// Max total bytes across all context sources. Once reached, no more is appended.
@@ -34,13 +36,14 @@ pub struct Skill {
 /// - Each file is capped at [`PER_FILE_CAP`]; the whole block is capped at
 ///   [`TOTAL_CAP`]. Truncation appends a `… [truncated]` note.
 /// - Missing/unreadable paths are skipped (warn-logged), never an error.
+/// - **Disabled** sources (`enabled == false`) are skipped entirely.
 ///
 /// Each contributing file is wrapped with a `--- context: <path> ---` header.
-pub fn load_context(sources: &[String]) -> String {
+pub fn load_context(sources: &[ContextSource]) -> String {
     let mut out = String::new();
 
-    for source in sources {
-        let path = Path::new(source);
+    for source in sources.iter().filter(|s| s.enabled) {
+        let path = Path::new(&source.path);
         if path.is_dir() {
             for file in dir_text_files(path) {
                 if !append_file(&mut out, &file) {
@@ -52,7 +55,10 @@ pub fn load_context(sources: &[String]) -> String {
                 return out;
             }
         } else {
-            eprintln!("[zanto] warn: context source not found, skipping: {source}");
+            eprintln!(
+                "[zanto] warn: context source not found, skipping: {}",
+                source.path
+            );
         }
     }
 
@@ -215,6 +221,11 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    /// Build an enabled `ContextSource` from a path-like value.
+    fn enabled(path: impl ToString) -> ContextSource {
+        ContextSource { path: path.to_string(), enabled: true }
+    }
+
     #[test]
     fn load_context_reads_file_dir_and_skips_missing() {
         let tmp = TempDir::new().unwrap();
@@ -232,9 +243,9 @@ mod tests {
         fs::write(dir.join("ignore.rs"), "fn main() {}").unwrap();
 
         let sources = vec![
-            file.display().to_string(),
-            dir.display().to_string(),
-            root.join("does-not-exist").display().to_string(),
+            enabled(file.display()),
+            enabled(dir.display()),
+            enabled(root.join("does-not-exist").display()),
         ];
         let out = load_context(&sources);
 
@@ -254,9 +265,27 @@ mod tests {
         // Larger than TOTAL_CAP so truncation must kick in.
         fs::write(&big, "x".repeat(TOTAL_CAP * 2)).unwrap();
 
-        let out = load_context(&[big.display().to_string()]);
+        let out = load_context(&[enabled(big.display())]);
         assert!(out.len() <= TOTAL_CAP + 64); // header + truncation note slack
         assert!(out.contains("[truncated]"));
+    }
+
+    #[test]
+    fn load_context_skips_disabled_sources() {
+        let tmp = TempDir::new().unwrap();
+        let on = tmp.path().join("on.md");
+        let off = tmp.path().join("off.md");
+        fs::write(&on, "enabled body").unwrap();
+        fs::write(&off, "disabled body").unwrap();
+
+        let sources = vec![
+            ContextSource { path: on.display().to_string(), enabled: true },
+            ContextSource { path: off.display().to_string(), enabled: false },
+        ];
+        let out = load_context(&sources);
+
+        assert!(out.contains("enabled body"));
+        assert!(!out.contains("disabled body"));
     }
 
     #[test]

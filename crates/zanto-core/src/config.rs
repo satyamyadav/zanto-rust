@@ -52,6 +52,44 @@ pub fn provider_of(model: &str) -> Provider {
     }
 }
 
+/// A context source (file or dir) fed to the assistant, with an enable toggle.
+///
+/// Serializes as `{ "path": "...", "enabled": true }`. Deserialization is
+/// back-compat: a bare JSON string (the old `Vec<String>` shape) parses as an
+/// enabled source. See the `Deserialize` impl below.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ContextSource {
+    pub path: String,
+    pub enabled: bool,
+}
+
+impl<'de> Deserialize<'de> for ContextSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        /// Accepts both the old `"path"` string and the new `{path,enabled}` object.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Shape {
+            Bare(String),
+            Full {
+                path: String,
+                #[serde(default = "default_true")]
+                enabled: bool,
+            },
+        }
+        Ok(match Shape::deserialize(deserializer)? {
+            Shape::Bare(path) => ContextSource { path, enabled: true },
+            Shape::Full { path, enabled } => ContextSource { path, enabled },
+        })
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// A single provider's active model and optional endpoint override.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
@@ -86,9 +124,11 @@ pub struct Settings {
     /// Root directory of the active project (canonicalized on load).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_dir: Option<String>,
-    /// Extra context sources (files/dirs) fed to the assistant.
+    /// Extra context sources (files/dirs) fed to the assistant. Each carries an
+    /// `enabled` toggle; `load_context` honors only enabled ones. Back-compat:
+    /// an old `["/a","/b"]` list deserializes as enabled sources.
     #[serde(default)]
-    pub context_sources: Vec<String>,
+    pub context_sources: Vec<ContextSource>,
 }
 
 impl Settings {
@@ -279,7 +319,10 @@ mod tests {
             ],
             active_provider: Some(Provider::Gemini),
             project_dir: Some("/tmp/project".to_string()),
-            context_sources: vec!["notes.md".to_string()],
+            context_sources: vec![ContextSource {
+                path: "notes.md".to_string(),
+                enabled: true,
+            }],
             ..Default::default()
         };
 
@@ -289,9 +332,43 @@ mod tests {
         assert_eq!(back.providers.len(), 2);
         assert_eq!(back.active_provider, Some(Provider::Gemini));
         assert_eq!(back.project_dir.as_deref(), Some("/tmp/project"));
-        assert_eq!(back.context_sources, vec!["notes.md".to_string()]);
+        assert_eq!(
+            back.context_sources,
+            vec![ContextSource {
+                path: "notes.md".to_string(),
+                enabled: true,
+            }]
+        );
         // snake_case rename for the provider enum.
         assert!(json.contains("\"gemini\""));
+    }
+
+    #[test]
+    fn context_sources_back_compat_deserialize() {
+        // Old shape: a flat list of path strings → all enabled.
+        let old = r#"{ "context_sources": ["/a", "/b"] }"#;
+        let s: Settings = serde_json::from_str(old).unwrap();
+        assert_eq!(
+            s.context_sources,
+            vec![
+                ContextSource { path: "/a".to_string(), enabled: true },
+                ContextSource { path: "/b".to_string(), enabled: true },
+            ]
+        );
+
+        // New shape: objects with explicit `enabled`.
+        let new = r#"{ "context_sources": [
+            { "path": "/a", "enabled": true },
+            { "path": "/b", "enabled": false }
+        ] }"#;
+        let s: Settings = serde_json::from_str(new).unwrap();
+        assert_eq!(
+            s.context_sources,
+            vec![
+                ContextSource { path: "/a".to_string(), enabled: true },
+                ContextSource { path: "/b".to_string(), enabled: false },
+            ]
+        );
     }
 
     #[test]
