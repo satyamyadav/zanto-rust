@@ -12,6 +12,7 @@ use crate::app::{App, AppManifest, ComponentDecl, StartAction};
 
 const STORE: &str = "transactions";
 const PROFILE_STORE: &str = "finance_profile";
+const WIDGETS_STORE: &str = "finance_widgets";
 
 /// Default expense categories seeded when a profile omits them.
 const DEFAULT_CATEGORIES: &[&str] =
@@ -27,7 +28,7 @@ impl FinanceApp {
             id: "finance".to_string(),
             name: "Personal Finance".to_string(),
             description: "Track expenses and view spending summaries.".to_string(),
-            stores: vec![STORE.to_string(), PROFILE_STORE.to_string()],
+            stores: vec![STORE.to_string(), PROFILE_STORE.to_string(), WIDGETS_STORE.to_string()],
             components: vec![
                 ComponentDecl {
                     id: "transactions_table".to_string(),
@@ -259,6 +260,69 @@ impl FinanceApp {
         data.insert(PROFILE_STORE, &profile).map_err(|e| e.to_string())?;
         Ok(profile)
     }
+
+    // ---- dashboard widgets (F4) ----
+
+    fn ensure_widgets_store(&self, data: &DataStore) -> Result<(), String> {
+        data.create_store(WIDGETS_STORE).map_err(|e| e.to_string())
+    }
+
+    /// The saved dashboard widget list. Picks the row with the greatest
+    /// `saved_at` (last write wins). Returns `{ widgets: [...] }`. When none has
+    /// been saved, returns a sensible default layout mirroring the fixed F1
+    /// dashboard (balance + this-month KPIs, the 6-month chart, top categories).
+    /// A widget def = `{ kind, title, source }` where `source` selects part of
+    /// the `overview` data.
+    fn get_widgets(&self, data: &DataStore) -> Result<Value, String> {
+        self.ensure_widgets_store(data)?;
+        let rows = data.query(WIDGETS_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let latest = rows
+            .into_iter()
+            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
+        match latest.and_then(|r| r.data.get("widgets").cloned()) {
+            Some(widgets) => Ok(json!({ "widgets": widgets })),
+            None => Ok(json!({ "widgets": default_widgets() })),
+        }
+    }
+
+    /// Persist the dashboard widget list. Insert-only like the profile: each save
+    /// stamps a `saved_at`, and `get_widgets` returns the row with the greatest
+    /// `saved_at`, so a re-save overwrites the active layout. Only the recognized
+    /// fields (`kind`, `title`, `source`) of each widget are kept.
+    fn do_save_widgets(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        self.ensure_widgets_store(data)?;
+
+        let widgets: Vec<Value> = match args.get("widgets").and_then(|v| v.as_array()) {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|w| {
+                    let kind = w.get("kind").and_then(|v| v.as_str())?;
+                    if !matches!(kind, "kpi" | "chart" | "table") {
+                        return None;
+                    }
+                    let source = w.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                    let title = w.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                    Some(json!({ "kind": kind, "title": title, "source": source }))
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+
+        let record = json!({ "widgets": widgets, "saved_at": unix_now_pub() });
+        data.insert(WIDGETS_STORE, &record).map_err(|e| e.to_string())?;
+        Ok(record)
+    }
+}
+
+/// Default dashboard widgets mirroring the fixed F1 layout. Each `source`
+/// names a slice of the `overview` query result.
+fn default_widgets() -> Value {
+    json!([
+        { "kind": "kpi", "title": "Balance", "source": "balance" },
+        { "kind": "kpi", "title": "This month", "source": "month_total" },
+        { "kind": "chart", "title": "Spending — last 6 months", "source": "series" },
+        { "kind": "table", "title": "Top categories", "source": "top_categories" },
+    ])
 }
 
 impl App for FinanceApp {
@@ -343,6 +407,7 @@ impl App for FinanceApp {
             "monthly_summary" => self.compute_monthly_summary(data, args),
             "overview" => self.compute_overview(data),
             "profile" => self.get_profile(data),
+            "widgets" => self.get_widgets(data),
             other => Err(format!("unknown query: {other}")),
         }
     }
@@ -351,6 +416,7 @@ impl App for FinanceApp {
         match name {
             "add_transaction" => self.do_add_transaction(data, args),
             "save_profile" => self.do_save_profile(data, args),
+            "save_widgets" => self.do_save_widgets(data, args),
             other => Err(format!("unknown action: {other}")),
         }
     }
