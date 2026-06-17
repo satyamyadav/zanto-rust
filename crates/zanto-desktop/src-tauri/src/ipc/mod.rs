@@ -7,6 +7,7 @@ pub mod chat;
 pub mod config;
 pub mod files;
 pub mod session;
+pub mod skills;
 
 use std::sync::{Arc, Mutex as StdMutex};
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,9 @@ pub struct DesktopState {
     pub model: StdMutex<String>,
     pub endpoint: StdMutex<String>,
     pub workspace: String,
+    /// User-selected markdown skill (file stem), appended to the app skill on
+    /// each turn. `None` means no extra skill.
+    pub selected_skill: StdMutex<Option<String>>,
 }
 
 impl DesktopState {
@@ -62,6 +66,8 @@ pub struct ConfigDto {
     pub model: String,
     pub endpoint: String,
     pub allowed_paths: Vec<String>,
+    pub context_sources: Vec<String>,
+    pub selected_skill: Option<String>,
     pub max_context_turns: Option<usize>,
     pub providers: Vec<ProviderDto>,
     pub active_provider: Option<String>,

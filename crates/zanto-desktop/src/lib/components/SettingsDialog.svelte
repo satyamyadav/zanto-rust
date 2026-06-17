@@ -7,12 +7,17 @@
   import { mode, setMode } from "mode-watcher";
   import { density, setDensity, type Density } from "$lib/stores/theme.svelte";
   import { appStore, refreshConfig } from "$lib/stores/app.svelte";
-  import { ipc, type ProviderPatch } from "$lib/ipc";
+  import { ipc, type ProviderPatch, type SkillDto } from "$lib/ipc";
   import EyeIcon from "@lucide/svelte/icons/eye";
   import EyeOffIcon from "@lucide/svelte/icons/eye-off";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
+  import XIcon from "@lucide/svelte/icons/x";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
+
+  const NO_SKILL = "__none__";
+  let skills = $state<SkillDto[]>([]);
+  let activeSkill = $state(NO_SKILL);
 
   let activeProvider = $state("");
   let providers = $state<ProviderPatch[]>([]);
@@ -33,8 +38,19 @@
         endpoint: p.endpoint,
       }));
       resetKeyState();
+      activeSkill = appStore.config.selected_skill ?? NO_SKILL;
+      loadSkills();
     }
   });
+
+  async function loadSkills() {
+    try {
+      skills = await ipc.listSkills();
+    } catch (e) {
+      skills = [];
+      toast.error("Could not load skills", { description: `${e}` });
+    }
+  }
 
   // Never carry one provider's key field, revealed state, or confirm banner
   // into another provider.
@@ -116,6 +132,37 @@
     }
   }
 
+  async function addContextSource() {
+    try {
+      const f = await ipc.pickFolder();
+      if (!f) return;
+      await ipc.addContextSource(f);
+      await refreshConfig();
+      toast.success("Context source added", { description: f });
+    } catch (e) {
+      toast.error("Could not add the context source", { description: `${e}` });
+    }
+  }
+
+  async function removeContextSource(path: string) {
+    try {
+      await ipc.removeContextSource(path);
+      await refreshConfig();
+      toast.success("Context source removed", { description: path });
+    } catch (e) {
+      toast.error("Could not remove the context source", { description: `${e}` });
+    }
+  }
+
+  async function selectSkill(name: string) {
+    activeSkill = name;
+    try {
+      await ipc.setActiveSkill(name === NO_SKILL ? null : name);
+    } catch (e) {
+      toast.error("Could not set the active skill", { description: `${e}` });
+    }
+  }
+
   const densities: Density[] = ["compact", "normal", "relaxed"];
   const densityLabels: Record<Density, string> = {
     compact: "Compact",
@@ -131,6 +178,10 @@
 
   const activeProviderLabel = $derived(providerLabels[activeProvider] ?? activeProvider);
   const allowedPaths = $derived(appStore.config?.allowed_paths ?? []);
+  const contextSources = $derived(appStore.config?.context_sources ?? []);
+  const activeSkillLabel = $derived(
+    activeSkill === NO_SKILL ? "None" : activeSkill
+  );
 </script>
 
 <Dialog.Root bind:open>
@@ -301,6 +352,63 @@
           <FolderPlusIcon class="size-3.5" />
           Add folder…
         </Button>
+      </section>
+
+      <!-- Context sources -->
+      <section class="space-y-3">
+        <h3 class="font-display text-sm font-semibold tracking-tight">Context sources</h3>
+        {#if contextSources.length === 0}
+          <p class="text-xs text-muted-foreground">
+            No context sources yet. Add a folder of notes to inject into every turn.
+          </p>
+        {:else}
+          <ul class="space-y-1">
+            {#each contextSources as path (path)}
+              <li class="flex items-center gap-2 rounded-md bg-muted px-2.5 py-1.5">
+                <span class="flex-1 truncate font-mono text-xs text-foreground" title={path}>{path}</span>
+                <button
+                  type="button"
+                  class="grid size-5 place-items-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onclick={() => removeContextSource(path)}
+                  aria-label="Remove context source"
+                >
+                  <XIcon class="size-3.5" />
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <Button size="sm" variant="outline" onclick={addContextSource}>
+          <FolderPlusIcon class="size-3.5" />
+          Add source…
+        </Button>
+      </section>
+
+      <!-- Skill -->
+      <section class="space-y-3">
+        <h3 class="font-display text-sm font-semibold tracking-tight">Skill</h3>
+        <div class="space-y-1.5">
+          <span class="text-xs text-muted-foreground" id="cfg-skill-label">Active skill</span>
+          <Select.Root type="single" value={activeSkill} onValueChange={selectSkill}>
+            <Select.Trigger
+              class="w-full focus-visible:ring-2 focus-visible:ring-ring"
+              aria-labelledby="cfg-skill-label"
+            >
+              {activeSkillLabel}
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value={NO_SKILL} label="None" />
+              {#each skills as s (s.name)}
+                <Select.Item value={s.name} label={s.name} />
+              {/each}
+            </Select.Content>
+          </Select.Root>
+          {#if skills.length === 0}
+            <p class="text-xs text-muted-foreground">
+              No skills found. Add markdown files under <code class="font-mono">.zanto/skills</code>.
+            </p>
+          {/if}
+        </div>
       </section>
     </div>
   </Dialog.Content>

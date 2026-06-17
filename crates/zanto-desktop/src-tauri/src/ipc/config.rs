@@ -59,6 +59,10 @@ pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
         model: state.model.lock().unwrap().clone(),
         endpoint: state.endpoint.lock().unwrap().clone(),
         allowed_paths: settings.allowed_paths,
+        // Report project-layer context sources only: that's the set add/remove
+        // mutate, so the UI list stays in sync with what removal can affect.
+        context_sources: load_project_settings().context_sources,
+        selected_skill: state.selected_skill.lock().unwrap().clone(),
         max_context_turns: settings.max_context_turns,
         providers,
         active_provider,
@@ -127,6 +131,40 @@ pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
 pub fn add_allowed_path(state: State<'_, DesktopState>, path: String) -> Result<(), String> {
     state.permissions.add_allowed(&path);
     Settings::persist_allowed_path(&path);
+    Ok(())
+}
+
+/// Load only the project-layer settings (`.zanto/settings.json`), defaulting to
+/// empty when absent. Mirrors `Settings::persist_allowed_path`, which edits the
+/// project file directly so it never folds user-level settings into the project
+/// layer (a full `Settings::load().save()` of the merged settings would).
+fn load_project_settings() -> Settings {
+    std::fs::read_to_string(config::PROJECT_CONFIG)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Add a context source (file or folder) and persist it to project config.
+#[tauri::command]
+pub fn add_context_source(path: String) -> Result<(), String> {
+    let mut settings = load_project_settings();
+    if !settings.context_sources.contains(&path) {
+        settings.context_sources.push(path);
+        settings.save().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Remove a context source and persist the change to project config.
+#[tauri::command]
+pub fn remove_context_source(path: String) -> Result<(), String> {
+    let mut settings = load_project_settings();
+    let before = settings.context_sources.len();
+    settings.context_sources.retain(|p| p != &path);
+    if settings.context_sources.len() != before {
+        settings.save().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

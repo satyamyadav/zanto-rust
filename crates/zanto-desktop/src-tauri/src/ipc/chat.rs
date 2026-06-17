@@ -1,8 +1,10 @@
 //! `send_message` — runs a chat turn in the active app's context.
 
+use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn};
+use zanto_core::config::Settings;
 use crate::catalogue::{shared_tools, SharedDispatcher};
 use crate::interaction::TauriSink;
 use super::DesktopState;
@@ -20,6 +22,32 @@ pub async fn send_message(
     let mut session = state.session.lock().await;
     session.app_id = active.as_ref().map(|a| a.manifest().id.clone());
 
+    // Load settings once: drives context-source injection and skill resolution.
+    let settings = Settings::load();
+
+    // Inject the user's configured context sources into this turn (or None when
+    // nothing is configured / readable).
+    let ctx = zanto_core::context::load_context(&settings.context_sources);
+    let context = (!ctx.is_empty()).then_some(ctx);
+
+    // Resolve the active app's skill (if any) and append the user-selected
+    // markdown skill body when one is active.
+    let app_skill = active.as_ref().map(|a| a.skill());
+    let selected = state.selected_skill.lock().unwrap().clone();
+    let skill = match selected.and_then(|name| {
+        zanto_core::context::get_skill(
+            settings.project_dir.as_deref().map(Path::new),
+            &name,
+        )
+        .map(|s| s.body)
+    }) {
+        Some(body) => match &app_skill {
+            Some(app) => Some(format!("{app}\n\n{body}")),
+            None => Some(body),
+        },
+        None => app_skill.clone(),
+    };
+
     let mut config = match &active {
         Some(app) => {
             // Shared artifact tools + the app's domain tools; base fs/shell come
@@ -30,8 +58,8 @@ pub async fn send_message(
                 model,
                 endpoint,
                 permissions: Arc::clone(&state.permissions),
-                skill: Some(app.skill()),
-                context: None,
+                skill,
+                context,
                 extra_tools: extra,
                 app_dispatch: Some(Arc::new(SharedDispatcher::new(
                     Arc::clone(&state.catalogue),
@@ -42,7 +70,12 @@ pub async fn send_message(
                 sink: None,
             }
         }
-        None => ChatConfig::new(model, endpoint, Arc::clone(&state.permissions)),
+        None => {
+            let mut c = ChatConfig::new(model, endpoint, Arc::clone(&state.permissions));
+            c.skill = skill;
+            c.context = context;
+            c
+        }
     };
 
     // Stream the turn to the shell: text deltas + blocks live, `chat_done` at end.

@@ -67,10 +67,15 @@ export type Config = {
   model: string;
   endpoint: string;
   allowed_paths: string[];
+  context_sources: string[];
+  selected_skill: string | null;
   max_context_turns: number | null;
   providers: ProviderDto[];
   active_provider: string | null;
 };
+
+// A discoverable markdown skill: file stem + a short body preview.
+export type SkillDto = { name: string; preview: string };
 
 export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_context_turns">> & {
   providers?: ProviderPatch[];
@@ -155,8 +160,14 @@ export const ipc = {
   pickFolder: () => invoke<string | null>("pick_folder"),
   browseDir: (path?: string) => invoke<FileEntry[]>("browse_dir", { path: path ?? null }),
   addAllowedPath: (path: string) => invoke<void>("add_allowed_path", { path }),
+  addContextSource: (path: string) => invoke<void>("add_context_source", { path }),
+  removeContextSource: (path: string) => invoke<void>("remove_context_source", { path }),
   setApiKey: (provider: string, key: string) => invoke<void>("set_api_key", { provider, key }),
   clearApiKey: (provider: string) => invoke<void>("clear_api_key", { provider }),
+
+  // Skills (user-selected markdown preprompts)
+  listSkills: () => invoke<SkillDto[]>("list_skills"),
+  setActiveSkill: (name: string | null) => invoke<void>("set_active_skill", { name }),
 
   // HITL interaction channel (approvals + agent forms)
   respond: (requestId: string, value: unknown) => invoke<void>("respond", { requestId, value }),
