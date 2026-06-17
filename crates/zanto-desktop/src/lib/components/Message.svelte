@@ -6,6 +6,7 @@
   import ReasoningSegment from "./segments/ReasoningSegment.svelte";
   import ToolCallSegment from "./segments/ToolCallSegment.svelte";
   import WorkflowGroup from "./segments/WorkflowGroup.svelte";
+  import ThinkingBlock from "./segments/ThinkingBlock.svelte";
   import ErrorSegment from "./segments/ErrorSegment.svelte";
   import CopyIcon from "@lucide/svelte/icons/copy";
   import CheckIcon from "@lucide/svelte/icons/check";
@@ -46,9 +47,28 @@
   // bubbles are NOT process: they break the spine and render full-width. Group
   // the item list into ordered groups so consecutive process items share one rail.
   type ProcessKind = "reasoning" | "tool" | "workflow";
-  type NodeStatus = "live" | "ok" | "error" | "neutral";
   type SpineStep = { item: RenderItem; kind: ProcessKind; idx: number };
   type Group = { kind: "spine"; steps: SpineStep[] } | { kind: "plain"; item: RenderItem };
+
+  // Shape passed to ThinkingBlock (structurally matches its own ProcessItem).
+  type ProcessItem =
+    | { kind: "reasoning"; seg: Extract<ChatSegment, { kind: "reasoning" }> }
+    | { kind: "tool"; seg: ToolCallSegmentData }
+    | { kind: "workflow"; steps: ToolCallSegmentData[] };
+
+  // Map a spine group's steps into ThinkingBlock items.
+  function spineItems(steps: SpineStep[]): ProcessItem[] {
+    return steps.map((s): ProcessItem => {
+      if (s.kind === "workflow" && s.item.kind === "workflow") {
+        return { kind: "workflow", steps: s.item.steps };
+      }
+      const seg = s.item.kind === "single" ? s.item.seg : null;
+      if (s.kind === "reasoning" && seg && seg.kind === "reasoning") {
+        return { kind: "reasoning", seg };
+      }
+      return { kind: "tool", seg: seg as ToolCallSegmentData };
+    });
+  }
 
   function processKind(item: RenderItem): ProcessKind | null {
     if (item.kind === "workflow") return "workflow";
@@ -79,26 +99,6 @@
   function lastSpineGroupIndex(gs: Group[]): number {
     for (let i = gs.length - 1; i >= 0; i--) if (gs[i].kind === "spine") return i;
     return -1;
-  }
-
-  // Per-step node status. A tool/workflow with no output yet is in-flight; the
-  // active in-flight step pulses amber, finished steps settle to success/error,
-  // reasoning is a quiet neutral node.
-  function nodeStatus(step: SpineStep, isActive: boolean): NodeStatus {
-    if (step.kind === "reasoning") return isActive && live ? "live" : "neutral";
-    if (step.item.kind === "workflow") {
-      const steps = step.item.steps;
-      if (steps.some((s) => s.output !== undefined && s.ok === false)) return "error";
-      if (steps.some((s) => s.output === undefined)) return isActive && live ? "live" : "neutral";
-      return "ok";
-    }
-    // lone tool_call
-    const seg = step.item.kind === "single" ? step.item.seg : null;
-    if (seg && seg.kind === "tool_call") {
-      if (seg.output === undefined) return isActive && live ? "live" : "neutral";
-      return seg.ok ? "ok" : "error";
-    }
-    return "neutral";
   }
 
   // Concatenated plain text of the message's text/markdown segments.
@@ -184,13 +184,6 @@
     };
   }
 
-  // Tailwind class for a node dot by status.
-  function nodeDot(s: NodeStatus): string {
-    if (s === "live") return "bg-primary";
-    if (s === "ok") return "bg-success";
-    if (s === "error") return "bg-destructive";
-    return "bg-border";
-  }
 </script>
 
 {#snippet renderItem(item: RenderItem)}
@@ -215,30 +208,9 @@
     {#if group.kind === "plain"}
       {@render renderItem(group.item)}
     {:else}
-      <!-- Agent-activity spine: a thin rail with a node per process step. -->
-      <ol class="flex flex-col">
-        {#each group.steps as step, si (si)}
-          {@const isActiveStep = gi === lastSpine && si === group.steps.length - 1}
-          {@const ns = nodeStatus(step, isActiveStep)}
-          <li class="relative flex gap-3 pb-2 last:pb-0">
-            <!-- Rail + node column. Rail is 1.5px; the node sits on it. -->
-            <div class="relative flex w-3 shrink-0 justify-center" aria-hidden="true">
-              <span
-                class="absolute inset-y-0 w-px {ns === 'live' && live ? 'bg-primary/60 agent-spine--live' : 'bg-border'}"
-              ></span>
-              <span
-                class="relative z-10 mt-1.5 size-2 rounded-full ring-2 ring-background {nodeDot(ns)} {ns ===
-                'live' && live
-                  ? 'agent-spine--live'
-                  : ''}"
-              ></span>
-            </div>
-            <div class="min-w-0 flex-1">
-              {@render renderItem(step.item)}
-            </div>
-          </li>
-        {/each}
-      </ol>
+      <!-- The agent's process (reasoning + tool/workflow steps) under a collapsible
+           "Working…/Thought for N steps" header; the spine timeline lives inside it. -->
+      <ThinkingBlock items={spineItems(group.steps)} live={gi === lastSpine && live} />
     {/if}
   {/each}
 {/snippet}
