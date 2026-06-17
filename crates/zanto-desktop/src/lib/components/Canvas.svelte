@@ -40,6 +40,8 @@
 
   function onIframeLoad() {
     loaded = true;
+    // A site slower than the arm-timeout still recovers from the fallback once it loads.
+    embedFailed = false;
   }
 
   // A hard failure (network/refused) fires `error`; surface the fallback at once.
