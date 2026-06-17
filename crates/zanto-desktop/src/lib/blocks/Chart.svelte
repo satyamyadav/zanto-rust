@@ -42,43 +42,52 @@
 
   let { data }: { data: ChartData } = $props();
 
-  // Categorical palette — works in both themes.
-  const PALETTE = [
-    "oklch(0.62 0.19 278)",
-    "oklch(0.68 0.17 162)",
-    "oklch(0.72 0.16 70)",
-    "oklch(0.64 0.21 27)",
-    "oklch(0.66 0.16 320)",
-    "oklch(0.6 0.15 220)",
-    "oklch(0.7 0.15 130)",
-    "oklch(0.62 0.18 350)",
-  ];
-
   let canvas: HTMLCanvasElement | undefined = $state();
   let chart: Chart | undefined;
 
-  function readVar(name: string, fallback: string): string {
-    if (typeof window === "undefined" || !canvas) return fallback;
-    const v = getComputedStyle(canvas).getPropertyValue(name).trim();
-    return v || fallback;
+  function readVar(name: string): string {
+    if (!canvas) return "";
+    return getComputedStyle(canvas).getPropertyValue(name).trim();
+  }
+
+  // Categorical palette derived entirely from CSS tokens — primary (signal-amber)
+  // leads the series; the rest are the genuinely-hued status tokens so every
+  // series stays visually distinct (the neutral foreground tokens are reserved
+  // for axes/grid, never for series). On-brand and dark-mode safe, no hex.
+  function palette(): string[] {
+    const tokens = ["--primary", "--success", "--destructive", "--warning"];
+    const base = tokens.map(readVar).filter((c) => c.length > 0);
+    if (base.length === 0) return [];
+    // Extend with token-mixed variants so >4 series stay separable without
+    // introducing flat grays.
+    const fg = readVar("--foreground");
+    const variants = fg
+      ? base.map((c) => `color-mix(in oklch, ${c} 65%, ${fg})`)
+      : [];
+    return [...base, ...variants];
   }
 
   function build(el: HTMLCanvasElement, d: ChartData) {
     const arc = d.type === "pie" || d.type === "doughnut";
-    const fg = readVar("--muted-foreground", "#888");
-    const grid = readVar("--border", "rgba(128,128,128,0.2)");
+    const fg = readVar("--muted-foreground");
+    const grid = readVar("--border");
+    const surface = readVar("--card");
+    // Floor to a token color so pick() never indexes an empty array.
+    const colors = palette();
+    if (colors.length === 0) colors.push(readVar("--foreground") || "currentColor");
+    const pick = (i: number) => colors[i % colors.length];
 
     const datasets = d.datasets.map((ds, i) => {
       if (arc) {
         return {
           label: ds.label,
           data: ds.data,
-          backgroundColor: d.labels.map((_, j) => PALETTE[j % PALETTE.length]),
-          borderColor: readVar("--background", "#fff"),
+          backgroundColor: d.labels.map((_, j) => pick(j)),
+          borderColor: surface,
           borderWidth: 1,
         };
       }
-      const c = PALETTE[i % PALETTE.length];
+      const c = pick(i);
       return {
         label: ds.label,
         data: ds.data,
@@ -129,7 +138,7 @@
 
 <div>
   {#if data.title}
-    <div class="text-xs text-muted-foreground mb-2">{data.title}</div>
+    <div class="mb-2 text-xs font-medium text-muted-foreground">{data.title}</div>
   {/if}
   <div class="relative h-64 w-full">
     <canvas bind:this={canvas}></canvas>

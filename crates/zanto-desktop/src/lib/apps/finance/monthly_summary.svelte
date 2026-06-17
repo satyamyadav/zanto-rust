@@ -5,18 +5,20 @@
 </script>
 
 <div class="space-y-2">
-  <div class="text-base font-medium">
-    {data?.month} — total <span class="tabular-nums">{data?.total}</span>
+  <div class="flex items-baseline justify-between gap-4">
+    <span class="text-sm font-medium text-muted-foreground">{data?.month}</span>
+    <span class="font-display text-xl font-semibold tabular-nums text-foreground">{data?.total}</span>
   </div>
-  <ul class="text-sm space-y-1">
-    {#each cats as c}
-      <li class="flex justify-between border-b border-gray-100 py-0.5">
-        <span>{c.category}</span>
-        <span class="tabular-nums">{c.total}</span>
-      </li>
-    {/each}
-    {#if cats.length === 0}
-      <li class="text-gray-400">No spending recorded for this month.</li>
-    {/if}
-  </ul>
+  {#if cats.length === 0}
+    <div class="text-sm text-muted-foreground">No spending recorded for this month.</div>
+  {:else}
+    <ul class="space-y-1 text-sm">
+      {#each cats as c}
+        <li class="flex justify-between gap-4 border-b border-border/50 py-1">
+          <span class="break-words text-foreground">{c.category}</span>
+          <span class="font-mono tabular-nums text-foreground">{c.total}</span>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 </div>

@@ -3,8 +3,10 @@
 </script>
 
 <div>
-  <div class="text-xs text-muted-foreground">{data.label}</div>
-  <div class="text-2xl font-semibold tabular-nums">
-    {data.value}{#if data.unit}<span class="text-sm text-muted-foreground ml-1">{data.unit}</span>{/if}
+  <div class="text-xs font-medium text-muted-foreground">{data.label}</div>
+  <div class="font-display text-2xl font-semibold tabular-nums text-foreground">
+    {data.value}{#if data.unit}<span class="ml-1 font-sans text-sm font-normal text-muted-foreground"
+        >{data.unit}</span
+      >{/if}
   </div>
 </div>

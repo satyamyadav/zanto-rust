@@ -3,27 +3,31 @@
   const rows = $derived(data?.rows ?? []);
 </script>
 
-<div class="overflow-auto">
-  <table class="w-full text-sm border-collapse">
+<div class="overflow-x-auto">
+  <table class="w-full border-collapse text-sm">
     <thead>
-      <tr class="text-left border-b border-gray-300">
-        <th class="py-1 pr-3">Date</th>
-        <th class="py-1 pr-3">Merchant</th>
-        <th class="py-1 pr-3">Category</th>
-        <th class="py-1 pr-3 text-right">Amount</th>
+      <tr class="border-b border-border text-left">
+        <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Date</th>
+        <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Merchant</th>
+        <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Category</th>
+        <th scope="col" class="px-3 py-1.5 text-right font-medium text-muted-foreground">Amount</th>
       </tr>
     </thead>
     <tbody>
       {#each rows as r}
-        <tr class="border-b border-gray-100">
-          <td class="py-1 pr-3">{r.date}</td>
-          <td class="py-1 pr-3">{r.merchant}</td>
-          <td class="py-1 pr-3">{r.category}</td>
-          <td class="py-1 pr-3 text-right">{r.amount}</td>
+        <tr class="border-b border-border/50">
+          <td class="px-3 py-1.5 font-mono tabular-nums text-foreground">{r.date}</td>
+          <td class="px-3 py-1.5 break-words text-foreground">{r.merchant}</td>
+          <td class="px-3 py-1.5 text-muted-foreground">{r.category}</td>
+          <td class="px-3 py-1.5 text-right font-mono tabular-nums text-foreground">{r.amount}</td>
         </tr>
       {/each}
       {#if rows.length === 0}
-        <tr><td colspan="4" class="py-2 text-gray-400">No transactions yet.</td></tr>
+        <tr>
+          <td colspan="4" class="px-3 py-4 text-center text-muted-foreground"
+            >No transactions yet.</td
+          >
+        </tr>
       {/if}
     </tbody>
   </table>
