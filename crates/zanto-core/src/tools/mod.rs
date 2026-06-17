@@ -1,6 +1,7 @@
 pub mod artifacts;
 pub mod fs;
 pub mod shell;
+pub mod web;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,6 +14,7 @@ pub struct ToolService {
     fs: fs::FsTools,
     shell: shell::ShellTools,
     artifacts: artifacts::ArtifactTools,
+    web: web::WebTools,
 }
 
 impl ToolService {
@@ -26,6 +28,7 @@ impl ToolService {
             fs: fs::FsTools::new(Arc::clone(&permissions)),
             shell: shell::ShellTools::new(permissions),
             artifacts: artifacts::ArtifactTools::new(store),
+            web: web::WebTools::new(),
         }
     }
 
@@ -33,6 +36,7 @@ impl ToolService {
         let mut tools = fs::schemas();
         tools.extend(shell::schemas());
         tools.extend(artifacts::schemas());
+        tools.extend(web::schemas());
         tools
     }
 
@@ -48,17 +52,22 @@ impl ToolService {
             shell::dispatch(&self.shell, name, args).await
         } else if artifacts::owns(name) {
             artifacts::dispatch(&self.artifacts, name, args).await
+        } else if web::owns(name) {
+            web::dispatch(&self.web, name, args).await
         } else {
             Err(format!("unknown tool: {name}").into())
         }
     }
 
     pub fn is_readonly(name: &str) -> bool {
-        fs::is_readonly(name) || shell::is_readonly(name) || artifacts::is_readonly(name)
+        fs::is_readonly(name)
+            || shell::is_readonly(name)
+            || artifacts::is_readonly(name)
+            || web::is_readonly(name)
     }
 
-    /// Whether `name` is a built-in base tool (fs, shell, or artifacts).
+    /// Whether `name` is a built-in base tool (fs, shell, artifacts, or web).
     pub fn owns(name: &str) -> bool {
-        fs::owns(name) || shell::owns(name) || artifacts::owns(name)
+        fs::owns(name) || shell::owns(name) || artifacts::owns(name) || web::owns(name)
     }
 }

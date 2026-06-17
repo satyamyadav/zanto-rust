@@ -6528,6 +6528,7 @@ dependencies = [
  "genai",
  "globset",
  "keyring",
+ "reqwest 0.13.4",
  "rmcp",
  "rusqlite",
  "rusqlite_migration",
@@ -6536,6 +6537,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "url",
  "uuid",
  "walkdir",
 ]
