@@ -5,4 +5,5 @@ pub mod context;
 pub mod data;
 pub mod permissions;
 pub mod session;
+pub mod summarize;
 pub mod tools;

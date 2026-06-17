@@ -76,6 +76,10 @@ pub struct SessionMeta {
 pub enum ContextPolicy {
     All,
     LastNTurns { max_turns: usize },
+    /// Keep the last `keep_last` turns verbatim; when older turns exist, prepend
+    /// the session's stored running `summary` (see `summarize` module) as a leading
+    /// system message so dropped history is not lost.
+    Summarize { keep_last: usize },
 }
 
 impl Default for ContextPolicy {
@@ -128,6 +132,21 @@ impl Session {
         match policy {
             ContextPolicy::All => self.messages.clone(),
             ContextPolicy::LastNTurns { max_turns } => trim_to_turns(&self.messages, *max_turns),
+            ContextPolicy::Summarize { keep_last } => {
+                let trimmed = trim_to_turns(&self.messages, *keep_last);
+                // Only prepend the summary when older turns were actually dropped
+                // and we have a summary to inject.
+                if count_turns(&self.messages) > *keep_last {
+                    if let Some(summary) = self.summary.as_deref().filter(|s| !s.trim().is_empty()) {
+                        let note = format!("Summary of earlier conversation:\n{summary}");
+                        let mut out = Vec::with_capacity(trimmed.len() + 1);
+                        out.push(ChatMessage::system(note));
+                        out.extend(trimmed);
+                        return out;
+                    }
+                }
+                trimmed
+            }
         }
     }
 }
@@ -145,6 +164,15 @@ pub fn auto_title(messages: &[ChatMessage]) -> String {
         }
     }
     "untitled".to_string()
+}
+
+/// Count conversation turns (a turn starts at each non-system `User` message).
+/// System messages are excluded, matching `trim_to_turns`.
+fn count_turns(messages: &[ChatMessage]) -> usize {
+    messages
+        .iter()
+        .filter(|m| matches!(m.role, ChatRole::User))
+        .count()
 }
 
 fn trim_to_turns(messages: &[ChatMessage], max_turns: usize) -> Vec<ChatMessage> {
@@ -805,6 +833,44 @@ mod tests {
         assert_eq!(effective.len(), 4);
         assert_eq!(effective[0].content.first_text().unwrap(), "q1");
         assert_eq!(effective[2].content.first_text().unwrap(), "q2");
+    }
+
+    #[test]
+    fn context_policy_summarize_prepends_summary_and_keeps_last() {
+        let policy = ContextPolicy::Summarize { keep_last: 2 };
+        let mut s = make_session("/ws");
+        s.summary = Some("earlier recap".to_string());
+
+        // 4 turns: user+assistant each.
+        for i in 0..4u8 {
+            s.messages.push(ChatMessage::user(format!("q{i}")));
+            s.messages.push(ChatMessage::assistant(format!("a{i}")));
+        }
+
+        let effective = s.effective_messages(&policy);
+        // Leading system summary + last 2 turns (4 messages) = 5.
+        assert_eq!(effective.len(), 5);
+        assert!(matches!(effective[0].role, ChatRole::System));
+        assert!(effective[0].content.first_text().unwrap().contains("earlier recap"));
+        assert_eq!(effective[1].content.first_text().unwrap(), "q2");
+        assert_eq!(effective[3].content.first_text().unwrap(), "q3");
+    }
+
+    #[test]
+    fn context_policy_summarize_no_summary_when_within_budget() {
+        let policy = ContextPolicy::Summarize { keep_last: 5 };
+        let mut s = make_session("/ws");
+        s.summary = Some("earlier recap".to_string());
+
+        // Only 2 turns — within budget, so no summary prepended.
+        for i in 0..2u8 {
+            s.messages.push(ChatMessage::user(format!("q{i}")));
+            s.messages.push(ChatMessage::assistant(format!("a{i}")));
+        }
+
+        let effective = s.effective_messages(&policy);
+        assert_eq!(effective.len(), 4);
+        assert!(!matches!(effective[0].role, ChatRole::System));
     }
 
     #[test]
