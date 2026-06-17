@@ -2,6 +2,7 @@
 //! defined here. `lib.rs` registers all commands.
 
 pub mod apps;
+pub mod artifacts;
 pub mod chat;
 pub mod config;
 pub mod files;

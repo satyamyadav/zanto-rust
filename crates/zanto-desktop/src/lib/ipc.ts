@@ -99,6 +99,27 @@ export type ArtifactDef = {
   data_schema: any;
 };
 
+export type ArtifactKind = "text" | "markdown" | "image" | "json";
+export type ArtifactScope = "project" | "global";
+
+// A stored artifact's manifest entry (E4 browser list).
+export type StoredArtifactRef = {
+  id: string;
+  kind: ArtifactKind;
+  title: string;
+  rel_path: string;
+  scope: ArtifactScope;
+  created_at: number;
+};
+
+// A stored artifact with its content. Text/markdown/json carry UTF-8 `content`;
+// images carry base64 `content` with `is_image` and a `mime` hint.
+export type StoredArtifact = StoredArtifactRef & {
+  is_image: boolean;
+  mime?: string;
+  content: string;
+};
+
 // Thin typed wrappers over the Tauri IPC surface (commands + events).
 export const ipc = {
   sendMessage: (text: string) => invoke<ChatTurn>("send_message", { text }),
@@ -121,6 +142,12 @@ export const ipc = {
   archiveSession: (id: string) => invoke<void>("archive_session", { id }),
   unarchiveSession: (id: string) => invoke<void>("unarchive_session", { id }),
   listArchivedSessions: () => invoke<SessionMeta[]>("list_archived_sessions"),
+
+  // Stored artifacts (E4 browser)
+  listStoredArtifacts: (scope?: ArtifactScope) =>
+    invoke<StoredArtifactRef[]>("list_stored_artifacts_cmd", { scope: scope ?? null }),
+  readStoredArtifact: (id: string) =>
+    invoke<StoredArtifact>("read_stored_artifact_cmd", { id }),
 
   // Config
   getConfig: () => invoke<Config>("get_config"),

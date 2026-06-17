@@ -96,6 +96,8 @@ pub fn run() {
             ipc::config::set_api_key,
             ipc::config::clear_api_key,
             ipc::files::browse_dir,
+            ipc::artifacts::list_stored_artifacts_cmd,
+            ipc::artifacts::read_stored_artifact_cmd,
             interaction::respond,
         ])
         .run(tauri::generate_context!())
