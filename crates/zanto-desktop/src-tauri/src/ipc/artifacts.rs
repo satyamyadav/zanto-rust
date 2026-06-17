@@ -60,6 +60,28 @@ pub fn list_pinned_artifacts(state: State<'_, DesktopState>) -> Result<Vec<Pinne
     Ok(rows.into_iter().map(pinned_from_record).collect())
 }
 
+/// Pin a view+data artifact from the UI (A-5 user "Pin" button). Mirrors the
+/// agent `pin_artifact` write: persists `{ component_id, data, target:"inline",
+/// title, created_at }` to the `pinned_artifacts` DataStore so it reopens from the
+/// Artifacts browser. Returns the new record id.
+#[tauri::command]
+pub fn pin_artifact_cmd(
+    state: State<'_, DesktopState>,
+    component_id: String,
+    data: Value,
+    title: Option<String>,
+) -> Result<i64, String> {
+    state.data.create_store(PINNED_STORE).map_err(|e| e.to_string())?;
+    let record = json!({
+        "component_id": component_id,
+        "data": data,
+        "target": "inline",
+        "title": title,
+        "created_at": zanto_core::session::unix_now_pub(),
+    });
+    state.data.insert(PINNED_STORE, &record).map_err(|e| e.to_string())
+}
+
 /// Read one pinned artifact by its record id.
 #[tauri::command]
 pub fn read_pinned_artifact(state: State<'_, DesktopState>, id: i64) -> Result<PinnedArtifact, String> {

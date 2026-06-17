@@ -6,10 +6,17 @@ import { ipc, type ArtifactDef } from "$lib/ipc";
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validators = new Map<string, ValidateFunction>();
 
+// Ids of "view"-class artifacts (ephemeral, pinnable). Drives the A-5 user Pin
+// button — shown only on rendered views, never on file/document artifacts.
+// Reactive so Block.svelte updates once the catalogue resolves at startup.
+export const viewArtifacts = $state(new Set<string>());
+
 export async function loadCatalogue() {
   try {
     const defs: ArtifactDef[] = await ipc.getCatalogue();
+    viewArtifacts.clear();
     for (const d of defs) {
+      if (d.storage === "view") viewArtifacts.add(d.id);
       try {
         validators.set(d.id, ajv.compile(d.data_schema));
       } catch {

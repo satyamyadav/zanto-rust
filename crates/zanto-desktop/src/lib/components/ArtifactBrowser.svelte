@@ -1,8 +1,7 @@
 <script lang="ts">
-  import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
   import { toast } from "svelte-sonner";
-  import { FolderOpen, Download } from "@lucide/svelte";
+  import { FolderOpen, Download, X as XIcon } from "@lucide/svelte";
   import Markdown from "$lib/blocks/Markdown.svelte";
   import Block from "$lib/Block.svelte";
   import { openWorkspace } from "$lib/stores/workspace.svelte";
@@ -15,7 +14,9 @@
     type ChatBlock,
   } from "$lib/ipc";
 
-  let { open = $bindable(false) }: { open?: boolean } = $props();
+  // Hosted in the canvas panel (A-4), not a modal. `onClose` returns the panel to
+  // its default view.
+  let { onClose }: { onClose: () => void } = $props();
 
   // Top-level backend tab: filesystem documents vs DB-pinned views.
   type Backend = "documents" | "views";
@@ -86,22 +87,20 @@
     }
   }
 
-  // Reload the list whenever the dialog opens or the backend/scope changes.
-  // Clear any open preview so a stale selection isn't shown across opens.
+  // Reload the list on mount and whenever the backend/scope changes. Clear any
+  // open preview so a stale selection isn't shown across backend switches.
   $effect(() => {
-    if (open) {
-      void backend; // track the backend tab
-      void scope; // track the document filter
-      selectedDoc = null;
-      selectedView = null;
-      refresh();
-    }
+    void backend; // track the backend tab
+    void scope; // track the document filter
+    selectedDoc = null;
+    selectedView = null;
+    refresh();
   });
 
-  // Refresh the working-dir banner whenever the dialog opens (config can change
-  // between opens via the Workspace dialog).
+  // Refresh the working-dir banner on mount (config can change via the Workspace
+  // dialog while the panel is open).
   $effect(() => {
-    if (open) refreshProjectDir();
+    refreshProjectDir();
   });
 
   function fmtDate(unixSecs: number): string {
@@ -130,11 +129,13 @@
   );
 </script>
 
-<Dialog.Root bind:open>
-  <Dialog.Content class="max-w-3xl">
-    <Dialog.Header>
-      <Dialog.Title class="font-display">Artifacts</Dialog.Title>
-    </Dialog.Header>
+<div class="flex h-full flex-col gap-3 p-4">
+    <div class="flex items-center justify-between gap-2">
+      <h2 class="font-display text-sm font-medium text-foreground">Artifacts</h2>
+      <Button variant="ghost" size="icon" class="size-6" onclick={onClose} title="Close">
+        <XIcon class="size-4" />
+      </Button>
+    </div>
 
     <!-- Backend tabs: filesystem documents vs DB-pinned views. -->
     <div class="flex items-center gap-4 border-b border-border pb-2" role="tablist" aria-label="Artifact backend">
@@ -183,7 +184,7 @@
       </div>
     {/if}
 
-    <div class="flex h-[60vh] flex-col gap-3 sm:flex-row">
+    <div class="flex min-h-0 flex-1 flex-col gap-3 sm:flex-row">
       <!-- List -->
       <div class="overflow-auto rounded-md border border-border sm:w-1/3 sm:min-w-48">
         {#if loading}
@@ -280,11 +281,10 @@
           </div>
         {:else}
           {#key selectedView.id}
-            <Block block={viewBlock(selectedView)} />
+            <Block block={viewBlock(selectedView)} canPin={false} />
           {/key}
         {/if}
         </div>
       </div>
     </div>
-  </Dialog.Content>
-</Dialog.Root>
+</div>

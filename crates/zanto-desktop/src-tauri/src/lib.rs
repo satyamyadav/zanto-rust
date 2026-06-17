@@ -121,6 +121,7 @@ pub fn run() {
             ipc::artifacts::read_stored_artifact_cmd,
             ipc::artifacts::list_pinned_artifacts,
             ipc::artifacts::read_pinned_artifact,
+            ipc::artifacts::pin_artifact_cmd,
             ipc::artifacts::save_artifact_copy,
             ipc::artifacts::reveal_artifact,
             interaction::respond,

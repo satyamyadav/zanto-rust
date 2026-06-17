@@ -33,8 +33,9 @@ export const sessionStore = $state({
   archivedSessions: [] as SessionMeta[], // archived sessions for the active app
   activeSessionId: null as string | null,
   convo: [] as ChatEntry[], // chat thread (role-tagged segment entries)
-  canvas: null as ChatBlock | null, // right-panel view
+  canvas: null as ChatBlock | null, // right-panel view (agent component block)
   promotedLink: null as string | null, // a link promoted to the canvas panel
+  panelMode: null as "browser" | null, // non-block panel view (artifact browser)
   queue: [] as string[], // messages typed while busy, dispatched FIFO when free
   busy: false,
   streaming: false, // assistant tokens currently arriving
@@ -130,6 +131,10 @@ export function initStreaming() {
   ipc.onChatBlock((block) => {
     // Canvas blocks go to the right panel; inline blocks become a block segment.
     if (block.kind === "component" && block.target === "canvas") {
+      // An agent canvas block takes the panel; clear the sibling panel views so
+      // they don't shadow it (Canvas precedence: link > browser > canvas block).
+      sessionStore.promotedLink = null;
+      sessionStore.panelMode = null;
       sessionStore.canvas = block;
       return;
     }
@@ -223,6 +228,7 @@ export async function newSession() {
     sessionStore.activeSessionId = await ipc.newSession();
     sessionStore.canvas = null;
     sessionStore.promotedLink = null;
+    sessionStore.panelMode = null;
     loadedOffset = 0;
     sessionStore.hasMore = false;
     sessionStore.loadingOlder = false;
@@ -317,6 +323,7 @@ export async function selectSession(id: string) {
     sessionStore.loadingOlder = false;
     sessionStore.canvas = null;
     sessionStore.promotedLink = null;
+    sessionStore.panelMode = null;
     sessionStore.activeSessionId = id;
   } catch (e) {
     toast.error(`${e}`);

@@ -127,6 +127,9 @@ export type ArtifactDef = {
   id: string;
   description: string;
   when_to_use: string;
+  // Storage class: "view" (ephemeral, render-only, pinnable) or "file" (durable
+  // document). Drives the A-5 user Pin button (shown for "view" artifacts only).
+  storage: string;
   data_schema: any;
 };
 
@@ -205,6 +208,9 @@ export const ipc = {
   listPinnedArtifacts: () => invoke<PinnedArtifact[]>("list_pinned_artifacts"),
   readPinnedArtifact: (id: number) =>
     invoke<PinnedArtifact>("read_pinned_artifact", { id }),
+  // Pin a rendered view+data artifact from the UI (A-5). Returns the record id.
+  pinArtifact: (componentId: string, data: any, title?: string) =>
+    invoke<number>("pin_artifact_cmd", { componentId, data, title: title ?? null }),
 
   // Config
   getConfig: () => invoke<Config>("get_config"),

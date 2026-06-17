@@ -10,7 +10,6 @@
   import ArchiveRestoreIcon from "@lucide/svelte/icons/archive-restore";
   import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
   import LayersIcon from "@lucide/svelte/icons/layers";
-  import ArtifactBrowser from "./ArtifactBrowser.svelte";
   import Workspace from "./Workspace.svelte";
   import { workspaceStore } from "$lib/stores/workspace.svelte";
   import { appStore, mountApp } from "$lib/stores/app.svelte";
@@ -27,9 +26,15 @@
 
   let { onOpenSettings }: { onOpenSettings: () => void } = $props();
 
-  let artifactsOpen = $state(false);
-
   let archivedOpen = $state(false);
+
+  // Open the artifact browser in the canvas panel (A-4); clears the sibling
+  // panel views so it isn't shadowed by a link / agent block.
+  function openArtifacts() {
+    sessionStore.promotedLink = null;
+    sessionStore.canvas = null;
+    sessionStore.panelMode = "browser";
+  }
 
   // True while an app switch is in flight: drives the loading affordance and
   // guards against concurrent switches racing the session list.
@@ -265,15 +270,24 @@
     {/if}
   </div>
 
+  <!-- Artifacts: opens the browser in the canvas panel (A-4). Labeled, above the
+       footer, so it's discoverable rather than a bare footer icon. -->
+  <div class="border-t border-sidebar-border p-2">
+    <button
+      class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-sidebar-accent/60 {focusRing}"
+      onclick={openArtifacts}
+      title="Browse saved artifacts"
+    >
+      <FolderOpenIcon class="size-4" /> Artifacts
+    </button>
+  </div>
+
   <!-- Footer -->
   <div class="flex items-center justify-between gap-2 border-t border-sidebar-border p-2">
     <span class="truncate px-1 font-mono text-xs text-muted-foreground">{appStore.config?.model ?? ""}</span>
     <div class="flex shrink-0 items-center gap-1">
       <Button variant="ghost" size="icon" class="size-7" onclick={() => (workspaceStore.open = true)} title="Workspace">
         <LayersIcon class="size-4" />
-      </Button>
-      <Button variant="ghost" size="icon" class="size-7" onclick={() => (artifactsOpen = true)} title="Artifacts">
-        <FolderOpenIcon class="size-4" />
       </Button>
       <Button variant="ghost" size="icon" class="size-7" onclick={onOpenSettings} title="Settings">
         <SettingsIcon class="size-4" />
@@ -282,5 +296,4 @@
   </div>
 </div>
 
-<ArtifactBrowser bind:open={artifactsOpen} />
 <Workspace bind:open={workspaceStore.open} />
