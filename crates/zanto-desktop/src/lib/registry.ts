@@ -3,6 +3,7 @@ import type { Component } from "svelte";
 import Table from "./blocks/Table.svelte";
 import Metric from "./blocks/Metric.svelte";
 import Chart from "./blocks/Chart.svelte";
+import Markdown from "./blocks/Markdown.svelte";
 import List from "./blocks/List.svelte";
 import KeyValue from "./blocks/KeyValue.svelte";
 import Json from "./blocks/Json.svelte";
@@ -19,6 +20,7 @@ export const componentRegistry: Record<string, Component<{ data: any }>> = {
   table: Table,
   metric: Metric,
   chart: Chart,
+  markdown: Markdown,
   list: List,
   kv: KeyValue,
   json: Json,

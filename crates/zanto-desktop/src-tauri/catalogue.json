@@ -53,6 +53,19 @@
     }
   },
   {
+    "id": "markdown",
+    "description": "Rendered markdown document — sanitized HTML from a markdown string.",
+    "when_to_use": "Agent-produced prose documents, notes, or previewing stored markdown.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "required": ["content"]
+    }
+  },
+  {
     "id": "list",
     "description": "A bulleted list of items.",
     "when_to_use": "Simple enumerations.",
