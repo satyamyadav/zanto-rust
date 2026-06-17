@@ -47,6 +47,7 @@ impl FinanceApp {
                 StartAction { label: "Add a transaction".into(), prompt: "Add a transaction".into() },
                 StartAction { label: "This month's summary".into(), prompt: "Show me this month's spending summary".into() },
                 StartAction { label: "Recent transactions".into(), prompt: "Show my recent transactions".into() },
+                StartAction { label: "Set a budget".into(), prompt: "Help me set a monthly budget".into() },
             ],
         };
         Arc::new(FinanceApp { manifest })
@@ -116,6 +117,61 @@ impl FinanceApp {
         let by_category: Vec<Value> =
             by_cat.into_iter().map(|(c, t)| json!({ "category": c, "total": t })).collect();
         Ok(json!({ "month": month, "total": total, "by_category": by_category }))
+    }
+
+    /// Dashboard overview: lifetime balance, this-month spend, top categories
+    /// (this month), and a 6-month spend series. `empty: true` when no
+    /// transactions exist. All aggregation is deterministic Rust.
+    fn compute_overview(&self, data: &DataStore) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        if all.is_empty() {
+            return Ok(json!({ "empty": true }));
+        }
+
+        let this_month = today()[..7].to_string(); // YYYY-MM
+        let mut balance = 0.0_f64;
+        let mut month_total = 0.0_f64;
+        let mut by_cat: HashMap<String, f64> = HashMap::new();
+        // Per-month spend, keyed by YYYY-MM.
+        let mut by_month: HashMap<String, f64> = HashMap::new();
+
+        for r in &all {
+            let amt = r.data.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let date = r.data.get("date").and_then(|v| v.as_str()).unwrap_or("");
+            balance += amt;
+            if date.len() >= 7 {
+                *by_month.entry(date[..7].to_string()).or_insert(0.0) += amt;
+            }
+            if date.starts_with(&this_month) {
+                month_total += amt;
+                let cat = r.data.get("category").and_then(|v| v.as_str()).unwrap_or("uncategorized").to_string();
+                *by_cat.entry(cat).or_insert(0.0) += amt;
+            }
+        }
+
+        // Top categories this month, descending by total.
+        let mut top: Vec<(String, f64)> = by_cat.into_iter().collect();
+        top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let top_categories: Vec<Value> = top
+            .into_iter()
+            .take(5)
+            .map(|(c, t)| json!({ "category": c, "total": t }))
+            .collect();
+
+        // Last 6 months (oldest → newest) ending at the current month.
+        let months = last_n_months(&this_month, 6);
+        let series: Vec<f64> = months.iter().map(|m| *by_month.get(m).unwrap_or(&0.0)).collect();
+
+        Ok(json!({
+            "empty": false,
+            "balance": balance,
+            "month": this_month,
+            "month_total": month_total,
+            "transaction_count": all.len(),
+            "top_categories": top_categories,
+            "series": { "labels": months, "data": series },
+        }))
     }
 }
 
@@ -192,6 +248,7 @@ impl App for FinanceApp {
         match name {
             "list_transactions" => self.compute_transactions(data, args),
             "monthly_summary" => self.compute_monthly_summary(data, args),
+            "overview" => self.compute_overview(data),
             other => Err(format!("unknown query: {other}")),
         }
     }
@@ -214,4 +271,27 @@ fn target_of(args: &Value) -> Target {
 /// Today's date as `YYYY-MM-DD` (from the core's display formatter).
 fn today() -> String {
     format_ts_display(unix_now_pub())[..10].to_string()
+}
+
+/// The `n` months ending at `end` (inclusive), oldest → newest, as `YYYY-MM`.
+fn last_n_months(end: &str, n: usize) -> Vec<String> {
+    // Parse "YYYY-MM"; fall back to a single-element series on malformed input.
+    let (year, month) = match (end.get(..4).and_then(|s| s.parse::<i32>().ok()), end.get(5..7).and_then(|s| s.parse::<u32>().ok())) {
+        (Some(y), Some(m)) if (1..=12).contains(&m) => (y, m),
+        _ => return vec![end.to_string()],
+    };
+    // Walk back from the end month.
+    let mut out: Vec<String> = Vec::with_capacity(n);
+    let mut y = year;
+    let mut m = month as i32;
+    for _ in 0..n {
+        out.push(format!("{y:04}-{m:02}"));
+        m -= 1;
+        if m == 0 {
+            m = 12;
+            y -= 1;
+        }
+    }
+    out.reverse();
+    out
 }

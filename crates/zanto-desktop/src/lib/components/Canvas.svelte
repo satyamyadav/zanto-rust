@@ -2,11 +2,14 @@
   import Block from "$lib/Block.svelte";
   import { sessionStore } from "$lib/stores/session.svelte";
   import { appStore, activeApp } from "$lib/stores/app.svelte";
+  import Dashboard from "$lib/apps/finance/Dashboard.svelte";
 </script>
 
 <div class="h-full overflow-auto p-4 bg-background">
   {#if sessionStore.canvas}
     <Block block={sessionStore.canvas} />
+  {:else if appStore.activeId === "finance"}
+    <Dashboard />
   {:else if appStore.activeId}
     <div class="text-sm text-muted-foreground">
       {activeApp()?.name} — views open here when the assistant presents them.
