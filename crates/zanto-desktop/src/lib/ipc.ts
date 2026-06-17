@@ -77,7 +77,13 @@ export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_conte
   active_provider?: string;
 };
 
-export type RenderMsg = { role: "user" | "assistant"; text: string };
+// `blocks` carries persisted component blocks for a past assistant message
+// (D1: `{ blocks: ChatBlock[] }`), restored as block segments on reopen.
+export type RenderMsg = {
+  role: "user" | "assistant";
+  text: string;
+  blocks?: { blocks: ChatBlock[] } | null;
+};
 
 // A filesystem entry from `browse_dir` (B1). `path = undefined` lists the
 // allowed roots; passing a dir's `path` descends into it.

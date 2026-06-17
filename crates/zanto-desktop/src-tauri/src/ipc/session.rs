@@ -16,10 +16,11 @@ pub fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionMeta>,
 #[tauri::command]
 pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<Vec<RenderMsg>, String> {
     let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;
+    let meta = state.store.load_message_meta(&id).map_err(|e| e.to_string())?;
     let msgs = loaded
-        .display_messages()
+        .display_messages_meta(&meta)
         .into_iter()
-        .map(|(role, text)| RenderMsg { role, text })
+        .map(|(role, text, blocks)| RenderMsg { role, text, blocks })
         .collect();
     *state.session.lock().await = loaded;
     Ok(msgs)
@@ -36,12 +37,13 @@ pub async fn load_session_page(
     limit: usize,
 ) -> Result<Vec<RenderMsg>, String> {
     let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;
+    let meta = state.store.load_message_meta(&id).map_err(|e| e.to_string())?;
     let page = loaded
-        .display_messages()
+        .display_messages_meta(&meta)
         .into_iter()
         .skip(offset)
         .take(limit)
-        .map(|(role, text)| RenderMsg { role, text })
+        .map(|(role, text, blocks)| RenderMsg { role, text, blocks })
         .collect();
     *state.session.lock().await = loaded;
     Ok(page)

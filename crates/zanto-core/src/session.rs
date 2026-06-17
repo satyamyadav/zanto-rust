@@ -126,6 +126,38 @@ impl Session {
             .collect()
     }
 
+    /// Like `display_messages`, but each entry also carries the per-message
+    /// metadata aligned by position. `meta` must be positionally parallel to
+    /// `self.messages` (as returned by `Store::load_message_meta`); entries shorter
+    /// than `messages` yield `None`. Mirrors `display_messages` (system/tool messages
+    /// skipped) with one deliberate difference: an assistant message whose text is
+    /// empty is still emitted when it carries persisted block metadata, so a
+    /// blocks-only turn (e.g. an artifact with no trailing prose) restores its
+    /// artifacts on reopen instead of being dropped with the empty text.
+    pub fn display_messages_meta(
+        &self,
+        meta: &[Option<serde_json::Value>],
+    ) -> Vec<(String, String, Option<serde_json::Value>)> {
+        self.messages
+            .iter()
+            .enumerate()
+            .filter_map(|(i, m)| {
+                let role = match m.role {
+                    ChatRole::User => "user",
+                    ChatRole::Assistant => "assistant",
+                    _ => return None,
+                };
+                let text = m.content.first_text().unwrap_or("").to_string();
+                let blocks = meta.get(i).and_then(|o| o.clone());
+                // Keep the entry if it has visible text OR persisted blocks to render.
+                if text.trim().is_empty() && blocks.is_none() {
+                    return None;
+                }
+                Some((role.to_string(), text, blocks))
+            })
+            .collect()
+    }
+
     /// Returns the messages to send to the model: no system msgs (caller prepends),
     /// trimmed to policy.
     pub fn effective_messages(&self, policy: &ContextPolicy) -> Vec<ChatMessage> {
@@ -931,6 +963,43 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert!(loaded[0].is_none());
         assert_eq!(loaded[1].as_ref().unwrap(), &meta);
+    }
+
+    #[test]
+    fn display_messages_meta_aligns_and_keeps_blocks_only_turn() {
+        let mut s = make_session("/ws");
+        // system (skipped), user, assistant-with-text, blocks-only assistant (empty
+        // text but has metadata → must be kept), trailing user.
+        s.messages.push(ChatMessage::system("sys"));
+        s.messages.push(ChatMessage::user("draw it"));
+        s.messages.push(ChatMessage::assistant("here"));
+        s.messages.push(ChatMessage::assistant(""));
+        s.messages.push(ChatMessage::user("thanks"));
+
+        let blocks = serde_json::json!({ "blocks": [{ "kind": "component" }] });
+        // meta is positionally parallel to messages: only the blocks-only assistant
+        // (index 3) carries metadata.
+        let meta = vec![None, None, None, Some(blocks.clone()), None];
+
+        let out = s.display_messages_meta(&meta);
+        // system dropped; the empty-text assistant is kept because it has blocks.
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0], ("user".into(), "draw it".into(), None));
+        assert_eq!(out[1], ("assistant".into(), "here".into(), None));
+        assert_eq!(out[2], ("assistant".into(), "".into(), Some(blocks)));
+        assert_eq!(out[3], ("user".into(), "thanks".into(), None));
+    }
+
+    #[test]
+    fn display_messages_meta_drops_empty_turn_without_blocks() {
+        let mut s = make_session("/ws");
+        s.messages.push(ChatMessage::user("hi"));
+        s.messages.push(ChatMessage::assistant("   ")); // whitespace, no meta → dropped
+
+        let meta = vec![None, None];
+        let out = s.display_messages_meta(&meta);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].0, "user");
     }
 
     #[test]

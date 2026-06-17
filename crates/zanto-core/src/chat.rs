@@ -295,7 +295,10 @@ pub async fn chat(
                 continue;
             }
 
-            push_msg(store, session, ChatMessage::assistant(answer.clone())).await?;
+            // Persist the turn's component blocks (the markdown text is already in
+            // `content`) so reopening the thread restores the artifacts, not just text.
+            let meta = component_blocks_meta(&blocks);
+            push_msg_meta(store, session, ChatMessage::assistant(answer.clone()), meta.as_ref()).await?;
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
             }
@@ -392,10 +395,36 @@ async fn push_msg(
     session: &mut Session,
     msg: ChatMessage,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    push_msg_meta(store, session, msg, None).await
+}
+
+/// Append a message to the session and persist it, with optional metadata JSON
+/// (`None` is equivalent to `push_msg` — no metadata column written).
+async fn push_msg_meta(
+    store: &Store,
+    session: &mut Session,
+    msg: ChatMessage,
+    metadata: Option<&Value>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let pos = session.messages.len();
     session.messages.push(msg);
-    store.append_message(&session.id, pos, &session.messages[pos])?;
+    store.append_message_meta(&session.id, pos, &session.messages[pos], metadata)?;
     Ok(())
+}
+
+/// Build the persisted metadata for an assistant turn: a `{"blocks": [...]}`
+/// object holding only this turn's `Component` blocks (markdown text lives in the
+/// message `content`). Returns `None` when the turn produced no component blocks,
+/// so plain text turns keep an empty metadata column.
+fn component_blocks_meta(blocks: &[ChatBlock]) -> Option<Value> {
+    let components: Vec<&ChatBlock> = blocks
+        .iter()
+        .filter(|b| matches!(b, ChatBlock::Component { .. }))
+        .collect();
+    if components.is_empty() {
+        return None;
+    }
+    Some(serde_json::json!({ "blocks": components }))
 }
 
 async fn flush_parallel(
@@ -600,6 +629,68 @@ mod tests {
 
         let events = sink.events.lock().unwrap().clone();
         assert_eq!(events, vec!["call:call-1".to_string(), "result:call-1:true".to_string()]);
+    }
+
+    #[test]
+    fn component_blocks_meta_filters_to_components() {
+        // Markdown-only turn → no metadata.
+        let only_text = vec![ChatBlock::Markdown { text: "hi".into() }];
+        assert!(component_blocks_meta(&only_text).is_none());
+
+        // Mixed turn → metadata holds only the component block(s).
+        let mixed = vec![
+            ChatBlock::Markdown { text: "see chart".into() },
+            ChatBlock::Component {
+                component_id: "chart".into(),
+                data: serde_json::json!({ "points": [1, 2, 3] }),
+                target: Target::Canvas,
+            },
+        ];
+        let meta = component_blocks_meta(&mixed).expect("component present");
+        let arr = meta["blocks"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["kind"], "component");
+        assert_eq!(arr[0]["component_id"], "chart");
+    }
+
+    #[tokio::test]
+    async fn assistant_component_block_round_trips_through_store() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = Store::open_at(&dir.path().join("test.db")).unwrap();
+        let mut session = Session::new("test", dir.path().to_str().unwrap());
+        store.save_session(&session).unwrap();
+
+        let blocks = vec![ChatBlock::Component {
+            component_id: "chart".into(),
+            data: serde_json::json!({ "points": [1, 2, 3] }),
+            target: Target::Canvas,
+        }];
+        let meta = component_blocks_meta(&blocks);
+
+        // Persist a plain user turn, then the assistant turn carrying block metadata.
+        push_msg(&store, &mut session, ChatMessage::user("plot it")).await.unwrap();
+        push_msg_meta(&store, &mut session, ChatMessage::assistant("here you go"), meta.as_ref())
+            .await
+            .unwrap();
+
+        // Reload metadata aligned by position; the user row has none, the assistant
+        // row carries the component block, which deserializes back to a ChatBlock.
+        let loaded = store.load_message_meta(&session.id).unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert!(loaded[0].is_none());
+
+        let stored = loaded[1].as_ref().expect("assistant metadata present");
+        let restored: Vec<ChatBlock> =
+            serde_json::from_value(stored["blocks"].clone()).unwrap();
+        assert_eq!(restored.len(), 1);
+        match &restored[0] {
+            ChatBlock::Component { component_id, data, target } => {
+                assert_eq!(component_id, "chart");
+                assert_eq!(data, &serde_json::json!({ "points": [1, 2, 3] }));
+                assert_eq!(*target, Target::Canvas);
+            }
+            _ => panic!("expected component block"),
+        }
     }
 
     #[test]

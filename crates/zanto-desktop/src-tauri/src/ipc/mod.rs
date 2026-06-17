@@ -38,11 +38,14 @@ impl DesktopState {
     }
 }
 
-/// A past message rendered for the chat thread.
+/// A past message rendered for the chat thread. `blocks` carries the persisted
+/// per-message metadata (D1: `{"blocks":[<Component ...>]}`) when present, so a
+/// reopened thread restores artifacts, not just text.
 #[derive(Serialize)]
 pub struct RenderMsg {
     pub role: String,
     pub text: String,
+    pub blocks: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]

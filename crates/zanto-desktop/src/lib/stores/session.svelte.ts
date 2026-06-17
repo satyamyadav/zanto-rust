@@ -1,7 +1,7 @@
 // Session store: session list (for the active app), the active session's chat
 // thread (segment-modeled entries), and the right-panel canvas block.
 import { toast } from "svelte-sonner";
-import { ipc, type ChatBlock, type SessionMeta } from "$lib/ipc";
+import { ipc, type ChatBlock, type RenderMsg, type SessionMeta } from "$lib/ipc";
 import { activeApp } from "$lib/stores/app.svelte";
 
 // A chat entry is a sequence of typed segments rather than a single block, so
@@ -162,8 +162,16 @@ export async function newSession() {
   }
 }
 
-function toEntries(msgs: { role: "user" | "assistant"; text: string }[]): ChatEntry[] {
-  return msgs.map((m) => entry(m.role, [{ kind: "text", text: m.text }]));
+function toEntries(msgs: RenderMsg[]): ChatEntry[] {
+  return msgs.map((m) => {
+    const segments: ChatSegment[] = [];
+    // A blocks-only turn has empty text; skip the empty bubble in that case.
+    if (m.text.trim() !== "") segments.push({ kind: "text", text: m.text });
+    // Restore persisted component blocks (D1) as block segments after the text.
+    // Canvas-targeted blocks render inline on reload — acceptable.
+    for (const block of m.blocks?.blocks ?? []) segments.push({ kind: "block", block });
+    return entry(m.role, segments);
+  });
 }
 
 export async function selectSession(id: string) {
