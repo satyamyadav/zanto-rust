@@ -17,7 +17,8 @@
     failed ? "error" : done === total ? "done" : "running",
   );
 
-  let open = $state(true);
+  // Collapsed by default — click the header to reveal the steps.
+  let open = $state(false);
 </script>
 
 <div class="rounded-md border border-border bg-card">

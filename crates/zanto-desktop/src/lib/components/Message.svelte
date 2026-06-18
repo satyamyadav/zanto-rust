@@ -16,18 +16,38 @@
   let { entry, isLast = false }: { entry: ChatEntry; isLast?: boolean } = $props();
 
   type ToolCallSegmentData = Extract<ChatSegment, { kind: "tool_call" }>;
+
+  // Index of the LAST tool_call segment in document order (-1 if none). Text
+  // BEFORE this index is the model's intermediate "working" narration (hoisted
+  // into the Thinking block); text AT/AFTER it is the final answer (inline).
+  const lastToolIdx = $derived.by(() => {
+    let idx = -1;
+    entry.segments.forEach((s, i) => {
+      if (s.kind === "tool_call") idx = i;
+    });
+    return idx;
+  });
+
   // A rendered item is one of: a workflow run (≥2 consecutive tool_calls →
-  // WorkflowGroup) or a single segment. Reasoning is NOT an inline item — it is
-  // hoisted into ONE persistent ThinkingBlock at the top of the turn (below).
-  // Walk the non-reasoning segments in document order, coalescing maximal runs of
-  // consecutive tool_call segments. Tool calls / workflows / blocks / text appear
-  // inline, interleaved, where they happened.
+  // WorkflowGroup) or a single segment. Reasoning segments AND pre-last-tool text
+  // segments are NOT inline items — they are hoisted into ONE persistent
+  // ThinkingBlock at the top of the turn (below). Walk the remaining segments in
+  // document order, coalescing maximal runs of consecutive tool_call segments.
+  // Tool calls / workflows / blocks / errors / final text appear inline,
+  // interleaved, where they happened.
   type RenderItem =
     | { kind: "workflow"; steps: ToolCallSegmentData[] }
     | { kind: "single"; seg: ChatSegment };
   const items = $derived.by<RenderItem[]>(() => {
     const out: RenderItem[] = [];
-    const segs = entry.segments.filter((s) => s.kind !== "reasoning");
+    const lti = lastToolIdx;
+    // Drop reasoning and pre-last-tool text (by document index) — those are
+    // hoisted into the Thinking block. Everything else renders inline in order.
+    const segs = entry.segments.filter((seg, idx) => {
+      if (seg.kind === "reasoning") return false;
+      if (seg.kind === "text" && idx < lti) return false;
+      return true;
+    });
     let i = 0;
     while (i < segs.length) {
       const seg = segs[i];
@@ -51,18 +71,28 @@
   // gaps and doesn't vanish the instant the first text chunk arrives.
   const live = $derived(isLast && entry.role === "assistant" && sessionStore.busy);
 
-  // Hoisted "thinking/working" block inputs. The block shows when the turn did any
-  // reasoning OR any tool call — so tool turns and reasoning turns get a
-  // persistent affordance, but a trivial pure-text turn does not.
-  const reasoningText = $derived(
+  // Hoisted "thinking/working" block inputs. The thinking content is the model's
+  // working text: all reasoning segments PLUS the prose narration it writes
+  // BEFORE the last tool call ("Let me check…", "It seems…"). The FINAL answer
+  // (text at/after the last tool call, or all text when no tools) stays inline.
+  // Concatenated in document order, blank line between distinct parts.
+  const thinkingText = $derived(
     entry.segments
-      .filter((s) => s.kind === "reasoning")
-      .map((s) => s.text)
+      .map((s, idx) => {
+        if (s.kind === "reasoning") return s.text;
+        if (s.kind === "text" && idx < lastToolIdx) return s.text;
+        return "";
+      })
+      .filter((t) => t.trim().length > 0)
       .join("\n\n"),
   );
-  const hasReasoning = $derived(entry.segments.some((s) => s.kind === "reasoning"));
   const stepCount = $derived(entry.segments.filter((s) => s.kind === "tool_call").length);
-  const showThinking = $derived(entry.role === "assistant" && (hasReasoning || stepCount > 0));
+  // Show the block when the turn produced working text OR any tool call — so
+  // tool turns and narrating turns get a persistent affordance, but a trivial
+  // pure-text turn does not.
+  const showThinking = $derived(
+    entry.role === "assistant" && (thinkingText.trim().length > 0 || stepCount > 0),
+  );
 
   // Concatenated plain text of the message's text/markdown segments.
   const copyText = $derived(
@@ -168,7 +198,7 @@
        Live across the whole turn (busy); collapses to a "Thought…" summary when
        done — it is never removed, so it doesn't vanish on the first chunk. -->
   {#if showThinking}
-    <ThinkingBlock reasoning={reasoningText} {stepCount} {live} />
+    <ThinkingBlock text={thinkingText} {stepCount} {live} />
   {/if}
   {#each items as item, i (i)}
     {@render renderItem(item)}

@@ -20,6 +20,10 @@
     }
   });
 
+  // The whole card is collapsed by default — the header (name + status pill)
+  // shows; click it to reveal the args/output sections. Within an open card,
+  // args/output have their own toggles (args open, output closed).
+  let cardOpen = $state(false);
   let argsOpen = $state(true);
   let outputOpen = $state(false);
 </script>
@@ -42,8 +46,14 @@
 {/snippet}
 
 <div class="rounded-md border border-border bg-card text-xs">
-  <!-- Header row: tool name + status pill -->
-  <div class="flex items-center gap-2 px-3 py-2">
+  <!-- Header row: collapse toggle for the whole card — tool name + status pill -->
+  <button
+    type="button"
+    aria-expanded={cardOpen}
+    onclick={() => (cardOpen = !cardOpen)}
+    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  >
+    <ChevronRight size={12} class={cn("shrink-0 text-muted-foreground transition-transform", cardOpen && "rotate-90")} />
     <span class="font-mono font-medium text-foreground">{name}</span>
 
     {#if status === "running"}
@@ -62,11 +72,13 @@
         error
       </span>
     {/if}
-  </div>
+  </button>
 
-  {@render section("args", argsOpen, () => (argsOpen = !argsOpen), argsJson)}
+  {#if cardOpen}
+    {@render section("args", argsOpen, () => (argsOpen = !argsOpen), argsJson)}
 
-  {#if !pending}
-    {@render section("output", outputOpen, () => (outputOpen = !outputOpen), output ?? "")}
+    {#if !pending}
+      {@render section("output", outputOpen, () => (outputOpen = !outputOpen), output ?? "")}
+    {/if}
   {/if}
 </div>
