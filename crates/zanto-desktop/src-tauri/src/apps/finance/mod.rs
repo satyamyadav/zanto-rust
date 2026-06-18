@@ -102,11 +102,29 @@ impl FinanceApp {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(today);
+        let source = match args.get("source").and_then(|v| v.as_str()) {
+            Some("import") => "import",
+            _ => "manual",
+        };
 
-        let record = json!({
+        // Import dedupe: an imported row carries a stable hash of date+amount+
+        // merchant; if one already exists, skip (re-running an import is a no-op).
+        let import_h = (source == "import").then(|| import_hash(&date, amount, &merchant));
+        if let Some(h) = &import_h {
+            let mut q = Query::default();
+            q.filters.push(Filter { field: "import_hash".into(), op: FilterOp::Eq, value: json!(h) });
+            if !data.query(STORE, &q).map_err(|e| e.to_string())?.is_empty() {
+                return Ok(json!({ "status": "duplicate_skipped", "import_hash": h }));
+            }
+        }
+
+        let mut record = json!({
             "type": kind, "date": date, "amount": amount,
-            "merchant": merchant, "category": category, "note": note, "source": "manual",
+            "merchant": merchant, "category": category, "note": note, "source": source,
         });
+        if let Some(h) = import_h {
+            record["import_hash"] = json!(h);
+        }
         let id = data.insert(STORE, &record).map_err(|e| e.to_string())?;
         Ok(json!({ "status": "added", "id": id, "record": record }))
     }
@@ -513,7 +531,8 @@ impl App for FinanceApp {
                         "merchant": { "type": "string" },
                         "category": { "type": "string" },
                         "date": { "type": "string", "description": "YYYY-MM-DD; defaults to today" },
-                        "note": { "type": "string" }
+                        "note": { "type": "string" },
+                        "source": { "type": "string", "enum": ["manual", "import"], "description": "Use 'import' for statement rows; duplicates are skipped" }
                     },
                     "required": ["amount"]
                 })),
@@ -704,6 +723,16 @@ fn resolve_category_pure(
     "uncategorized".to_string()
 }
 
+/// A stable identity hash for import dedupe, over date + amount (2dp) + merchant
+/// (case-insensitive). `DefaultHasher::new()` uses fixed keys → deterministic
+/// across runs, which is all dedupe needs.
+fn import_hash(date: &str, amount: f64, merchant: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    format!("{date}|{amount:.2}|{}", merchant.to_lowercase()).hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
 /// Lifetime balance = sum(income) − sum(expense) over normalized records.
 fn lifetime_balance(records: &[Record]) -> f64 {
     records
@@ -754,6 +783,13 @@ mod tests {
         assert_eq!(resolve_category_pure("STARBUCKS #5", None, &cats, &rules), "dining");
         // requested not in profile + no rule → uncategorized
         assert_eq!(resolve_category_pure("Acme", Some("foobar"), &cats, &rules), "uncategorized");
+    }
+
+    #[test]
+    fn import_hash_stable_and_merchant_case_insensitive() {
+        let a = import_hash("2026-06-01", 12.5, "Cafe");
+        assert_eq!(a, import_hash("2026-06-01", 12.50, "CAFE")); // same row → same hash
+        assert_ne!(a, import_hash("2026-06-02", 12.5, "Cafe")); // different date → different
     }
 
     #[test]
