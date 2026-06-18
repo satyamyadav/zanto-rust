@@ -103,6 +103,48 @@ impl FinanceApp {
         Ok(json!({ "status": "added", "id": id, "record": record }))
     }
 
+    /// Edit a transaction by id. Only the provided fields are changed; amount is
+    /// re-coerced to a positive number, type is normalized.
+    fn do_update_transaction(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| "update_transaction requires an integer `id`".to_string())?;
+        let mut rec = data
+            .get(STORE, id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("no transaction with id {id}"))?
+            .data;
+        let obj = rec
+            .as_object_mut()
+            .ok_or_else(|| "transaction record is not an object".to_string())?;
+        if args.get("type").is_some() {
+            obj.insert("type".into(), json!(txn_kind_str(args.get("type"))));
+        }
+        if args.get("amount").is_some() {
+            obj.insert("amount".into(), json!(coerce_amount(args.get("amount")).abs()));
+        }
+        for field in ["merchant", "category", "date", "note"] {
+            if let Some(s) = args.get(field).and_then(|v| v.as_str()) {
+                obj.insert(field.into(), json!(s));
+            }
+        }
+        data.update(STORE, id, &rec).map_err(|e| e.to_string())?;
+        Ok(json!({ "status": "updated", "id": id, "record": rec }))
+    }
+
+    /// Delete a transaction by id. Idempotent at the store layer.
+    fn do_delete_transaction(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| "delete_transaction requires an integer `id`".to_string())?;
+        data.delete(STORE, id).map_err(|e| e.to_string())?;
+        Ok(json!({ "status": "deleted", "id": id }))
+    }
+
     fn compute_transactions(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_store(data)?;
         let mut q = Query::default();
@@ -378,14 +420,16 @@ impl App for FinanceApp {
     fn agent_tools(&self) -> Vec<GenaiTool> {
         vec![
             GenaiTool::new("add_transaction")
-                .with_description("Record a transaction in the user's finances. Call this directly with the details — `amount` is required; merchant/category/date default if omitted.")
+                .with_description("Record a transaction (expense or income) in the user's finances. Call this directly — `amount` is required; `type` defaults to expense; merchant/category/date default if omitted.")
                 .with_schema(json!({
                     "type": "object",
                     "properties": {
-                        "amount": { "type": "number", "description": "Amount spent (a number)" },
+                        "type": { "type": "string", "enum": ["income", "expense"], "description": "Defaults to expense" },
+                        "amount": { "type": "number", "description": "A positive number; the sign is set by type" },
                         "merchant": { "type": "string" },
                         "category": { "type": "string" },
-                        "date": { "type": "string", "description": "YYYY-MM-DD; defaults to today" }
+                        "date": { "type": "string", "description": "YYYY-MM-DD; defaults to today" },
+                        "note": { "type": "string" }
                     },
                     "required": ["amount"]
                 })),
@@ -408,6 +452,28 @@ impl App for FinanceApp {
                         "target": { "type": "string", "enum": ["inline", "canvas"] }
                     }
                 })),
+            GenaiTool::new("update_transaction")
+                .with_description("Edit a recorded transaction by id. Pass `id` plus only the fields to change (type/amount/merchant/category/date/note).")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "integer" },
+                        "type": { "type": "string", "enum": ["income", "expense"] },
+                        "amount": { "type": "number" },
+                        "merchant": { "type": "string" },
+                        "category": { "type": "string" },
+                        "date": { "type": "string" },
+                        "note": { "type": "string" }
+                    },
+                    "required": ["id"]
+                })),
+            GenaiTool::new("delete_transaction")
+                .with_description("Delete a recorded transaction by id.")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": { "id": { "type": "integer" } },
+                    "required": ["id"]
+                })),
         ]
     }
 
@@ -425,6 +491,8 @@ impl App for FinanceApp {
                 data: d,
                 target,
             })),
+            "update_transaction" => Some(self.do_update_transaction(data, args).map(AppResult::Data)),
+            "delete_transaction" => Some(self.do_delete_transaction(data, args).map(AppResult::Data)),
             _ => None,
         }
     }
@@ -443,6 +511,8 @@ impl App for FinanceApp {
     fn action(&self, data: &DataStore, name: &str, args: Value) -> Result<Value, String> {
         match name {
             "add_transaction" => self.do_add_transaction(data, args),
+            "update_transaction" => self.do_update_transaction(data, args),
+            "delete_transaction" => self.do_delete_transaction(data, args),
             "save_profile" => self.do_save_profile(data, args),
             "save_widgets" => self.do_save_widgets(data, args),
             other => Err(format!("unknown action: {other}")),
