@@ -14,6 +14,7 @@ const STORE: &str = "transactions";
 const PROFILE_STORE: &str = "finance_profile";
 const WIDGETS_STORE: &str = "finance_widgets";
 const RULES_STORE: &str = "finance_category_rules";
+const BUDGETS_STORE: &str = "finance_budgets";
 
 /// Default expense categories seeded when a profile omits them.
 const DEFAULT_CATEGORIES: &[&str] =
@@ -34,6 +35,7 @@ impl FinanceApp {
                 PROFILE_STORE.to_string(),
                 WIDGETS_STORE.to_string(),
                 RULES_STORE.to_string(),
+                BUDGETS_STORE.to_string(),
             ],
             components: vec![
                 ComponentDecl {
@@ -340,6 +342,9 @@ impl FinanceApp {
             }
         }
 
+        // Budget vs actual for this month (uses the per-category spend above).
+        let (budget_status, over_budget) = compute_budget_status(&self.budgets_vec(data), &by_cat);
+
         // Top categories this month, descending by total.
         let mut top: Vec<(String, f64)> = by_cat.into_iter().collect();
         top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -363,6 +368,8 @@ impl FinanceApp {
             "transaction_count": all.len(),
             "top_categories": top_categories,
             "uncategorized_count": uncategorized_count,
+            "budget_status": budget_status,
+            "over_budget": over_budget,
             "series": { "labels": months, "data": series },
         }))
     }
@@ -482,6 +489,53 @@ impl FinanceApp {
 
         let record = json!({ "widgets": widgets, "saved_at": unix_now_pub() });
         data.insert(WIDGETS_STORE, &record).map_err(|e| e.to_string())?;
+        Ok(record)
+    }
+
+    // ---- budgets (v0.3) ----
+
+    /// The latest saved per-category budgets, or an empty list. Insert-only,
+    /// latest-wins by `saved_at` (mirrors widgets/profile).
+    fn get_budgets(&self, data: &DataStore) -> Result<Value, String> {
+        data.create_store(BUDGETS_STORE).map_err(|e| e.to_string())?;
+        let rows = data.query(BUDGETS_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let latest = rows
+            .into_iter()
+            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
+        match latest.and_then(|r| r.data.get("budgets").cloned()) {
+            Some(budgets) => Ok(json!({ "budgets": budgets })),
+            None => Ok(json!({ "budgets": [] })),
+        }
+    }
+
+    /// The budget list as a plain array (for aggregation).
+    fn budgets_vec(&self, data: &DataStore) -> Vec<Value> {
+        self.get_budgets(data)
+            .ok()
+            .and_then(|b| b.get("budgets").and_then(|v| v.as_array()).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Persist per-category budgets. Keeps only entries with a non-empty
+    /// `category` and a positive `limit` (coerced from number/string).
+    fn do_save_budgets(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        data.create_store(BUDGETS_STORE).map_err(|e| e.to_string())?;
+        let budgets: Vec<Value> = match args.get("budgets").and_then(|v| v.as_array()) {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|b| {
+                    let category = b.get("category").and_then(|v| v.as_str())?.trim().to_string();
+                    let limit = coerce_amount(b.get("limit")).abs();
+                    if category.is_empty() || limit <= 0.0 {
+                        return None;
+                    }
+                    Some(json!({ "category": category, "limit": limit }))
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        let record = json!({ "budgets": budgets, "saved_at": unix_now_pub() });
+        data.insert(BUDGETS_STORE, &record).map_err(|e| e.to_string())?;
         Ok(record)
     }
 }
@@ -609,6 +663,7 @@ impl App for FinanceApp {
             "overview" => self.compute_overview(data),
             "profile" => self.get_profile(data),
             "widgets" => self.get_widgets(data),
+            "budgets" => self.get_budgets(data),
             "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
             other => Err(format!("unknown query: {other}")),
         }
@@ -623,6 +678,7 @@ impl App for FinanceApp {
             "save_widgets" => self.do_save_widgets(data, args),
             "save_category_rule" => self.do_save_category_rule(data, args),
             "delete_category_rule" => self.do_delete_category_rule(data, args),
+            "save_budgets" => self.do_save_budgets(data, args),
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -725,6 +781,31 @@ fn resolve_category_pure(
     "uncategorized".to_string()
 }
 
+/// Budget vs actual for the current month. Returns (budget_status, over_budget):
+/// `budget_status` is one row per budgeted category (spent defaults 0);
+/// `over_budget` is the subset where spent exceeds the limit.
+fn compute_budget_status(budgets: &[Value], spent_by_cat: &HashMap<String, f64>) -> (Vec<Value>, Vec<Value>) {
+    let mut status = Vec::new();
+    let mut over = Vec::new();
+    for b in budgets {
+        let category = b.get("category").and_then(|v| v.as_str()).unwrap_or("");
+        let limit = b.get("limit").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        if category.is_empty() || limit <= 0.0 {
+            continue;
+        }
+        let spent = *spent_by_cat.get(category).unwrap_or(&0.0);
+        let is_over = spent > limit;
+        status.push(json!({
+            "category": category, "limit": limit, "spent": spent,
+            "pct": spent / limit, "over": is_over,
+        }));
+        if is_over {
+            over.push(json!({ "category": category, "limit": limit, "spent": spent, "by": spent - limit }));
+        }
+    }
+    (status, over)
+}
+
 /// A stable identity hash for import dedupe, over date + amount (2dp) + merchant
 /// (case-insensitive). `DefaultHasher::new()` uses fixed keys → deterministic
 /// across runs, which is all dedupe needs.
@@ -785,6 +866,23 @@ mod tests {
         assert_eq!(resolve_category_pure("STARBUCKS #5", None, &cats, &rules), "dining");
         // requested not in profile + no rule → uncategorized
         assert_eq!(resolve_category_pure("Acme", Some("foobar"), &cats, &rules), "uncategorized");
+    }
+
+    #[test]
+    fn budget_status_flags_overspend() {
+        let budgets = vec![json!({ "category": "dining", "limit": 200 })];
+        let mut spent = HashMap::new();
+        spent.insert("dining".to_string(), 240.0);
+        let (status, over) = compute_budget_status(&budgets, &spent);
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0]["over"], json!(true));
+        assert_eq!(over.len(), 1);
+        assert_eq!(over[0]["by"], json!(40.0));
+
+        // A budgeted category with no spend → 0 spent, not over.
+        let (status2, over2) = compute_budget_status(&budgets, &HashMap::new());
+        assert_eq!(status2[0]["spent"], json!(0.0));
+        assert!(over2.is_empty());
     }
 
     #[test]
