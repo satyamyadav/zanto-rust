@@ -520,12 +520,7 @@ impl FinanceApp {
     /// A widget def = `{ kind, title, source }` where `source` selects part of
     /// the `overview` data.
     fn get_widgets(&self, data: &DataStore) -> Result<Value, String> {
-        self.ensure_widgets_store(data)?;
-        let rows = data.query(WIDGETS_STORE, &Query::default()).map_err(|e| e.to_string())?;
-        let latest = rows
-            .into_iter()
-            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
-        match latest.and_then(|r| r.data.get("widgets").cloned()) {
+        match latest_singleton(data, WIDGETS_STORE, "widgets") {
             Some(widgets) => Ok(json!({ "widgets": widgets })),
             None => Ok(json!({ "widgets": default_widgets() })),
         }
@@ -554,9 +549,7 @@ impl FinanceApp {
             None => Vec::new(),
         };
 
-        let record = json!({ "widgets": widgets, "saved_at": unix_now_pub() });
-        data.insert(WIDGETS_STORE, &record).map_err(|e| e.to_string())?;
-        Ok(record)
+        save_singleton(data, WIDGETS_STORE, "widgets", json!(widgets))
     }
 
     /// Batch-import statement rows (already parsed + permission-checked in IPC).
@@ -687,12 +680,7 @@ impl FinanceApp {
     /// The latest saved per-category budgets, or an empty list. Insert-only,
     /// latest-wins by `saved_at` (mirrors widgets/profile).
     fn get_budgets(&self, data: &DataStore) -> Result<Value, String> {
-        data.create_store(BUDGETS_STORE).map_err(|e| e.to_string())?;
-        let rows = data.query(BUDGETS_STORE, &Query::default()).map_err(|e| e.to_string())?;
-        let latest = rows
-            .into_iter()
-            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
-        match latest.and_then(|r| r.data.get("budgets").cloned()) {
+        match latest_singleton(data, BUDGETS_STORE, "budgets") {
             Some(budgets) => Ok(json!({ "budgets": budgets })),
             None => Ok(json!({ "budgets": [] })),
         }
@@ -724,21 +712,14 @@ impl FinanceApp {
                 .collect(),
             None => Vec::new(),
         };
-        let record = json!({ "budgets": budgets, "saved_at": unix_now_pub() });
-        data.insert(BUDGETS_STORE, &record).map_err(|e| e.to_string())?;
-        Ok(record)
+        save_singleton(data, BUDGETS_STORE, "budgets", json!(budgets))
     }
 
     // ---- accounts + transfers (v0.4) ----
 
     /// The user's accounts (latest-wins), defaulting to a single seeded "Cash".
     fn get_accounts(&self, data: &DataStore) -> Result<Value, String> {
-        data.create_store(ACCOUNTS_STORE).map_err(|e| e.to_string())?;
-        let rows = data.query(ACCOUNTS_STORE, &Query::default()).map_err(|e| e.to_string())?;
-        let latest = rows
-            .into_iter()
-            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
-        match latest.and_then(|r| r.data.get("accounts").cloned()) {
+        match latest_singleton(data, ACCOUNTS_STORE, "accounts") {
             Some(a) if a.as_array().map(|x| !x.is_empty()).unwrap_or(false) => Ok(json!({ "accounts": a })),
             _ => Ok(json!({ "accounts": default_accounts() })),
         }
@@ -770,9 +751,7 @@ impl FinanceApp {
                 .collect(),
             None => Vec::new(),
         };
-        let record = json!({ "accounts": accounts, "saved_at": unix_now_pub() });
-        data.insert(ACCOUNTS_STORE, &record).map_err(|e| e.to_string())?;
-        Ok(record)
+        save_singleton(data, ACCOUNTS_STORE, "accounts", json!(accounts))
     }
 
     /// Record a transfer between two of the user's accounts (a single row,
@@ -799,12 +778,7 @@ impl FinanceApp {
 
     /// The user's savings/debt goals (latest-wins), default empty.
     fn get_goals(&self, data: &DataStore) -> Result<Value, String> {
-        data.create_store(GOALS_STORE).map_err(|e| e.to_string())?;
-        let rows = data.query(GOALS_STORE, &Query::default()).map_err(|e| e.to_string())?;
-        let latest = rows
-            .into_iter()
-            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
-        match latest.and_then(|r| r.data.get("goals").cloned()) {
+        match latest_singleton(data, GOALS_STORE, "goals") {
             Some(goals) => Ok(json!({ "goals": goals })),
             None => Ok(json!({ "goals": [] })),
         }
@@ -841,9 +815,7 @@ impl FinanceApp {
                 .collect(),
             None => Vec::new(),
         };
-        let record = json!({ "goals": goals, "saved_at": unix_now_pub() });
-        data.insert(GOALS_STORE, &record).map_err(|e| e.to_string())?;
-        Ok(record)
+        save_singleton(data, GOALS_STORE, "goals", json!(goals))
     }
 }
 
@@ -1601,6 +1573,46 @@ fn migrate_legacy_transactions(data: &DataStore) -> Result<u64, String> {
         }
     }
     Ok(migrated)
+}
+
+/// Read the latest value stored under `key` in a latest-wins singleton store
+/// (widgets/budgets/accounts/goals). Returns the `key` field of the row with the
+/// greatest `saved_at`, or None when the store is empty.
+fn latest_singleton(data: &DataStore, store: &str, key: &str) -> Option<Value> {
+    data.create_store(store).ok()?;
+    let rows = data.query(store, &Query::default()).ok()?;
+    rows.into_iter()
+        .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0))
+        .and_then(|r| r.data.get(key).cloned())
+}
+
+/// Persist `value` under `key` in a singleton store, UPDATING the existing row in
+/// place (and pruning any older duplicates) instead of inserting a new row every
+/// save. The widgets/budgets/accounts/goals stores previously grew one dead row
+/// per save (review H6) — this converges them to a single row.
+fn save_singleton(data: &DataStore, store: &str, key: &str, value: Value) -> Result<Value, String> {
+    data.create_store(store).map_err(|e| e.to_string())?;
+    let record = json!({ key: value, "saved_at": unix_now_pub() });
+    let rows = data.query(store, &Query::default()).map_err(|e| e.to_string())?;
+    let latest = rows
+        .iter()
+        .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0))
+        .map(|r| r.id);
+    match latest {
+        Some(id) => {
+            data.update(store, id, &record).map_err(|e| e.to_string())?;
+            // Prune older rows so legacy multi-row stores converge to one.
+            for r in &rows {
+                if r.id != id {
+                    let _ = data.delete(store, r.id);
+                }
+            }
+        }
+        None => {
+            data.insert(store, &record).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(record)
 }
 
 /// Lifetime balance = sum(income) − sum(expense) over normalized records.
