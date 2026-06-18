@@ -19,36 +19,6 @@
     }
   });
 
-  // Embed-failure state for the current link. Many sites refuse framing via
-  // X-Frame-Options / CSP frame-ancestors and never fire `load`; we arm a
-  // timeout and, if the iframe hasn't loaded in time, show a fallback instead of
-  // an indefinitely blank panel.
-  let embedFailed = $state(false);
-  let loaded = $state(false);
-
-  // Reset detection and arm the timeout whenever the promoted link changes.
-  $effect(() => {
-    const url = sessionStore.promotedLink;
-    embedFailed = false;
-    loaded = false;
-    if (!url) return;
-    const timer = setTimeout(() => {
-      if (!loaded) embedFailed = true;
-    }, 4000);
-    return () => clearTimeout(timer);
-  });
-
-  function onIframeLoad() {
-    loaded = true;
-    // A site slower than the arm-timeout still recovers from the fallback once it loads.
-    embedFailed = false;
-  }
-
-  // A hard failure (network/refused) fires `error`; surface the fallback at once.
-  function onIframeError() {
-    embedFailed = true;
-  }
-
   function closeLink() {
     sessionStore.promotedLink = null;
   }
@@ -56,55 +26,34 @@
 
 <div class="h-full bg-background">
   {#if sessionStore.promotedLink}
-    <!-- C-12: the promoted link rendered as an embedded webview with a toolbar. -->
+    <!-- C-12: external links can't be reliably embedded in the WebKitGTK webview
+         (X-Frame-Options/CSP → blank page), so the panel is a clean open-card
+         rather than an iframe. -->
     <div class="flex h-full flex-col">
       <div class="flex items-center gap-2 border-b border-border px-3 py-2">
         <span class="min-w-0 flex-1 truncate font-mono text-sm text-foreground">{promotedHost}</span>
-        <Button
-          variant="outline"
-          size="sm"
-          onclick={() => openExternal(sessionStore.promotedLink!)}
-          title="Open in browser"
-        >
-          <ExternalLinkIcon class="size-4" />
-          Open in browser
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onclick={() => copyLink(sessionStore.promotedLink!)}
-          title="Copy link"
-        >
-          <CopyIcon class="size-4" />
-          Copy link
-        </Button>
         <Button variant="ghost" size="icon" class="size-7" onclick={closeLink} title="Close">
           <XIcon class="size-4" />
         </Button>
       </div>
-      <div class="relative min-h-0 flex-1">
-        {#if embedFailed}
-          <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-            <p class="text-sm font-medium text-foreground">This site can't be embedded here</p>
-            <p class="max-w-xs text-xs text-muted-foreground">
-              The page refused to load in an embedded view. Open it in your browser instead.
-            </p>
-            <Button size="sm" onclick={() => openExternal(sessionStore.promotedLink!)}>
-              <ExternalLinkIcon class="size-4" />
-              Open in browser
-            </Button>
-          </div>
-        {:else}
-          <iframe
-            src={sessionStore.promotedLink}
-            title={promotedHost ?? "Embedded page"}
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-            referrerpolicy="no-referrer"
-            onload={onIframeLoad}
-            onerror={onIframeError}
-            class="h-full w-full border-0"
-          ></iframe>
-        {/if}
+      <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <div class="rounded-full bg-accent p-3">
+          <ExternalLinkIcon class="size-6 text-accent-foreground" />
+        </div>
+        <p class="max-w-xs break-all font-mono text-sm text-foreground">{sessionStore.promotedLink}</p>
+        <p class="max-w-xs text-xs text-muted-foreground">
+          This page opens in your browser — pages can't be displayed inside the app.
+        </p>
+        <div class="flex flex-wrap justify-center gap-2">
+          <Button size="sm" onclick={() => openExternal(sessionStore.promotedLink!)}>
+            <ExternalLinkIcon class="size-4" />
+            Open in browser
+          </Button>
+          <Button variant="outline" size="sm" onclick={() => copyLink(sessionStore.promotedLink!)}>
+            <CopyIcon class="size-4" />
+            Copy link
+          </Button>
+        </div>
       </div>
     </div>
   {:else if sessionStore.panelMode === "browser"}
