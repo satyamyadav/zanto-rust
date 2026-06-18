@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use serde_json::{json, Value};
 use zanto_core::chat::{AppResult, GenaiTool, Target};
-use zanto_core::data::{DataStore, Filter, FilterOp, Query};
+use zanto_core::data::{DataStore, Filter, FilterOp, Query, Record};
 use zanto_core::session::{format_ts_display, unix_now_pub};
 use crate::app::{App, AppManifest, ComponentDecl, StartAction};
 
@@ -82,16 +82,23 @@ impl FinanceApp {
 
     fn do_add_transaction(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let amount = json!(coerce_amount(args.get("amount")));
+        // Amount is stored POSITIVE; the sign is carried by `type` so aggregation
+        // is unambiguous regardless of how the model phrased the value.
+        let kind = txn_kind_str(args.get("type"));
+        let amount = coerce_amount(args.get("amount")).abs();
         let merchant = args.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("uncategorized").to_string();
+        let note = args.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let date = args
             .get("date")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(today);
 
-        let record = json!({ "date": date, "amount": amount, "merchant": merchant, "category": category });
+        let record = json!({
+            "type": kind, "date": date, "amount": amount,
+            "merchant": merchant, "category": category, "note": note, "source": "manual",
+        });
         let id = data.insert(STORE, &record).map_err(|e| e.to_string())?;
         Ok(json!({ "status": "added", "id": id, "record": record }))
     }
@@ -105,11 +112,16 @@ impl FinanceApp {
         if let Some(month) = args.get("month").and_then(|v| v.as_str()) {
             q.filters.push(Filter { field: "date".into(), op: FilterOp::Contains, value: json!(month) });
         }
+        // Include each row's `id` so the UI can edit/delete a specific transaction.
         let rows: Vec<Value> = data
             .query(STORE, &q)
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|r| r.data)
+            .map(|r| {
+                let mut o = r.data;
+                o["id"] = json!(r.id);
+                o
+            })
             .collect();
         Ok(json!({ "rows": rows }))
     }
@@ -123,21 +135,25 @@ impl FinanceApp {
             .unwrap_or_else(|| today()[..7].to_string()); // YYYY-MM
 
         let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
-        let mut total = 0.0_f64;
+        let mut income = 0.0_f64;
+        let mut total = 0.0_f64; // expenses
         let mut by_cat: HashMap<String, f64> = HashMap::new();
         for r in &all {
-            let date = r.data.get("date").and_then(|v| v.as_str()).unwrap_or("");
-            if !date.starts_with(&month) {
+            let t = normalize_txn(&r.data);
+            if !t.date.starts_with(&month) {
                 continue;
             }
-            let amt = r.data.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            total += amt;
-            let cat = r.data.get("category").and_then(|v| v.as_str()).unwrap_or("uncategorized").to_string();
-            *by_cat.entry(cat).or_insert(0.0) += amt;
+            match t.kind {
+                TxnKind::Income => income += t.amount,
+                TxnKind::Expense => {
+                    total += t.amount;
+                    *by_cat.entry(t.category).or_insert(0.0) += t.amount;
+                }
+            }
         }
         let by_category: Vec<Value> =
             by_cat.into_iter().map(|(c, t)| json!({ "category": c, "total": t })).collect();
-        Ok(json!({ "month": month, "total": total, "by_category": by_category }))
+        Ok(json!({ "month": month, "income": income, "total": total, "net": income - total, "by_category": by_category }))
     }
 
     /// Dashboard overview: lifetime balance, this-month spend, top categories
@@ -151,23 +167,32 @@ impl FinanceApp {
         }
 
         let this_month = today()[..7].to_string(); // YYYY-MM
-        let mut balance = 0.0_f64;
-        let mut month_total = 0.0_f64;
-        let mut by_cat: HashMap<String, f64> = HashMap::new();
-        // Per-month spend, keyed by YYYY-MM.
+        let balance = lifetime_balance(&all); // lifetime income − expense
+        let mut income = 0.0_f64; // this month
+        let mut month_total = 0.0_f64; // this month expense
+        let mut uncategorized_count: u64 = 0; // lifetime uncategorized expenses (review queue)
+        let mut by_cat: HashMap<String, f64> = HashMap::new(); // this month, expenses
+        // Per-month EXPENSE, keyed by YYYY-MM (the 6-month spend series).
         let mut by_month: HashMap<String, f64> = HashMap::new();
 
         for r in &all {
-            let amt = r.data.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let date = r.data.get("date").and_then(|v| v.as_str()).unwrap_or("");
-            balance += amt;
-            if date.len() >= 7 {
-                *by_month.entry(date[..7].to_string()).or_insert(0.0) += amt;
+            let t = normalize_txn(&r.data);
+            if matches!(t.kind, TxnKind::Expense) {
+                if t.date.len() >= 7 {
+                    *by_month.entry(t.date[..7].to_string()).or_insert(0.0) += t.amount;
+                }
+                if t.category == "uncategorized" {
+                    uncategorized_count += 1;
+                }
             }
-            if date.starts_with(&this_month) {
-                month_total += amt;
-                let cat = r.data.get("category").and_then(|v| v.as_str()).unwrap_or("uncategorized").to_string();
-                *by_cat.entry(cat).or_insert(0.0) += amt;
+            if t.date.starts_with(&this_month) {
+                match t.kind {
+                    TxnKind::Income => income += t.amount,
+                    TxnKind::Expense => {
+                        month_total += t.amount;
+                        *by_cat.entry(t.category).or_insert(0.0) += t.amount;
+                    }
+                }
             }
         }
 
@@ -188,9 +213,12 @@ impl FinanceApp {
             "empty": false,
             "balance": balance,
             "month": this_month,
+            "income": income,
             "month_total": month_total,
+            "net_cash_flow": income - month_total,
             "transaction_count": all.len(),
             "top_categories": top_categories,
+            "uncategorized_count": uncategorized_count,
             "series": { "labels": months, "data": series },
         }))
     }
@@ -454,9 +482,84 @@ fn coerce_amount(v: Option<&Value>) -> f64 {
     }
 }
 
+/// Income vs expense. Missing/unknown `type` defaults to Expense so legacy
+/// transactions (pre-v2, no `type` field) still aggregate correctly.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum TxnKind {
+    Income,
+    Expense,
+}
+
+/// Normalize the `type` arg/field to a stored string ("income" | "expense").
+fn txn_kind_str(v: Option<&Value>) -> &'static str {
+    match v.and_then(|v| v.as_str()) {
+        Some("income") => "income",
+        _ => "expense",
+    }
+}
+
+/// A normalized view of a stored transaction, defaulting legacy/missing fields.
+struct Txn {
+    kind: TxnKind,
+    amount: f64, // always positive; sign comes from `kind`
+    category: String,
+    date: String,
+}
+
+fn normalize_txn(v: &Value) -> Txn {
+    let kind = match v.get("type").and_then(|t| t.as_str()) {
+        Some("income") => TxnKind::Income,
+        _ => TxnKind::Expense, // missing/expense/unknown → expense
+    };
+    let category = v
+        .get("category")
+        .and_then(|c| c.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("uncategorized")
+        .to_string();
+    let date = v.get("date").and_then(|d| d.as_str()).unwrap_or("").to_string();
+    Txn { kind, amount: coerce_amount(v.get("amount")).abs(), category, date }
+}
+
+/// Lifetime balance = sum(income) − sum(expense) over normalized records.
+fn lifetime_balance(records: &[Record]) -> f64 {
+    records
+        .iter()
+        .map(|r| {
+            let t = normalize_txn(&r.data);
+            match t.kind {
+                TxnKind::Income => t.amount,
+                TxnKind::Expense => -t.amount,
+            }
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn balance_is_income_minus_expense_with_legacy_default() {
+        // Acceptance #1 + #5: income − expense, and a legacy row (no `type`)
+        // counts as an expense.
+        let recs = vec![
+            Record { id: 1, data: json!({ "type": "income", "amount": 2000 }), created_at: 0 },
+            Record { id: 2, data: json!({ "type": "expense", "amount": 12.50 }), created_at: 0 },
+            Record { id: 3, data: json!({ "amount": 8 }), created_at: 0 }, // legacy → expense
+        ];
+        assert_eq!(lifetime_balance(&recs), 2000.0 - 12.5 - 8.0);
+    }
+
+    #[test]
+    fn normalize_defaults_and_signs() {
+        let income = normalize_txn(&json!({ "type": "income", "amount": "-100" }));
+        assert_eq!(income.kind, TxnKind::Income);
+        assert_eq!(income.amount, 100.0); // abs: sign is carried by kind
+        let legacy = normalize_txn(&json!({ "amount": 5, "date": "2026-06-01" }));
+        assert_eq!(legacy.kind, TxnKind::Expense);
+        assert_eq!(legacy.category, "uncategorized");
+    }
 
     #[test]
     fn coerce_amount_handles_number_and_string() {
