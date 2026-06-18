@@ -89,3 +89,29 @@ This merges two streams: (a) the brutal review's P0/Critical/High findings, and 
 6. **B5-x** (architecture) before any v0.6 feature.
 
 Each batch ends by **re-running the relevant CSV rows in `pnpm dev`** — the missing discipline that let the P0s ship. Add one integration test per IPC command and a smoke test of the import + dashboard-save flows as part of Batch 1/3.
+
+---
+
+## Batch 6 — Automatic context management (feature; supersedes the manual turn count)
+
+**Status:** parked / planned (CSV CO-2). Replaces the stopgap manual "Summarize beyond N turns" setting (commit `bc3c520`) with automatic, model-aware context management + a visible indicator. Spec-level; build later.
+
+**Why:** a fixed turn count is the wrong model — a user shouldn't guess a number, and the current behavior is **invisible** (summarization is folded into the prompt as a hidden system message, so it's untestable by eye even when it works). Context limits are a function of the **configured model's window** and **actual token usage**, not turns.
+
+**Goal:** the assistant automatically keeps the conversation within the configured model's context window, summarizing older turns just before overflow, and shows the user when it has done so. No manual tuning required.
+
+**Approach (deterministic where possible):**
+1. **Per-model context window.** A small lookup (provider+model → window tokens) with sensible fallbacks (Anthropic ~200k, OpenAI 128k, Ollama model-dependent → conservative default like 8k unless overridden). Expose an optional Settings override for the window when a model isn't in the table.
+2. **Token accounting.** genai returns usage (prompt/completion tokens) per response — accumulate it on the session. For the not-yet-sent tail, estimate with a cheap heuristic (~4 chars/token) so the trigger doesn't require a tokenizer.
+3. **Auto-trigger.** When projected prompt tokens for the next turn exceed a threshold (e.g. ~70–75% of the window), run the existing `summarize_messages` over the oldest turns, collapse them into the running summary (already implemented in `summarize.rs` / `ContextPolicy::Summarize`), and keep the most recent turns verbatim. Effectively `ContextPolicy::Auto { window, headroom }` computed at send time (the policy is already read per-turn after `bc3c520`).
+4. **Visible indicator.** A small, dismissible affordance in the chat stream — e.g. a divider "Earlier conversation summarized to fit context" at the point older turns were compacted, and/or a context-usage hint (n% of window). This is what makes the feature verifiable and trustworthy.
+5. **Manual override.** Keep the `max_context_turns` setting only as an advanced/manual override (0 = automatic). Default is automatic.
+
+**Tasks (later):**
+- T1 core: `ContextPolicy::Auto { window_tokens, headroom_frac }` + a `model_context_window(provider, model)` lookup + token accounting on `Session` (persist cumulative usage).
+- T2 core: at send time, choose verbatim-tail vs summarize based on projected tokens; reuse `summarize_messages`.
+- T3 desktop: derive the window from the active provider/model; Settings override field; default policy = Auto.
+- T4 frontend: the "summarized to fit context" divider + optional context-usage hint.
+- T5: tests — token-projection trigger fires at the threshold; verbatim tail preserved; summary persisted; legacy `max_context_turns` still honored as override.
+
+**Acceptance:** with a small-window model, a long conversation auto-summarizes before overflow with no user setting, the chat shows a "summarized" marker, and the model still answers questions that depend on early-but-summarized turns. The manual turns field is optional (0 = auto).
