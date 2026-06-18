@@ -2,9 +2,16 @@
 
 use serde_json::Value;
 use tauri::State;
+use tauri_plugin_notification::NotificationExt;
 use crate::app::AppManifest;
 use crate::catalogue::ArtifactDef;
 use super::DesktopState;
+
+/// Show a native OS notification. Generic; used e.g. for finance overspend nudges.
+#[tauri::command]
+pub fn notify(app: tauri::AppHandle, title: String, body: String) {
+    let _ = app.notification().builder().title(title).body(body).show();
+}
 
 #[tauri::command]
 pub fn list_apps(state: State<'_, DesktopState>) -> Vec<AppManifest> {
