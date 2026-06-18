@@ -15,6 +15,7 @@ const PROFILE_STORE: &str = "finance_profile";
 const WIDGETS_STORE: &str = "finance_widgets";
 const RULES_STORE: &str = "finance_category_rules";
 const BUDGETS_STORE: &str = "finance_budgets";
+const ACCOUNTS_STORE: &str = "finance_accounts";
 
 /// Account a transaction belongs to when none is given (also the seeded account).
 const DEFAULT_ACCOUNT: &str = "Cash";
@@ -39,6 +40,7 @@ impl FinanceApp {
                 WIDGETS_STORE.to_string(),
                 RULES_STORE.to_string(),
                 BUDGETS_STORE.to_string(),
+                ACCOUNTS_STORE.to_string(),
             ],
             components: vec![
                 ComponentDecl {
@@ -305,6 +307,7 @@ impl FinanceApp {
                     total += t.amount;
                     *by_cat.entry(t.category).or_insert(0.0) += t.amount;
                 }
+                TxnKind::Transfer => {} // neutral to a month's income/expense
             }
         }
         let by_category: Vec<Value> =
@@ -348,12 +351,16 @@ impl FinanceApp {
                         month_total += t.amount;
                         *by_cat.entry(t.category).or_insert(0.0) += t.amount;
                     }
+                    TxnKind::Transfer => {} // neutral to income/expense
                 }
             }
         }
 
         // Budget vs actual for this month (uses the per-category spend above).
         let (budget_status, over_budget) = compute_budget_status(&self.budgets_vec(data), &by_cat);
+
+        // Per-account balances + net worth (v0.4).
+        let (accounts, net_worth) = compute_account_balances(&self.accounts_vec(data), &all);
 
         // Top categories this month, descending by total.
         let mut top: Vec<(String, f64)> = by_cat.into_iter().collect();
@@ -388,6 +395,8 @@ impl FinanceApp {
             "over_budget": over_budget,
             "mom_delta": mom_delta,
             "mom_pct": mom_pct,
+            "accounts": accounts,
+            "net_worth": net_worth,
             "series": { "labels": months, "data": series },
         }))
     }
@@ -627,6 +636,72 @@ impl FinanceApp {
         data.insert(BUDGETS_STORE, &record).map_err(|e| e.to_string())?;
         Ok(record)
     }
+
+    // ---- accounts + transfers (v0.4) ----
+
+    /// The user's accounts (latest-wins), defaulting to a single seeded "Cash".
+    fn get_accounts(&self, data: &DataStore) -> Result<Value, String> {
+        data.create_store(ACCOUNTS_STORE).map_err(|e| e.to_string())?;
+        let rows = data.query(ACCOUNTS_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let latest = rows
+            .into_iter()
+            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
+        match latest.and_then(|r| r.data.get("accounts").cloned()) {
+            Some(a) if a.as_array().map(|x| !x.is_empty()).unwrap_or(false) => Ok(json!({ "accounts": a })),
+            _ => Ok(json!({ "accounts": default_accounts() })),
+        }
+    }
+
+    fn accounts_vec(&self, data: &DataStore) -> Vec<Value> {
+        self.get_accounts(data)
+            .ok()
+            .and_then(|a| a.get("accounts").and_then(|v| v.as_array()).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Persist the account list. Keeps entries with a non-empty name; type
+    /// defaults to "cash", opening_balance coerced to a number (default 0).
+    fn do_save_accounts(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        data.create_store(ACCOUNTS_STORE).map_err(|e| e.to_string())?;
+        let accounts: Vec<Value> = match args.get("accounts").and_then(|v| v.as_array()) {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|a| {
+                    let name = a.get("name").and_then(|v| v.as_str())?.trim().to_string();
+                    if name.is_empty() {
+                        return None;
+                    }
+                    let typ = a.get("type").and_then(|v| v.as_str()).unwrap_or("cash").to_string();
+                    let opening = coerce_amount(a.get("opening_balance"));
+                    Some(json!({ "name": name, "type": typ, "opening_balance": opening }))
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        let record = json!({ "accounts": accounts, "saved_at": unix_now_pub() });
+        data.insert(ACCOUNTS_STORE, &record).map_err(|e| e.to_string())?;
+        Ok(record)
+    }
+
+    /// Record a transfer between two of the user's accounts (a single row,
+    /// neutral to income/expense; moves money in `compute_account_balances`).
+    fn do_add_transfer(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let amount = coerce_amount(args.get("amount")).abs();
+        let from = args.get("from_account").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_ACCOUNT).to_string();
+        let to = args.get("to_account").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        if to.is_empty() || from == to {
+            return Err("a transfer needs distinct from/to accounts".to_string());
+        }
+        let date = args.get("date").and_then(|v| v.as_str()).map(String::from).unwrap_or_else(today);
+        let note = args.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let record = json!({
+            "type": "transfer", "amount": amount, "account": from, "to_account": to,
+            "category": "transfer", "date": date, "note": note, "source": "manual",
+        });
+        let id = data.insert(STORE, &record).map_err(|e| e.to_string())?;
+        Ok(json!({ "status": "added", "id": id, "record": record }))
+    }
 }
 
 /// Default dashboard widgets mirroring the fixed F1 layout. Each `source`
@@ -679,6 +754,7 @@ impl App for FinanceApp {
                         "category": { "type": "string" },
                         "date": { "type": "string", "description": "YYYY-MM-DD; defaults to today" },
                         "note": { "type": "string" },
+                        "account": { "type": "string", "description": "Which of the user's accounts; defaults to Cash" },
                         "source": { "type": "string", "enum": ["manual", "import"], "description": "Use 'import' for statement rows; duplicates are skipped" }
                     },
                     "required": ["amount"]
@@ -724,6 +800,19 @@ impl App for FinanceApp {
                     "properties": { "id": { "type": "integer" } },
                     "required": ["id"]
                 })),
+            GenaiTool::new("add_transfer")
+                .with_description("Move money between two of the user's own accounts (neutral to income/expense).")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "amount": { "type": "number" },
+                        "from_account": { "type": "string" },
+                        "to_account": { "type": "string" },
+                        "date": { "type": "string", "description": "YYYY-MM-DD; defaults to today" },
+                        "note": { "type": "string" }
+                    },
+                    "required": ["amount", "from_account", "to_account"]
+                })),
         ]
     }
 
@@ -743,6 +832,7 @@ impl App for FinanceApp {
             })),
             "update_transaction" => Some(self.do_update_transaction(data, args).map(AppResult::Data)),
             "delete_transaction" => Some(self.do_delete_transaction(data, args).map(AppResult::Data)),
+            "add_transfer" => Some(self.do_add_transfer(data, args).map(AppResult::Data)),
             _ => None,
         }
     }
@@ -757,6 +847,7 @@ impl App for FinanceApp {
             "budgets" => self.get_budgets(data),
             "recurring" => self.compute_recurring(data),
             "trends" => self.compute_trends(data),
+            "accounts" => self.get_accounts(data),
             "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
             other => Err(format!("unknown query: {other}")),
         }
@@ -773,6 +864,8 @@ impl App for FinanceApp {
             "delete_category_rule" => self.do_delete_category_rule(data, args),
             "save_budgets" => self.do_save_budgets(data, args),
             "import_transactions" => self.do_import_transactions(data, args),
+            "save_accounts" => self.do_save_accounts(data, args),
+            "add_transfer" => self.do_add_transfer(data, args),
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -816,6 +909,8 @@ fn coerce_amount(v: Option<&Value>) -> f64 {
 enum TxnKind {
     Income,
     Expense,
+    /// A move between the user's own accounts — neutral to income/expense.
+    Transfer,
 }
 
 /// Normalize the `type` arg/field to a stored string ("income" | "expense").
@@ -837,6 +932,7 @@ struct Txn {
 fn normalize_txn(v: &Value) -> Txn {
     let kind = match v.get("type").and_then(|t| t.as_str()) {
         Some("income") => TxnKind::Income,
+        Some("transfer") => TxnKind::Transfer,
         _ => TxnKind::Expense, // missing/expense/unknown → expense
     };
     let category = v
@@ -1071,6 +1167,63 @@ fn compute_trends_data(records: &[Record], months: &[String]) -> Value {
     json!({ "months": months, "categories": categories })
 }
 
+/// The seeded default account list (one cash account).
+fn default_accounts() -> Value {
+    json!([{ "name": DEFAULT_ACCOUNT, "type": "cash", "opening_balance": 0.0 }])
+}
+
+/// Per-account balances + net worth. Each account = opening_balance + income −
+/// expense + transfers_in − transfers_out for that account. Transfers move money
+/// between accounts but leave net worth unchanged. Returns (accounts, net_worth).
+fn compute_account_balances(accounts: &[Value], records: &[Record]) -> (Vec<Value>, f64) {
+    let mut bal: HashMap<String, f64> = HashMap::new();
+    let mut order: Vec<(String, String)> = Vec::new(); // (name, type) — preserve order
+    for a in accounts {
+        let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let typ = a.get("type").and_then(|v| v.as_str()).unwrap_or("cash").to_string();
+        bal.insert(name.clone(), a.get("opening_balance").and_then(|v| v.as_f64()).unwrap_or(0.0));
+        order.push((name, typ));
+    }
+    for r in records {
+        let t = normalize_txn(&r.data);
+        let acct = r.data.get("account").and_then(|v| v.as_str()).unwrap_or(DEFAULT_ACCOUNT);
+        match t.kind {
+            TxnKind::Income => {
+                if let Some(b) = bal.get_mut(acct) {
+                    *b += t.amount;
+                }
+            }
+            TxnKind::Expense => {
+                if let Some(b) = bal.get_mut(acct) {
+                    *b -= t.amount;
+                }
+            }
+            TxnKind::Transfer => {
+                if let Some(b) = bal.get_mut(acct) {
+                    *b -= t.amount;
+                }
+                let to = r.data.get("to_account").and_then(|v| v.as_str()).unwrap_or("");
+                if let Some(b) = bal.get_mut(to) {
+                    *b += t.amount;
+                }
+            }
+        }
+    }
+    let mut net = 0.0;
+    let out: Vec<Value> = order
+        .iter()
+        .map(|(name, typ)| {
+            let b = *bal.get(name).unwrap_or(&0.0);
+            net += b;
+            json!({ "name": name, "type": typ, "balance": b })
+        })
+        .collect();
+    (out, net)
+}
+
 /// Budget vs actual for the current month. Returns (budget_status, over_budget):
 /// `budget_status` is one row per budgeted category (spent defaults 0);
 /// `over_budget` is the subset where spent exceeds the limit.
@@ -1115,6 +1268,7 @@ fn lifetime_balance(records: &[Record]) -> f64 {
             match t.kind {
                 TxnKind::Income => t.amount,
                 TxnKind::Expense => -t.amount,
+                TxnKind::Transfer => 0.0, // internal move — neutral to balance
             }
         })
         .sum()
@@ -1217,6 +1371,24 @@ mod tests {
         assert_eq!(m["merchant"], json!("Details"));
         assert_eq!(m["debit"], json!("Debit"));
         assert_eq!(m["credit"], json!("Credit"));
+    }
+
+    #[test]
+    fn account_balances_and_net_worth_with_transfer() {
+        let accounts = vec![
+            json!({ "name": "Checking", "type": "checking", "opening_balance": 1000 }),
+            json!({ "name": "Card", "type": "card", "opening_balance": 0 }),
+        ];
+        let recs = vec![
+            Record { id: 1, data: json!({ "type": "expense", "amount": 50, "account": "Card" }), created_at: 0 },
+            Record { id: 2, data: json!({ "type": "transfer", "amount": 200, "account": "Checking", "to_account": "Card" }), created_at: 0 },
+            Record { id: 3, data: json!({ "type": "income", "amount": 500, "account": "Checking" }), created_at: 0 },
+        ];
+        let (accts, net) = compute_account_balances(&accounts, &recs);
+        let bal = |name: &str| accts.iter().find(|a| a["name"] == name).unwrap()["balance"].as_f64().unwrap();
+        assert_eq!(bal("Checking"), 1300.0); // 1000 + 500 income − 200 transfer out
+        assert_eq!(bal("Card"), 150.0); // 0 − 50 expense + 200 transfer in
+        assert_eq!(net, 1450.0); // transfer nets to zero across accounts
     }
 
     #[test]
