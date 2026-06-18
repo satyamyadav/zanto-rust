@@ -10,6 +10,8 @@
   import CategoryRules from "./CategoryRules.svelte";
   import Budgets from "./Budgets.svelte";
   import BudgetBars from "./BudgetBars.svelte";
+  import Subscriptions from "./Subscriptions.svelte";
+  import Trends from "./Trends.svelte";
   import WidgetBuilder, { type Widget } from "./WidgetBuilder.svelte";
   import { formatCurrency } from "./format";
   import {
@@ -25,6 +27,8 @@
     AlertCircle,
     AlertTriangle,
     Pencil,
+    Repeat,
+    LineChart,
   } from "@lucide/svelte";
 
   type Category = { category: string; total: number };
@@ -71,7 +75,9 @@
   let draftWidgets = $state<Widget[]>([]);
   // Top-level view: the dashboard, the editable transactions surface, or the F3
   // resources browser.
-  let tab = $state<"dashboard" | "transactions" | "resources">("dashboard");
+  let tab = $state<
+    "dashboard" | "transactions" | "subscriptions" | "trends" | "resources"
+  >("dashboard");
   // F4 edit toggle for the widget builder.
   let editing = $state(false);
   // Currency ISO code from the profile, for currency-aware formatting.
@@ -273,6 +279,24 @@
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "subscriptions"}
+            class={tabClass(tab === "subscriptions")}
+            onclick={() => (tab = "subscriptions")}
+          >
+            <Repeat class="size-4" /> Subscriptions
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "trends"}
+            class={tabClass(tab === "trends")}
+            onclick={() => (tab = "trends")}
+          >
+            <LineChart class="size-4" /> Trends
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "resources"}
             class={tabClass(tab === "resources")}
             onclick={() => (tab = "resources")}
@@ -296,6 +320,10 @@
         {#key txFilter}
           <TransactionsView {currency} categories={profileCategories} initialFilter={txFilter} />
         {/key}
+      {:else if tab === "subscriptions"}
+        <Subscriptions {currency} />
+      {:else if tab === "trends"}
+        <Trends {currency} />
       {:else}
         {#if overBudget.length}
           <div
@@ -345,6 +373,25 @@
           </div>
         {/if}
 
+        {#if overview.mom_delta !== undefined && (overview.series?.labels.length ?? 0) > 1}
+          {@const up = overview.mom_delta >= 0}
+          <div
+            class={[
+              "flex items-center gap-1.5 text-sm",
+              up ? "text-destructive" : "text-success",
+            ].join(" ")}
+          >
+            {#if up}
+              <TrendingUp class="size-3.5 shrink-0" />
+            {:else}
+              <TrendingDown class="size-3.5 shrink-0" />
+            {/if}
+            <span>
+              {up ? "↑" : "↓"} {money(Math.abs(overview.mom_delta))} ({Math.round((overview.mom_pct ?? 0) * 100)}%) vs last month
+            </span>
+          </div>
+        {/if}
+
         {#if (overview.budget_status ?? []).length}
           <div class="rounded-lg border border-border bg-card p-3">
             <div class="mb-3 text-sm font-medium">Budget vs actual ({overview.month})</div>
@@ -388,6 +435,19 @@
               {:else}
                 <div class="text-sm text-muted-foreground">No spending recorded this month.</div>
               {/if}
+            </div>
+          {:else if w.kind === "budget"}
+            <div class="rounded-lg border border-border bg-card p-3">
+              <div class="mb-3 text-sm font-medium">{w.title}</div>
+              <BudgetBars status={overview.budget_status ?? []} {currency} />
+            </div>
+          {:else if w.kind === "subscriptions"}
+            <div class="rounded-lg border border-border bg-card p-3">
+              <Subscriptions {currency} />
+            </div>
+          {:else if w.kind === "trends"}
+            <div class="rounded-lg border border-border bg-card p-3">
+              <Trends {currency} />
             </div>
           {/if}
         {/each}

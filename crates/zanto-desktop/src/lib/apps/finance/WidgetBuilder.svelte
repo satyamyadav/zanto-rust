@@ -4,7 +4,13 @@
   import { Input } from "$lib/components/ui/input";
   import { GripVertical, ChevronUp, ChevronDown, Copy, Trash2, Plus, Check } from "@lucide/svelte";
 
-  export type WidgetKind = "kpi" | "chart" | "table";
+  export type WidgetKind =
+    | "kpi"
+    | "chart"
+    | "table"
+    | "budget"
+    | "subscriptions"
+    | "trends";
   export type Widget = { kind: WidgetKind; title: string; source: string };
 
   // F4 — lightweight dashboard editor. Add/remove/reorder/duplicate widgets, then
@@ -22,9 +28,13 @@
       { value: "income", label: "Income (this month)" },
       { value: "net_cash_flow", label: "Net cash flow" },
       { value: "transaction_count", label: "Transaction count" },
+      { value: "mom_delta", label: "MoM change" },
     ],
     chart: [{ value: "series", label: "6-month spend series" }],
     table: [{ value: "top_categories", label: "Top categories" }],
+    budget: [{ value: "budget_status", label: "Budget vs actual" }],
+    subscriptions: [{ value: "recurring", label: "Subscriptions" }],
+    trends: [{ value: "trends", label: "Category trends" }],
   };
 
   let saving = $state(false);
@@ -124,6 +134,9 @@
           <option value="kpi">KPI</option>
           <option value="chart">Chart</option>
           <option value="table">Table</option>
+          <option value="budget">Budget</option>
+          <option value="subscriptions">Subscriptions</option>
+          <option value="trends">Trends</option>
         </select>
 
         <select class={selectClass} bind:value={w.source} aria-label="Data source">
@@ -167,6 +180,15 @@
     </Button>
     <Button variant="outline" size="xs" onclick={() => add("table")}>
       <Plus /> Table
+    </Button>
+    <Button variant="outline" size="xs" onclick={() => add("budget")}>
+      <Plus /> Budget
+    </Button>
+    <Button variant="outline" size="xs" onclick={() => add("subscriptions")}>
+      <Plus /> Subscriptions
+    </Button>
+    <Button variant="outline" size="xs" onclick={() => add("trends")}>
+      <Plus /> Trends
     </Button>
     <Button class="ml-auto" size="sm" onclick={save} disabled={saving}>
       <Check />

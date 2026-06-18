@@ -591,6 +591,8 @@ fn default_widgets() -> Value {
         { "kind": "kpi", "title": "Net", "source": "net_cash_flow" },
         { "kind": "chart", "title": "Spending — last 6 months", "source": "series" },
         { "kind": "table", "title": "Top categories", "source": "top_categories" },
+        { "kind": "budget", "title": "Budget vs actual", "source": "budget_status" },
+        { "kind": "subscriptions", "title": "Subscriptions", "source": "recurring" },
     ])
 }
 
