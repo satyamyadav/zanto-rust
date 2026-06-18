@@ -186,6 +186,28 @@ impl DataStore {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Insert many records under a SINGLE transaction: either every row commits,
+    /// or — on any error — the whole batch rolls back, so a partial failure never
+    /// leaves a half-imported statement (review M3). Returns the new ids in order.
+    pub fn insert_batch(&self, store: &str, records: &[Value]) -> Result<Vec<i64>, DataError> {
+        let mut conn = self.conn.lock().unwrap();
+        let table = resolve_table(&conn, &self.workspace, store)?;
+        let now = unix_now_pub() as i64;
+        let tx = conn.transaction()?;
+        let mut ids = Vec::with_capacity(records.len());
+        {
+            let mut stmt =
+                tx.prepare(&format!("INSERT INTO {table} (data, created_at) VALUES (?1, ?2)"))?;
+            for record in records {
+                let json = serde_json::to_string(record)?;
+                stmt.execute(params![json, now])?;
+                ids.push(tx.last_insert_rowid());
+            }
+        }
+        tx.commit()?;
+        Ok(ids)
+    }
+
     /// Query a store with structured filters. All values are bound as parameters;
     /// field names go in as bound `json_extract` paths — no SQL injection surface.
     pub fn query(&self, store: &str, q: &Query) -> Result<Vec<Record>, DataError> {
@@ -380,6 +402,18 @@ mod tests {
         let id = ds.insert("t", &json!({ "n": 1 })).unwrap();
         ds.update("t", id, &json!({ "n": 2 })).unwrap();
         assert_eq!(ds.get("t", id).unwrap().unwrap().data, json!({ "n": 2 }));
+    }
+
+    #[test]
+    fn insert_batch_commits_all_and_returns_ids() {
+        let (ds, _dir) = store("/ws");
+        ds.create_store("t").unwrap();
+        let recs = vec![json!({ "n": 1 }), json!({ "n": 2 }), json!({ "n": 3 })];
+        let ids = ds.insert_batch("t", &recs).unwrap();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ds.query("t", &Query::default()).unwrap().len(), 3);
+        // Empty batch is a no-op, not an error.
+        assert_eq!(ds.insert_batch("t", &[]).unwrap().len(), 0);
     }
 
     #[test]

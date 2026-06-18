@@ -562,28 +562,69 @@ impl FinanceApp {
         let mapping = args.get("mapping").cloned().unwrap_or_else(|| json!({}));
         let account = args.get("account").and_then(|v| v.as_str()).unwrap_or(DEFAULT_ACCOUNT).to_string();
 
-        let (mut inserted, mut skipped) = (0u64, 0u64);
+        // Resolve category-enforcement inputs ONCE (not per row) and collect the
+        // existing import hashes in a single query — the per-row do_add_transaction
+        // path previously did 1000+ lock cycles (review M3).
+        let cats = self.profile_categories(data);
+        let rules = self.get_category_rules(data).unwrap_or_default();
+        let mut seen: std::collections::HashSet<String> = data
+            .query(STORE, &Query::default())
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter_map(|r| r.data.get("import_hash").and_then(|v| v.as_str()).map(str::to_string))
+            .collect();
+
+        let mut to_insert: Vec<Value> = Vec::new();
+        let mut skipped = 0u64;
         let mut errors = Vec::new();
         for (i, row_v) in rows.iter().enumerate() {
             let row: Vec<String> = row_v
                 .as_array()
                 .map(|a| a.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect())
                 .unwrap_or_default();
-            match import_row_to_args(&headers, &row, &mapping, &account) {
-                Some(targs) => match self.do_add_transaction(data, targs) {
-                    Ok(res) => {
-                        if res.get("status").and_then(|s| s.as_str()) == Some("duplicate_skipped") {
-                            skipped += 1;
-                        } else {
-                            inserted += 1;
-                        }
-                    }
-                    Err(e) => errors.push(json!({ "row": i, "reason": e })),
-                },
-                None => errors.push(json!({ "row": i, "reason": "no amount — map a debit/credit or amount column" })),
+            let targs = match import_row_to_args(&headers, &row, &mapping, &account) {
+                Some(t) => t,
+                None => {
+                    errors.push(json!({ "row": i, "reason": "no amount — map a debit/credit or amount column" }));
+                    continue;
+                }
+            };
+            // Same record shape + category enforcement as do_add_transaction.
+            let kind = txn_kind_str(targs.get("type"));
+            let amount = coerce_amount(targs.get("amount")).abs();
+            let merchant = targs.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let category = resolve_category_pure(&merchant, targs.get("category").and_then(|v| v.as_str()), &cats, &rules);
+            let date = targs.get("date").and_then(|v| v.as_str()).map(str::to_string).unwrap_or_else(today);
+            let hash = import_hash(&date, amount, &merchant, &account);
+            // Dedupe against existing rows AND earlier rows in this same batch.
+            if !seen.insert(hash.clone()) {
+                skipped += 1;
+                continue;
+            }
+            to_insert.push(json!({
+                "type": kind, "date": date, "amount": amount, "merchant": merchant,
+                "category": category, "note": "", "source": "import", "account": account,
+                "import_hash": hash,
+            }));
+        }
+
+        // One transaction for the whole batch: all-or-nothing (B3-4).
+        let inserted = if to_insert.is_empty() {
+            0
+        } else {
+            data.insert_batch(STORE, &to_insert).map_err(|e| e.to_string())?.len() as u64
+        };
+
+        let mut result = json!({ "inserted": inserted, "skipped": skipped, "errors": errors });
+        // Echo parse-level data loss (B3-3) so the import UI can warn the user.
+        if let Value::Object(o) = &mut result {
+            for k in ["total_rows", "truncated", "malformed"] {
+                if let Some(v) = args.get(k) {
+                    o.insert(k.to_string(), v.clone());
+                }
             }
         }
-        Ok(json!({ "inserted": inserted, "skipped": skipped, "errors": errors }))
+        Ok(result)
     }
 
     /// Recurring/subscription detection over all transactions.
@@ -987,17 +1028,37 @@ fn today() -> String {
 fn coerce_amount(v: Option<&Value>) -> f64 {
     match v {
         Some(v) if v.is_number() => v.as_f64().unwrap_or(0.0),
-        Some(v) => v
-            .as_str()
-            .map(|s| {
-                let cleaned: String = s
-                    .chars()
-                    .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
-                    .collect();
-                cleaned.parse::<f64>().unwrap_or(0.0)
-            })
-            .unwrap_or(0.0),
+        Some(v) => v.as_str().map(parse_money).unwrap_or(0.0),
         None => 0.0,
+    }
+}
+
+/// Parse a money string into a signed f64. Handles a leading sign, accounting
+/// negatives — a TRAILING minus (`"5-"`, common in bank exports) or parentheses
+/// (`"(5)"`) — plus currency symbols and thousands separators. Returns 0.0 only
+/// for genuinely non-numeric input; the import path reports those rows as errors
+/// (review H2) rather than silently dropping a debit that parsed to zero.
+fn parse_money(s: &str) -> f64 {
+    let t = s.trim();
+    if t.is_empty() {
+        return 0.0;
+    }
+    let negative_paren = t.starts_with('(') && t.ends_with(')');
+    let negative_trailing = t.ends_with('-');
+    let negative_leading = t.starts_with('-');
+    // Keep only the magnitude digits + decimal point (drops $, commas, spaces, signs).
+    let digits: String = t.chars().filter(|c| c.is_ascii_digit() || *c == '.').collect();
+    if digits.is_empty() || digits == "." {
+        return 0.0;
+    }
+    let magnitude: f64 = match digits.parse() {
+        Ok(v) => v,
+        Err(_) => return 0.0,
+    };
+    if negative_paren || negative_trailing || negative_leading {
+        -magnitude
+    } else {
+        magnitude
     }
 }
 
@@ -1734,6 +1795,14 @@ mod tests {
         assert_eq!(coerce_amount(Some(&json!("-8"))), -8.0);
         assert_eq!(coerce_amount(Some(&json!(null))), 0.0);
         assert_eq!(coerce_amount(None), 0.0);
+        // B3-2: accounting negatives — trailing minus and parentheses — must not
+        // parse to 0 (which would silently drop a debit).
+        assert_eq!(coerce_amount(Some(&json!("5-"))), -5.0);
+        assert_eq!(coerce_amount(Some(&json!("1,234.50-"))), -1234.5);
+        assert_eq!(coerce_amount(Some(&json!("(5)"))), -5.0);
+        assert_eq!(coerce_amount(Some(&json!("$ 42.00"))), 42.0);
+        // Genuinely non-numeric still reads 0 (reported as an import error upstream).
+        assert_eq!(coerce_amount(Some(&json!("n/a"))), 0.0);
     }
 }
 

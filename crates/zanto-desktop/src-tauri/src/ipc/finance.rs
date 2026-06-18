@@ -26,6 +26,9 @@ pub async fn finance_parse_statement(
         "headers": table.headers,
         "preview": preview,
         "row_count": table.rows.len(),
+        "total_rows": table.total_rows,
+        "truncated": table.truncated,
+        "malformed": table.malformed,
         "suggested_mapping": finance::suggest_mapping(&table.headers),
     }))
 }
@@ -48,6 +51,10 @@ pub async fn finance_import_statement(
     app.action(
         &state.data,
         "import_transactions",
-        json!({ "headers": table.headers, "rows": rows, "mapping": mapping, "account": account }),
+        json!({
+            "headers": table.headers, "rows": rows, "mapping": mapping, "account": account,
+            // Surface parse-level data loss so the import result can warn the user.
+            "total_rows": table.total_rows, "truncated": table.truncated, "malformed": table.malformed,
+        }),
     )
 }
