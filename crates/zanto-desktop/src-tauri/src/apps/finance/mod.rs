@@ -16,6 +16,7 @@ const WIDGETS_STORE: &str = "finance_widgets";
 const RULES_STORE: &str = "finance_category_rules";
 const BUDGETS_STORE: &str = "finance_budgets";
 const ACCOUNTS_STORE: &str = "finance_accounts";
+const GOALS_STORE: &str = "finance_goals";
 
 /// Account a transaction belongs to when none is given (also the seeded account).
 const DEFAULT_ACCOUNT: &str = "Cash";
@@ -41,6 +42,7 @@ impl FinanceApp {
                 RULES_STORE.to_string(),
                 BUDGETS_STORE.to_string(),
                 ACCOUNTS_STORE.to_string(),
+                GOALS_STORE.to_string(),
             ],
             components: vec![
                 ComponentDecl {
@@ -362,6 +364,9 @@ impl FinanceApp {
         // Per-account balances + net worth (v0.4).
         let (accounts, net_worth) = compute_account_balances(&self.accounts_vec(data), &all);
 
+        // Goal progress against the linked account balances (v0.5).
+        let goal_status = compute_goal_status(&self.goals_vec(data), &accounts);
+
         // Top categories this month, descending by total.
         let mut top: Vec<(String, f64)> = by_cat.into_iter().collect();
         top.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -397,6 +402,7 @@ impl FinanceApp {
             "mom_pct": mom_pct,
             "accounts": accounts,
             "net_worth": net_worth,
+            "goal_status": goal_status,
             "series": { "labels": months, "data": series },
         }))
     }
@@ -702,6 +708,57 @@ impl FinanceApp {
         let id = data.insert(STORE, &record).map_err(|e| e.to_string())?;
         Ok(json!({ "status": "added", "id": id, "record": record }))
     }
+
+    // ---- goals (v0.5) ----
+
+    /// The user's savings/debt goals (latest-wins), default empty.
+    fn get_goals(&self, data: &DataStore) -> Result<Value, String> {
+        data.create_store(GOALS_STORE).map_err(|e| e.to_string())?;
+        let rows = data.query(GOALS_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let latest = rows
+            .into_iter()
+            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
+        match latest.and_then(|r| r.data.get("goals").cloned()) {
+            Some(goals) => Ok(json!({ "goals": goals })),
+            None => Ok(json!({ "goals": [] })),
+        }
+    }
+
+    fn goals_vec(&self, data: &DataStore) -> Vec<Value> {
+        self.get_goals(data)
+            .ok()
+            .and_then(|g| g.get("goals").and_then(|v| v.as_array()).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Persist goals. Keeps entries with a non-empty name; kind defaults to
+    /// savings, target coerced to a number.
+    fn do_save_goals(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        data.create_store(GOALS_STORE).map_err(|e| e.to_string())?;
+        let goals: Vec<Value> = match args.get("goals").and_then(|v| v.as_array()) {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|g| {
+                    let name = g.get("name").and_then(|v| v.as_str())?.trim().to_string();
+                    if name.is_empty() {
+                        return None;
+                    }
+                    let kind = match g.get("kind").and_then(|v| v.as_str()) {
+                        Some("debt") => "debt",
+                        _ => "savings",
+                    };
+                    let account = g.get("account").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let target = coerce_amount(g.get("target")).abs();
+                    let target_date = g.get("target_date").cloned().unwrap_or(Value::Null);
+                    Some(json!({ "name": name, "kind": kind, "account": account, "target": target, "target_date": target_date }))
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        let record = json!({ "goals": goals, "saved_at": unix_now_pub() });
+        data.insert(GOALS_STORE, &record).map_err(|e| e.to_string())?;
+        Ok(record)
+    }
 }
 
 /// Default dashboard widgets mirroring the fixed F1 layout. Each `source`
@@ -850,6 +907,7 @@ impl App for FinanceApp {
             "recurring" => self.compute_recurring(data),
             "trends" => self.compute_trends(data),
             "accounts" => self.get_accounts(data),
+            "goals" => self.get_goals(data),
             "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
             other => Err(format!("unknown query: {other}")),
         }
@@ -868,6 +926,7 @@ impl App for FinanceApp {
             "import_transactions" => self.do_import_transactions(data, args),
             "save_accounts" => self.do_save_accounts(data, args),
             "add_transfer" => self.do_add_transfer(data, args),
+            "save_goals" => self.do_save_goals(data, args),
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -1169,6 +1228,56 @@ fn compute_trends_data(records: &[Record], months: &[String]) -> Value {
     json!({ "months": months, "categories": categories })
 }
 
+/// Goal progress derived from the linked account's balance. Savings: current vs
+/// target; debt: amount still owed (a liability account's negative balance).
+fn compute_goal_status(goals: &[Value], accounts: &[Value]) -> Vec<Value> {
+    let balance_of = |name: &str| -> f64 {
+        accounts
+            .iter()
+            .find(|a| a.get("name").and_then(|v| v.as_str()) == Some(name))
+            .and_then(|a| a.get("balance").and_then(|v| v.as_f64()))
+            .unwrap_or(0.0)
+    };
+    goals
+        .iter()
+        .filter_map(|g| {
+            let name = g.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty())?.to_string();
+            let kind = match g.get("kind").and_then(|v| v.as_str()) {
+                Some("debt") => "debt",
+                _ => "savings",
+            };
+            let account = g.get("account").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let target = g.get("target").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let b = balance_of(&account);
+            let mut out = json!({
+                "name": name, "kind": kind, "account": account, "target": target,
+                "target_date": g.get("target_date").cloned().unwrap_or(Value::Null),
+            });
+            if kind == "debt" {
+                let owed = (-b).max(0.0);
+                let progress = if target > 0.0 {
+                    (1.0 - owed / target).clamp(0.0, 1.0)
+                } else if owed == 0.0 {
+                    1.0
+                } else {
+                    0.0
+                };
+                out["owed"] = json!(owed);
+                out["progress"] = json!(progress);
+                out["complete"] = json!(owed <= 0.0);
+            } else {
+                let current = b.max(0.0);
+                let progress = if target > 0.0 { (current / target).clamp(0.0, 1.0) } else { 0.0 };
+                out["current"] = json!(current);
+                out["progress"] = json!(progress);
+                out["remaining"] = json!((target - current).max(0.0));
+                out["complete"] = json!(target > 0.0 && current >= target);
+            }
+            Some(out)
+        })
+        .collect()
+}
+
 /// The seeded default account list (one cash account).
 fn default_accounts() -> Value {
     json!([{ "name": DEFAULT_ACCOUNT, "type": "cash", "opening_balance": 0.0 }])
@@ -1373,6 +1482,27 @@ mod tests {
         assert_eq!(m["merchant"], json!("Details"));
         assert_eq!(m["debit"], json!("Debit"));
         assert_eq!(m["credit"], json!("Credit"));
+    }
+
+    #[test]
+    fn goal_status_savings_and_debt() {
+        let accounts = vec![
+            json!({ "name": "Savings", "type": "savings", "balance": 2500.0 }),
+            json!({ "name": "Card", "type": "card", "balance": -800.0 }),
+        ];
+        let goals = vec![
+            json!({ "name": "Emergency", "kind": "savings", "account": "Savings", "target": 10000 }),
+            json!({ "name": "Pay off card", "kind": "debt", "account": "Card", "target": 1000 }),
+        ];
+        let s = compute_goal_status(&goals, &accounts);
+        let prog = |g: &Value| g["progress"].as_f64().unwrap();
+        let savings = s.iter().find(|g| g["name"] == "Emergency").unwrap();
+        assert_eq!(savings["current"], json!(2500.0));
+        assert!((prog(savings) - 0.25).abs() < 1e-9);
+        assert_eq!(savings["complete"], json!(false));
+        let debt = s.iter().find(|g| g["name"] == "Pay off card").unwrap();
+        assert_eq!(debt["owed"], json!(800.0));
+        assert!((prog(debt) - 0.2).abs() < 1e-9); // 1 - 800/1000
     }
 
     #[test]
