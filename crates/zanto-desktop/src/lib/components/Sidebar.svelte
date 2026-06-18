@@ -10,6 +10,7 @@
   import ArchiveRestoreIcon from "@lucide/svelte/icons/archive-restore";
   import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
   import LayersIcon from "@lucide/svelte/icons/layers";
+  import LoaderIcon from "@lucide/svelte/icons/loader";
   import Workspace from "./Workspace.svelte";
   import { workspaceStore } from "$lib/stores/workspace.svelte";
   import { appStore, mountApp } from "$lib/stores/app.svelte";
@@ -168,6 +169,12 @@
       : ''}"
     onscroll={onSessionsScroll}
   >
+    {#if switching}
+      <div class="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+        <LoaderIcon class="size-3.5 animate-spin" />
+        Switching…
+      </div>
+    {/if}
     {#each sessionStore.sessions as s (s.id)}
       {@const active = sessionStore.activeSessionId === s.id}
       <div
