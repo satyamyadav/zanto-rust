@@ -17,6 +17,17 @@
 
   type ToolCallSegmentData = Extract<ChatSegment, { kind: "tool_call" }>;
 
+  // Artifact-system tool calls are internal: their result renders inline as a
+  // block (chart/render_artifact) or is pure plumbing (list/get/pin). We never
+  // show a tool-call card for them — the artifact reads like markdown/text.
+  const HIDDEN_TOOL_CALLS = new Set([
+    "chart",
+    "render_artifact",
+    "list_artifacts",
+    "get_artifact",
+    "pin_artifact",
+  ]);
+
   // Index of the LAST tool_call segment in document order (-1 if none). Text
   // BEFORE this index is the model's intermediate "working" narration (hoisted
   // into the Thinking block); text AT/AFTER it is the final answer (inline).
@@ -46,6 +57,7 @@
     const segs = entry.segments.filter((seg, idx) => {
       if (seg.kind === "reasoning") return false;
       if (seg.kind === "text" && idx < lti) return false;
+      if (seg.kind === "tool_call" && HIDDEN_TOOL_CALLS.has(seg.name)) return false;
       return true;
     });
     let i = 0;
@@ -86,7 +98,11 @@
       .filter((t) => t.trim().length > 0)
       .join("\n\n"),
   );
-  const stepCount = $derived(entry.segments.filter((s) => s.kind === "tool_call").length);
+  const stepCount = $derived(
+    entry.segments.filter(
+      (s) => s.kind === "tool_call" && !HIDDEN_TOOL_CALLS.has(s.name),
+    ).length,
+  );
   // Show the block when the turn produced working text OR any tool call — so
   // tool turns and narrating turns get a persistent affordance, but a trivial
   // pure-text turn does not.
