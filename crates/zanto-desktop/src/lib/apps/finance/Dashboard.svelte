@@ -7,6 +7,7 @@
   import Onboarding from "./Onboarding.svelte";
   import ResourcesPanel from "./ResourcesPanel.svelte";
   import TransactionsView from "./TransactionsView.svelte";
+  import Import from "./Import.svelte";
   import CategoryRules from "./CategoryRules.svelte";
   import Budgets from "./Budgets.svelte";
   import BudgetBars from "./BudgetBars.svelte";
@@ -29,6 +30,7 @@
     Pencil,
     Repeat,
     LineChart,
+    Upload,
   } from "@lucide/svelte";
 
   type Category = { category: string; total: number };
@@ -76,7 +78,7 @@
   // Top-level view: the dashboard, the editable transactions surface, or the F3
   // resources browser.
   let tab = $state<
-    "dashboard" | "transactions" | "subscriptions" | "trends" | "resources"
+    "dashboard" | "transactions" | "import" | "subscriptions" | "trends" | "resources"
   >("dashboard");
   // F4 edit toggle for the widget builder.
   let editing = $state(false);
@@ -279,6 +281,15 @@
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "import"}
+            class={tabClass(tab === "import")}
+            onclick={() => (tab = "import")}
+          >
+            <Upload class="size-4" /> Import
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "subscriptions"}
             class={tabClass(tab === "subscriptions")}
             onclick={() => (tab = "subscriptions")}
@@ -320,6 +331,8 @@
         {#key txFilter}
           <TransactionsView {currency} categories={profileCategories} initialFilter={txFilter} />
         {/key}
+      {:else if tab === "import"}
+        <Import onImported={load} />
       {:else if tab === "subscriptions"}
         <Subscriptions {currency} />
       {:else if tab === "trends"}
