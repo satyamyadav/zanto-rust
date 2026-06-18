@@ -1,7 +1,22 @@
 # Remediation Plan — review findings + tested CSV failures
 
 **Date:** 2026-06-18 · **Sources:** [code review](../reviews/2026-06-18-finance-code-review.md) + `docs/zanto-test-checklist.csv` partial/fail rows from the user's `pnpm dev` pass.
-**Status:** Plan only — nothing implemented yet.
+**Status:** Implemented 2026-06-19 (Batches 0–5). See the completion table below.
+
+## Completion status — 2026-06-19
+
+| Batch | Items | Status |
+|---|---|---|
+| 0 | B0-1, B0-2, B0-3 | ✅ done (earlier) |
+| 1 | B1-1, B1-2 | ✅ done (earlier) |
+| 2 | B2-1, B2-2, B2-4 | ✅ done (earlier) · **B2-3 ✅ done** (one-time legacy backfill, `migrate_legacy_transactions`) |
+| 3 | B3-1, B3-2, B3-3, B3-4 | ✅ **done** (XLSX serial dates, accounting-negative money parse, truncation/malformed reporting, `insert_batch` atomic import) |
+| 4 | B4-1, B4-2, B4-4, B4-5 | ✅ **done** (stale-overview refetch, stable row keys, coalesced nudge, source validation + in-app `ConfirmDialog`). B4-3 folded into B1-2. |
+| 5 | B5-1, B5-2, B5-3 | ✅ **done** (`renders_as_block` segment flag; block-reference persistence; notify rate/length caps + chart bounds) |
+| 5 | B5-4 | ◑ **partial** — generic `latest_singleton`/`save_singleton` with update-in-place (fixes H6 growth + dedups 5× store boilerplate) ✅; `import.rs` extracted ✅. **Remaining (organizational, zero behavior change):** extract `aggregate.rs`/`stores.rs`; break up `compute_overview`. |
+| 6 | Auto context mgmt | ▫ spec only — deferred feature (build later) |
+
+Verify gate at completion: `cargo test` (core 96 + desktop 23 pass), `cargo build`, `pnpm check` (0 errors) + `pnpm build:web` all green. Manual `pnpm dev` smoke-test of the changed flows still pending (user gate).
 
 This merges two streams: (a) the brutal review's P0/Critical/High findings, and (b) the **confirmed runtime failures** the user found by actually running the app. The tested failures go first — they're verified, user-facing, and currently **block further manual testing** (the chart crash poisons every screen that renders a chart).
 
