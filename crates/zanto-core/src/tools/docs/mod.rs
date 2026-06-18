@@ -1,3 +1,4 @@
+pub mod parse_table;
 pub mod read_document;
 
 use std::sync::Arc;
