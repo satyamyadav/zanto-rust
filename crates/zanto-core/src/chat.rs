@@ -633,16 +633,18 @@ impl TurnDisplay {
 /// segment list, the `stopped` flag, and (for back-compat) the component blocks.
 /// The frontend prefers `segments` and falls back to `blocks` for legacy sessions.
 ///
-/// Returns `None` when the turn produced nothing to render (no segments and no
-/// component blocks) — e.g. a turn stopped before emitting any output — so the
-/// metadata column stays empty and `display_messages_meta` drops the empty turn,
-/// matching the live path that never spawns an empty bubble for such a turn.
+/// Returns `None` only for a NON-stopped turn that produced nothing to render (no
+/// segments and no component blocks), so the metadata column stays empty and
+/// `display_messages_meta` drops the empty turn — matching the live path, which
+/// never spawns a bubble for such a turn. A STOPPED turn always persists (even
+/// with no output) so its `stopped:true` flag — and the "Stopped" marker — survive
+/// a reload, matching the live path which DOES show the marker for an early stop.
 fn assistant_turn_meta(display: &TurnDisplay, blocks: &[ChatBlock], stopped: bool) -> Option<Value> {
     let components: Vec<&ChatBlock> = blocks
         .iter()
         .filter(|b| matches!(b, ChatBlock::Component { .. }))
         .collect();
-    if display.segments.is_empty() && components.is_empty() {
+    if !stopped && display.segments.is_empty() && components.is_empty() {
         return None;
     }
     Some(serde_json::json!({
@@ -878,8 +880,14 @@ mod tests {
         assert_eq!(arr[0]["component_id"], "chart");
         assert_eq!(meta["stopped"], serde_json::json!(false));
 
-        // A turn with no segments and no component blocks → no metadata column.
-        assert!(assistant_turn_meta(&TurnDisplay::default(), &[], true).is_none());
+        // A NON-stopped turn with no segments/blocks → no metadata column.
+        assert!(assistant_turn_meta(&TurnDisplay::default(), &[], false).is_none());
+        // A STOPPED empty turn still persists, so the "Stopped" marker survives a
+        // reload (otherwise the empty assistant message is dropped on restore).
+        let stopped_meta = assistant_turn_meta(&TurnDisplay::default(), &[], true)
+            .expect("stopped empty turn → metadata with stopped flag");
+        assert_eq!(stopped_meta["stopped"], serde_json::json!(true));
+        assert_eq!(stopped_meta["segments"].as_array().unwrap().len(), 0);
     }
 
     #[test]
