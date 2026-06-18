@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ipc } from "$lib/ipc";
+  import { confirm } from "$lib/stores/confirm.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Wallet, Check } from "@lucide/svelte";
@@ -50,11 +51,13 @@
     }
   }
 
-  function skip() {
-    if (!confirm("Skip setup? You can add your currency and categories later, but summaries will use defaults until then.")) {
-      return;
-    }
-    onDone?.();
+  async function skip() {
+    const ok = await confirm({
+      title: "Skip setup?",
+      body: "You can add your currency and categories later, but summaries will use defaults until then.",
+      confirmLabel: "Skip",
+    });
+    if (ok) onDone?.();
   }
 </script>
 

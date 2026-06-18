@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { ipc } from "$lib/ipc";
+  import { confirm } from "$lib/stores/confirm.svelte";
   import { formatCurrency } from "./format";
   import { Pencil, Trash2, Check, X } from "@lucide/svelte";
 
@@ -94,7 +95,15 @@
   }
 
   async function remove(id: number) {
-    if (!confirm("Delete this transaction?")) return;
+    if (
+      !(await confirm({
+        title: "Delete transaction?",
+        body: "This permanently removes the transaction.",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    )
+      return;
     error = null;
     try {
       await ipc.runAppAction("finance", "delete_transaction", { id });

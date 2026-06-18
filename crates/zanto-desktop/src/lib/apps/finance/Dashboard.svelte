@@ -90,6 +90,9 @@
   };
 
   let overview = $state<Overview | null>(null);
+  // Separate from `overview` so a refetch (after an edit/save) keeps the current
+  // dashboard on screen instead of tearing down to the skeleton mid-edit (B4-1).
+  let loading = $state(false);
   let error = $state<string | null>(null);
   // When there is no data, first-run onboarding takes over the empty state until
   // a profile exists or the user skips it for this mount.
@@ -121,7 +124,8 @@
   let txFilter = $state<"all" | "uncategorized">("all");
 
   async function load() {
-    overview = null;
+    // Keep the existing `overview` on screen while refetching; swap on success.
+    loading = true;
     error = null;
     try {
       // overview and the widget layout are independent — fetch concurrently.
@@ -142,6 +146,8 @@
       }
     } catch (e) {
       error = `${e}`;
+    } finally {
+      loading = false;
     }
   }
 
@@ -184,32 +190,31 @@
     return text;
   });
 
-  // Fire a native notification once per month per over-budget category. Deduped
-  // via localStorage so reopening the app doesn't re-nudge. Runs only when
-  // overview data has arrived (not during SSR).
+  // Pace warnings (budget categories on track to exceed) drive the amber chip.
+  const paceWarnings = $derived<PaceWarning[]>(overview?.pace_warnings ?? []);
+
+  // ONE coalesced budget nudge per month covering both over-budget and pace
+  // warnings, rather than a separate native notification per category from two
+  // effects (B4-4). The dedup key is persisted BEFORE notifying so a re-run or a
+  // notify failure can't double-nudge.
   $effect(() => {
     if (!overview) return;
     const month = overview.month;
-    const list = overview.over_budget ?? [];
-    if (!month || !list.length) return;
-    for (const o of list) {
-      const key = `zanto.finance.overbudget.${month}.${o.category}`;
-      try {
-        if (localStorage.getItem(key)) continue;
-        ipc.notify(
-          "Over budget",
-          `${o.category} is ${money(o.by)} over your ${money(o.limit)} limit`,
-        );
-        localStorage.setItem(key, "1");
-      } catch {
-        /* localStorage / notify unavailable — skip silently */
-      }
+    const over = overview.over_budget ?? [];
+    const pace = overview.pace_warnings ?? [];
+    if (!month || (!over.length && !pace.length)) return;
+    const key = `zanto.finance.nudge.${month}`;
+    try {
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1"); // persist first — never re-nudge on failure
+      const parts: string[] = [];
+      if (over.length) parts.push(`over budget in ${over.map((o) => o.category).join(", ")}`);
+      if (pace.length) parts.push(`on track to exceed ${pace.map((p) => p.category).join(", ")}`);
+      ipc.notify("Budget check", `You're ${parts.join("; ")}.`);
+    } catch {
+      /* localStorage / notify unavailable — skip silently */
     }
   });
-
-  // Pace warnings (budget categories on track to exceed) drive the amber chip and
-  // a once-per-month-per-category native nudge.
-  const paceWarnings = $derived<PaceWarning[]>(overview?.pace_warnings ?? []);
 
   const paceText = $derived.by(() => {
     const list = paceWarnings;
@@ -219,28 +224,6 @@
     let text = shown.join(", ");
     if (rest > 0) text += ` +${rest} more`;
     return text;
-  });
-
-  // Mirror the over-budget nudge: fire a native notification once per month per
-  // pace-warning category, deduped via localStorage.
-  $effect(() => {
-    if (!overview) return;
-    const month = overview.month;
-    const list = overview.pace_warnings ?? [];
-    if (!month || !list.length) return;
-    for (const p of list) {
-      const key = `zanto.finance.pace.${month}.${p.category}`;
-      try {
-        if (localStorage.getItem(key)) continue;
-        ipc.notify(
-          "Heads up",
-          `${p.category} is on track to exceed its ${money(p.limit)} budget`,
-        );
-        localStorage.setItem(key, "1");
-      } catch {
-        /* localStorage / notify unavailable — skip silently */
-      }
-    }
   });
 
   function money(v: number | undefined): string {
@@ -258,8 +241,20 @@
     transaction_count: Receipt,
   };
 
+  // Only these overview fields are real KPI sources. An unknown source renders
+  // an em dash instead of a confident, wrong "$0.00" (B4-5).
+  const KPI_SOURCES = new Set([
+    "balance",
+    "net_worth",
+    "projected_net_worth",
+    "month_total",
+    "income",
+    "net_cash_flow",
+    "transaction_count",
+  ]);
+
   function kpiValue(source: string): string {
-    if (!overview) return "0";
+    if (!overview || !KPI_SOURCES.has(source)) return "—";
     if (source === "transaction_count") return `${overview.transaction_count ?? 0}`;
     return money((overview as any)[source] as number | undefined);
   }

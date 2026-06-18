@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { ModeWatcher } from "mode-watcher";
   import { Toaster } from "$lib/components/ui/sonner";
+  import ConfirmDialog from "$lib/components/ConfirmDialog.svelte";
   import { bootstrapDensity } from "$lib/stores/theme.svelte";
 
   let { children } = $props();
@@ -12,5 +13,6 @@
 
 <ModeWatcher />
 <Toaster richColors closeButton />
+<ConfirmDialog />
 
 {@render children()}

@@ -5,7 +5,12 @@
   import { Input } from "$lib/components/ui/input";
   import { Check, Plus, Trash2 } from "@lucide/svelte";
 
-  type AccountRow = { name: string; type: string; opening_balance: number | string };
+  // `_id` is a stable per-row client key so bound inputs don't re-associate to the
+  // wrong row after a remove (B4-2). It is never sent to the backend.
+  type AccountRow = { _id: number; name: string; type: string; opening_balance: number | string };
+
+  let rowSeq = 0;
+  const nextId = () => ++rowSeq;
 
   let { onSaved }: { onSaved?: () => void } = $props();
 
@@ -21,6 +26,7 @@
     try {
       const res: { accounts?: AccountRow[] } = await ipc.queryApp("finance", "accounts");
       rows = (res?.accounts ?? []).map((a) => ({
+        _id: nextId(),
         name: a.name,
         type: a.type,
         opening_balance: a.opening_balance,
@@ -31,7 +37,7 @@
   }
 
   function add() {
-    rows = [...rows, { name: "", type: "checking", opening_balance: "" }];
+    rows = [...rows, { _id: nextId(), name: "", type: "checking", opening_balance: "" }];
   }
 
   function remove(i: number) {
@@ -85,7 +91,7 @@
     </div>
   {:else}
     <ul class="space-y-1.5">
-      {#each rows as r, i (i)}
+      {#each rows as r, i (r._id)}
         <li class="flex items-center gap-2 rounded-md border border-border p-2 text-sm">
           <Input
             class="h-7 min-w-0 flex-1 text-xs"
