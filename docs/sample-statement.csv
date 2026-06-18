@@ -1,0 +1,34 @@
+Date,Description,Debit,Credit,Category
+2026-03-01,Acme Payroll,,3000,income
+2026-03-01,Landlord Rent,1200,,rent
+2026-03-03,Netflix,9.99,,entertainment
+2026-03-05,Whole Foods,82.40,,groceries
+2026-03-09,Shell Gas,45.00,,transport
+2026-03-12,Olive Bistro,52.00,,dining
+2026-03-20,Trader Joes,64.10,,groceries
+2026-03-26,Corner Cafe,18.50,,dining
+2026-04-01,Acme Payroll,,3000,income
+2026-04-01,Landlord Rent,1200,,rent
+2026-04-03,Netflix,9.99,,entertainment
+2026-04-06,Whole Foods,77.20,,groceries
+2026-04-10,Uber,28.30,,transport
+2026-04-15,Olive Bistro,60.00,,dining
+2026-04-22,Trader Joes,55.75,,groceries
+2026-04-28,Corner Cafe,21.00,,dining
+2026-05-01,Acme Payroll,,3000,income
+2026-05-01,Landlord Rent,1200,,rent
+2026-05-03,Netflix,9.99,,entertainment
+2026-05-07,Whole Foods,90.10,,groceries
+2026-05-11,Shell Gas,47.50,,transport
+2026-05-16,Sushi Place,68.00,,dining
+2026-05-24,Trader Joes,61.30,,groceries
+2026-05-29,Corner Cafe,19.75,,dining
+2026-06-01,Acme Payroll,,3000,income
+2026-06-01,Landlord Rent,1200,,rent
+2026-06-03,Netflix,9.99,,entertainment
+2026-06-05,Whole Foods,71.00,,groceries
+2026-06-08,Olive Bistro,45.00,,dining
+2026-06-11,Uber,22.40,,transport
+2026-06-14,Corner Cafe,38.00,,dining
+2026-06-16,Sushi Place,42.00,,dining
+2026-06-17,Deli Lunch,35.00,,dining
