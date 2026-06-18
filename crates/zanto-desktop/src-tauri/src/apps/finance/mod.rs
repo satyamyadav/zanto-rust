@@ -492,6 +492,13 @@ impl FinanceApp {
         Ok(record)
     }
 
+    /// Recurring/subscription detection over all transactions.
+    fn compute_recurring(&self, data: &DataStore) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        Ok(json!({ "items": detect_recurring(&all, &today()[..7]) }))
+    }
+
     // ---- budgets (v0.3) ----
 
     /// The latest saved per-category budgets, or an empty list. Insert-only,
@@ -664,6 +671,7 @@ impl App for FinanceApp {
             "profile" => self.get_profile(data),
             "widgets" => self.get_widgets(data),
             "budgets" => self.get_budgets(data),
+            "recurring" => self.compute_recurring(data),
             "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
             other => Err(format!("unknown query: {other}")),
         }
@@ -781,6 +789,95 @@ fn resolve_category_pure(
     "uncategorized".to_string()
 }
 
+// Recurring-charge detection thresholds (named so they're tunable).
+const RECUR_MIN_OCCURRENCES: usize = 3;
+const RECUR_MIN_MONTHS: usize = 3;
+const RECUR_MIN_GAP_DAYS: i64 = 25;
+const RECUR_MAX_GAP_DAYS: i64 = 35;
+
+/// Days since 1970-01-01 for a civil date (Howard Hinnant's algorithm).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = (if y >= 0 { y } else { y - 399 }) / 400;
+    let yoe = y - era * 400; // [0, 399]
+    let mp = (m + 9) % 12; // Mar = 0 .. Feb = 11
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// Parse a `YYYY-MM-DD` date into a day ordinal, or None if malformed.
+fn date_ordinal(date: &str) -> Option<i64> {
+    let mut parts = date.split('-');
+    let y: i64 = parts.next()?.parse().ok()?;
+    let m: i64 = parts.next()?.parse().ok()?;
+    let d: i64 = parts.next()?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some(days_from_civil(y, m, d))
+}
+
+/// Detect recurring expenses: same merchant + ~amount, ≥3 occurrences across ≥3
+/// distinct months with a ~monthly median gap. Returns merchant/amount/count/
+/// last_date/monthly_total, sorted by monthly_total desc.
+fn detect_recurring(records: &[Record], _now_month: &str) -> Vec<Value> {
+    // (merchant_lower, amount rounded to whole unit) → [(ordinal, amount, date)]
+    let mut groups: HashMap<(String, i64), Vec<(i64, f64, String)>> = HashMap::new();
+    let mut display: HashMap<String, String> = HashMap::new();
+    for r in records {
+        let t = normalize_txn(&r.data);
+        if !matches!(t.kind, TxnKind::Expense) {
+            continue;
+        }
+        let merchant = r.data.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        if merchant.trim().is_empty() {
+            continue;
+        }
+        let ord = match date_ordinal(&t.date) {
+            Some(o) => o,
+            None => continue,
+        };
+        let mlow = merchant.to_lowercase();
+        display.entry(mlow.clone()).or_insert_with(|| merchant.clone());
+        groups.entry((mlow, t.amount.round() as i64)).or_default().push((ord, t.amount, t.date.clone()));
+    }
+
+    let mut out = Vec::new();
+    for ((mlow, _), mut occ) in groups {
+        if occ.len() < RECUR_MIN_OCCURRENCES {
+            continue;
+        }
+        occ.sort_by_key(|(o, _, _)| *o);
+        let months: std::collections::HashSet<&str> =
+            occ.iter().map(|(_, _, d)| &d[..7.min(d.len())]).collect();
+        if months.len() < RECUR_MIN_MONTHS {
+            continue;
+        }
+        let mut gaps: Vec<i64> = occ.windows(2).map(|w| w[1].0 - w[0].0).collect();
+        gaps.sort_unstable();
+        let median = gaps[gaps.len() / 2];
+        if !(RECUR_MIN_GAP_DAYS..=RECUR_MAX_GAP_DAYS).contains(&median) {
+            continue;
+        }
+        let count = occ.len();
+        let avg = occ.iter().map(|(_, a, _)| *a).sum::<f64>() / count as f64;
+        let amount = (avg * 100.0).round() / 100.0;
+        let last_date = occ.iter().map(|(_, _, d)| d.clone()).max().unwrap_or_default();
+        let merchant = display.get(&mlow).cloned().unwrap_or(mlow);
+        out.push(json!({
+            "merchant": merchant, "amount": amount, "count": count,
+            "last_date": last_date, "monthly_total": amount,
+        }));
+    }
+    out.sort_by(|a, b| {
+        b["monthly_total"].as_f64().unwrap_or(0.0)
+            .partial_cmp(&a["monthly_total"].as_f64().unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    out
+}
+
 /// Budget vs actual for the current month. Returns (budget_status, over_budget):
 /// `budget_status` is one row per budgeted category (spent defaults 0);
 /// `over_budget` is the subset where spent exceeds the limit.
@@ -866,6 +963,20 @@ mod tests {
         assert_eq!(resolve_category_pure("STARBUCKS #5", None, &cats, &rules), "dining");
         // requested not in profile + no rule → uncategorized
         assert_eq!(resolve_category_pure("Acme", Some("foobar"), &cats, &rules), "uncategorized");
+    }
+
+    #[test]
+    fn detect_recurring_finds_monthly_charge() {
+        let recs = vec![
+            Record { id: 1, data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-04-03" }), created_at: 0 },
+            Record { id: 2, data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-05-03" }), created_at: 0 },
+            Record { id: 3, data: json!({ "type": "expense", "merchant": "netflix", "amount": 9.99, "date": "2026-06-03" }), created_at: 0 },
+            Record { id: 4, data: json!({ "type": "expense", "merchant": "Coffee", "amount": 3.50, "date": "2026-06-01" }), created_at: 0 },
+        ];
+        let items = detect_recurring(&recs, "2026-06");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["merchant"], json!("Netflix"));
+        assert_eq!(items[0]["count"], json!(3));
     }
 
     #[test]
