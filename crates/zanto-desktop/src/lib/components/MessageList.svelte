@@ -79,6 +79,16 @@
          the oldest messages out of reach). -->
     <div class="flex min-h-full flex-col">
       <div class="mt-auto flex flex-col gap-4">
+        {#if sessionStore.contextSummarized}
+          <!-- Automatic context management: older turns were folded into a running
+               summary to fit the model's window. Surfaced so the compaction is
+               visible (it's otherwise a hidden system message). -->
+          <div class="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+            <span class="h-px flex-1 bg-border"></span>
+            <span class="shrink-0">Earlier conversation summarized to fit context</span>
+            <span class="h-px flex-1 bg-border"></span>
+          </div>
+        {/if}
         {#if sessionStore.loadingOlder}
           <div class="flex justify-center py-1 text-xs text-muted-foreground">
             loading older…

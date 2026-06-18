@@ -80,12 +80,51 @@ pub enum ContextPolicy {
     /// the session's stored running `summary` (see `summarize` module) as a leading
     /// system message so dropped history is not lost.
     Summarize { keep_last: usize },
+    /// Automatic, model-aware management: keep as many recent messages verbatim as
+    /// fit within `headroom_frac` of the model's `window_tokens`, summarizing the
+    /// rest into the running summary. No manual turn count — the split is computed
+    /// from estimated token usage at send time.
+    Auto { window_tokens: usize, headroom_frac: f64 },
 }
 
 impl Default for ContextPolicy {
     fn default() -> Self {
         ContextPolicy::LastNTurns { max_turns: 20 }
     }
+}
+
+/// Rough token estimate for a string (~4 chars/token) — avoids pulling in a
+/// per-provider tokenizer. Good enough to keep the live context within a model's
+/// window for `ContextPolicy::Auto`.
+pub fn estimate_tokens(text: &str) -> usize {
+    text.chars().count() / 4 + 1
+}
+
+/// Estimated tokens for one message: its text plus a small per-message overhead.
+fn message_tokens(m: &ChatMessage) -> usize {
+    m.content.first_text().map(estimate_tokens).unwrap_or(0) + 4
+}
+
+/// Index where the verbatim tail begins under `ContextPolicy::Auto`: keep the
+/// newest messages whose cumulative estimated tokens fit `budget`, but always keep
+/// at least the last two messages (one user+assistant turn). Returns 0 when the
+/// whole history fits — nothing needs summarizing.
+fn auto_split_index(messages: &[ChatMessage], budget: usize) -> usize {
+    let n = messages.len();
+    if n <= 2 {
+        return 0;
+    }
+    let mut total = 0usize;
+    let mut keep_start = 0usize;
+    for i in (0..n).rev() {
+        total += message_tokens(&messages[i]);
+        if total > budget {
+            keep_start = i + 1;
+            break;
+        }
+        keep_start = i;
+    }
+    keep_start.min(n - 2)
 }
 
 // ---- Session ----
@@ -179,8 +218,36 @@ impl Session {
                 }
                 trimmed
             }
+            ContextPolicy::Auto { window_tokens, headroom_frac } => {
+                let split = auto_split_index(&self.messages, auto_budget(*window_tokens, *headroom_frac));
+                let tail = self.messages[split..].to_vec();
+                if split > 0 {
+                    if let Some(summary) = self.summary.as_deref().filter(|s| !s.trim().is_empty()) {
+                        let note = format!("Summary of earlier conversation:\n{summary}");
+                        let mut out = Vec::with_capacity(tail.len() + 1);
+                        out.push(ChatMessage::system(note));
+                        out.extend(tail);
+                        return out;
+                    }
+                }
+                tail
+            }
         }
     }
+
+    /// The older messages that `ContextPolicy::Auto` would fold out of the live
+    /// window (everything before the verbatim tail). Empty when the whole history
+    /// fits the budget. The chat loop summarizes these before sending the turn.
+    pub fn auto_older(&self, window_tokens: usize, headroom_frac: f64) -> Vec<ChatMessage> {
+        let split = auto_split_index(&self.messages, auto_budget(window_tokens, headroom_frac));
+        self.messages[..split].to_vec()
+    }
+}
+
+/// Token budget for the verbatim tail: `headroom_frac` of the window, clamped to a
+/// sane fraction so a bad setting can't drop everything or disable trimming.
+fn auto_budget(window_tokens: usize, headroom_frac: f64) -> usize {
+    (window_tokens as f64 * headroom_frac.clamp(0.1, 0.95)) as usize
 }
 
 /// Auto-generate a title from the first user message in the session.
@@ -926,6 +993,58 @@ mod tests {
         assert!(effective[0].content.first_text().unwrap().contains("earlier recap"));
         assert_eq!(effective[1].content.first_text().unwrap(), "q2");
         assert_eq!(effective[3].content.first_text().unwrap(), "q3");
+    }
+
+    #[test]
+    fn estimate_tokens_is_roughly_chars_over_four() {
+        assert_eq!(estimate_tokens(""), 1);
+        assert_eq!(estimate_tokens("abcd"), 2); // 4/4 + 1
+        assert!(estimate_tokens(&"x".repeat(400)) >= 100);
+    }
+
+    #[test]
+    fn context_policy_auto_summarizes_when_over_budget() {
+        // window 200 @ 0.5 headroom → ~100-token budget; six ~40-char messages
+        // (~15 tokens each) overflow it, so a verbatim tail + summary is produced.
+        let policy = ContextPolicy::Auto { window_tokens: 200, headroom_frac: 0.5 };
+        let mut s = make_session("/ws");
+        s.summary = Some("earlier recap".to_string());
+        for _ in 0..6 {
+            s.messages.push(ChatMessage::user("x".repeat(40)));
+            s.messages.push(ChatMessage::assistant("y".repeat(40)));
+        }
+        let eff = s.effective_messages(&policy);
+        assert!(matches!(eff[0].role, ChatRole::System));
+        assert!(eff[0].content.first_text().unwrap().contains("earlier recap"));
+        // Older messages were dropped from the live window → non-empty complement.
+        assert!(!s.auto_older(200, 0.5).is_empty());
+    }
+
+    #[test]
+    fn context_policy_auto_keeps_everything_when_it_fits() {
+        let policy = ContextPolicy::Auto { window_tokens: 1_000_000, headroom_frac: 0.75 };
+        let mut s = make_session("/ws");
+        for i in 0..3u8 {
+            s.messages.push(ChatMessage::user(format!("q{i}")));
+            s.messages.push(ChatMessage::assistant(format!("a{i}")));
+        }
+        assert_eq!(s.effective_messages(&policy).len(), 6); // all verbatim
+        assert!(s.auto_older(1_000_000, 0.75).is_empty());
+    }
+
+    #[test]
+    fn context_policy_auto_always_keeps_a_full_last_turn() {
+        // Even a tiny window keeps the most recent turn (2 messages) whole.
+        let policy = ContextPolicy::Auto { window_tokens: 1, headroom_frac: 0.5 };
+        let mut s = make_session("/ws"); // no summary set
+        for i in 0..4u8 {
+            s.messages.push(ChatMessage::user(format!("q{i}")));
+            s.messages.push(ChatMessage::assistant(format!("a{i}")));
+        }
+        let eff = s.effective_messages(&policy);
+        assert_eq!(eff.len(), 2);
+        assert_eq!(eff[0].content.first_text().unwrap(), "q3");
+        assert_eq!(eff[1].content.first_text().unwrap(), "a3");
     }
 
     #[test]

@@ -139,6 +139,12 @@ impl TauriSink {
     pub fn stopped(&self) {
         let _ = self.app.emit("chat_stopped", ());
     }
+
+    /// Signal that older history was folded into the running summary this turn, so
+    /// the shell can show the "summarized to fit context" indicator (CO-2 / B6).
+    pub fn summarized(&self) {
+        let _ = self.app.emit("chat_summarized", ());
+    }
 }
 
 #[async_trait]

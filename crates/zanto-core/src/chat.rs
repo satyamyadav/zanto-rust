@@ -27,6 +27,10 @@ pub struct ChatTurn {
     /// partial output collected before the stop. Default false.
     #[serde(default)]
     pub stopped: bool,
+    /// True when older history was folded into the running summary this turn
+    /// (ContextPolicy::Auto/Summarize) — drives the "summarized to fit" indicator.
+    #[serde(default)]
+    pub summarized: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,28 +275,39 @@ pub async fn chat(
     };
     push_msg(store, session, user_msg).await?;
 
-    // Running-summary trigger (ContextPolicy::Summarize): once per turn, fold the
-    // history beyond the last `keep_last` turns into the session's stored summary so
-    // `effective_messages` can prepend it. A summarize failure is logged and skipped
-    // — the turn proceeds without an updated summary rather than aborting.
-    if let ContextPolicy::Summarize { keep_last } = policy {
-        let turn_count = session
-            .messages
-            .iter()
-            .filter(|m| matches!(m.role, genai::chat::ChatRole::User))
-            .count();
-        if crate::summarize::should_summarize(turn_count, *keep_last) {
-            let older = crate::session::messages_before_last_turns(&session.messages, *keep_last);
-            if !older.is_empty() {
-                match crate::summarize::summarize_messages(&client, &config.model, &older).await {
-                    Ok(summary) if !summary.trim().is_empty() => {
-                        store.set_summary(&session.id, Some(&summary))?;
-                        session.summary = Some(summary);
-                    }
-                    Ok(_) => {}
-                    Err(e) => eprintln!("[zanto] warn: summarize failed, proceeding without summary: {e}"),
-                }
+    // Running-summary trigger: once per turn, fold the history that falls outside
+    // the live window into the session's stored summary so `effective_messages` can
+    // prepend it. `Summarize` drops by a fixed turn count; `Auto` drops by estimated
+    // token usage against the model's window. A summarize failure is logged and
+    // skipped — the turn proceeds without an updated summary rather than aborting.
+    let mut summarized = false;
+    let older: Vec<ChatMessage> = match policy {
+        ContextPolicy::Summarize { keep_last } => {
+            let turn_count = session
+                .messages
+                .iter()
+                .filter(|m| matches!(m.role, genai::chat::ChatRole::User))
+                .count();
+            if crate::summarize::should_summarize(turn_count, *keep_last) {
+                crate::session::messages_before_last_turns(&session.messages, *keep_last)
+            } else {
+                Vec::new()
             }
+        }
+        ContextPolicy::Auto { window_tokens, headroom_frac } => {
+            session.auto_older(*window_tokens, *headroom_frac)
+        }
+        _ => Vec::new(),
+    };
+    if !older.is_empty() {
+        match crate::summarize::summarize_messages(&client, &config.model, &older).await {
+            Ok(summary) if !summary.trim().is_empty() => {
+                store.set_summary(&session.id, Some(&summary))?;
+                session.summary = Some(summary);
+                summarized = true;
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("[zanto] warn: summarize failed, proceeding without summary: {e}"),
         }
     }
 
@@ -330,7 +345,7 @@ When a user message contains an @<path> token, treat it as a request to read tha
         if cancelled(&config) {
             let meta = assistant_turn_meta(&display, &blocks, true);
             push_msg_meta(store, session, ChatMessage::assistant(String::new()), meta.as_ref()).await?;
-            return Ok(ChatTurn { blocks, stopped: true });
+            return Ok(ChatTurn { blocks, stopped: true, summarized });
         }
 
         println!("--- TURN {turn} ---");
@@ -393,7 +408,7 @@ When a user message contains an @<path> token, treat it as a request to read tha
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
             }
-            return Ok(ChatTurn { blocks, stopped: true });
+            return Ok(ChatTurn { blocks, stopped: true, summarized });
         }
 
         if tool_calls.is_empty() {
@@ -416,7 +431,7 @@ When a user message contains an @<path> token, treat it as a request to read tha
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
             }
-            return Ok(ChatTurn { blocks, stopped: false });
+            return Ok(ChatTurn { blocks, stopped: false, summarized });
         }
 
         push_msg(store, session, ChatMessage::from(tool_calls.clone())).await?;
@@ -428,7 +443,7 @@ When a user message contains an @<path> token, treat it as a request to read tha
         if cancelled(&config) {
             let meta = assistant_turn_meta(&display, &blocks, true);
             push_msg_meta(store, session, ChatMessage::assistant(String::new()), meta.as_ref()).await?;
-            return Ok(ChatTurn { blocks, stopped: true });
+            return Ok(ChatTurn { blocks, stopped: true, summarized });
         }
 
         turn += 1;

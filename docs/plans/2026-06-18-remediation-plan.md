@@ -14,7 +14,7 @@
 | 4 | B4-1, B4-2, B4-4, B4-5 | ✅ **done** (stale-overview refetch, stable row keys, coalesced nudge, source validation + in-app `ConfirmDialog`). B4-3 folded into B1-2. |
 | 5 | B5-1, B5-2, B5-3 | ✅ **done** (`renders_as_block` segment flag; block-reference persistence; notify rate/length caps + chart bounds) |
 | 5 | B5-4 | ◑ **partial** — generic `latest_singleton`/`save_singleton` with update-in-place (fixes H6 growth + dedups 5× store boilerplate) ✅; `import.rs` extracted ✅. **Remaining (organizational, zero behavior change):** extract `aggregate.rs`/`stores.rs`; break up `compute_overview`. |
-| 6 | Auto context mgmt | ▫ spec only — deferred feature (build later) |
+| 6 | Auto context mgmt | ✅ **done** — `ContextPolicy::Auto`, per-model window lookup + Settings override, token-estimate trigger, `summarized` flag → "summarized to fit context" divider. Default policy is now Auto (manual `max_context_turns > 0` overrides). |
 
 Verify gate at completion: `cargo test` (core 96 + desktop 23 pass), `cargo build`, `pnpm check` (0 errors) + `pnpm build:web` all green. Manual `pnpm dev` smoke-test of the changed flows still pending (user gate).
 

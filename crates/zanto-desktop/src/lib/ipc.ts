@@ -266,6 +266,10 @@ export const ipc = {
   // Emitted before `chat_done` when a turn was interrupted (Stop).
   onChatStopped: (cb: () => void): Promise<UnlistenFn> =>
     listen<null>("chat_stopped", () => cb()),
+  // Emitted before `chat_done` when older history was folded into the running
+  // summary to fit the model's context window (automatic context management).
+  onChatSummarized: (cb: () => void): Promise<UnlistenFn> =>
+    listen<null>("chat_summarized", () => cb()),
 
   // Native file drag-and-drop onto the window. Fires `enter`/`leave` (for the
   // dragover visual state) and `drop` (with the dropped absolute paths).

@@ -52,6 +52,21 @@ pub fn provider_of(model: &str) -> Provider {
     }
 }
 
+/// Approximate context-window size (in tokens) for a model, by provider, used to
+/// keep the live conversation within budget (`ContextPolicy::Auto`). These are
+/// deliberately conservative round numbers, not exact per-model limits — the auto
+/// policy only needs a ballpark, and a Settings override exists for outliers
+/// (notably local Ollama models, whose windows vary widely).
+pub fn model_context_window(model: &str) -> usize {
+    match provider_of(model) {
+        Provider::Anthropic => 200_000,
+        Provider::Gemini => 1_000_000,
+        Provider::OpenAI => 128_000,
+        // Local models vary; assume a small window unless the user overrides it.
+        Provider::Ollama => 8_192,
+    }
+}
+
 /// A context source (file or dir) fed to the assistant, with an enable toggle.
 ///
 /// Serializes as `{ "path": "...", "enabled": true }`. Deserialization is
@@ -115,6 +130,11 @@ pub struct Settings {
     pub endpoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_context_turns: Option<usize>,
+    /// Optional override for the automatic context window (tokens). When unset, the
+    /// window is inferred from the active model via `model_context_window`. Useful
+    /// for local models whose true window isn't in the lookup table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<usize>,
     /// Per-provider model + endpoint configs.
     #[serde(default)]
     pub providers: Vec<ProviderConfig>,
@@ -244,6 +264,9 @@ impl Settings {
         if other.max_context_turns.is_some() {
             self.max_context_turns = other.max_context_turns;
         }
+        if other.context_window_tokens.is_some() {
+            self.context_window_tokens = other.context_window_tokens;
+        }
         self.providers.extend(other.providers);
         if other.active_provider.is_some() {
             self.active_provider = other.active_provider;
@@ -304,6 +327,15 @@ pub fn has_api_key(p: Provider) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_context_window_by_provider() {
+        assert_eq!(model_context_window("claude-opus-4-8"), 200_000);
+        assert_eq!(model_context_window("gpt-4o"), 128_000);
+        assert_eq!(model_context_window("gemini-1.5-pro"), 1_000_000);
+        // Unknown / local model → conservative small window.
+        assert_eq!(model_context_window("llama3"), 8_192);
+    }
 
     #[test]
     fn settings_serde_round_trip_with_providers() {

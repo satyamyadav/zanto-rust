@@ -209,11 +209,18 @@ pub async fn send_message(
     let sink = TauriSink::new(app.clone());
     config.sink = Some(Arc::new(sink.clone()));
 
-    // Read the context policy per-turn so changing `max_context_turns` in
-    // Settings takes effect without an app restart.
+    // Read the context policy per-turn so a Settings change takes effect without an
+    // app restart. Default is automatic, model-aware management (CO-2): keep the
+    // conversation within the active model's window, summarizing older turns before
+    // overflow. A non-zero `max_context_turns` is a manual override (0/unset = auto).
     let policy = match Settings::load().max_context_turns {
-        Some(n) => ContextPolicy::Summarize { keep_last: n },
-        None => ContextPolicy::default(),
+        Some(n) if n > 0 => ContextPolicy::Summarize { keep_last: n },
+        _ => {
+            let window = Settings::load()
+                .context_window_tokens
+                .unwrap_or_else(|| zanto_core::config::model_context_window(&config.model));
+            ContextPolicy::Auto { window_tokens: window, headroom_frac: 0.75 }
+        }
     };
     let result = chat(config, &state.store, &mut session, &text, &policy).await;
 
@@ -225,6 +232,9 @@ pub async fn send_message(
     if let Ok(turn) = &result {
         if turn.stopped {
             sink.stopped();
+        }
+        if turn.summarized {
+            sink.summarized();
         }
     }
     sink.finish();

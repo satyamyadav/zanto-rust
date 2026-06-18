@@ -49,6 +49,7 @@ export const sessionStore = $state({
   queue: [] as string[], // messages typed while busy, dispatched FIFO when free
   busy: false,
   streaming: false, // assistant tokens currently arriving
+  contextSummarized: false, // older turns folded into the summary to fit the window
   hasMore: false, // older history exists above the loaded window
   loadingOlder: false, // a loadOlder() fetch is in flight
   sessionsHasMore: false, // more session-list pages exist below the loaded window
@@ -78,6 +79,7 @@ let streamIdx: number | null = null;
 function resetLiveTurn() {
   sessionStore.busy = false;
   sessionStore.streaming = false;
+  sessionStore.contextSummarized = false;
   streamIdx = null;
 }
 
@@ -172,6 +174,12 @@ export function initStreaming() {
     // vanished thinking indicator is feedback enough, so don't spawn an empty bubble.
     if (streamIdx === null) return;
     sessionStore.convo[streamIdx] = { ...sessionStore.convo[streamIdx], stopped: true };
+  });
+
+  ipc.onChatSummarized(() => {
+    // Older history was folded into the running summary to fit the model's context
+    // window — surface the divider so the compaction is visible (B6 / CO-2).
+    sessionStore.contextSummarized = true;
   });
 
   ipc.onChatDone(() => {
