@@ -3,6 +3,7 @@
 //! Aggregation is deterministic Rust (never the LLM).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use serde_json::{json, Value};
 use zanto_core::chat::{AppResult, GenaiTool, Target};
@@ -33,6 +34,8 @@ const DEFAULT_CATEGORIES: &[&str] =
 
 pub struct FinanceApp {
     manifest: AppManifest,
+    /// Set once the legacy backfill has run this process (see `ensure_store`).
+    migrated: AtomicBool,
 }
 
 impl FinanceApp {
@@ -93,11 +96,19 @@ impl FinanceApp {
                 },
             ],
         };
-        Arc::new(FinanceApp { manifest })
+        Arc::new(FinanceApp { manifest, migrated: AtomicBool::new(false) })
     }
 
     fn ensure_store(&self, data: &DataStore) -> Result<(), String> {
-        data.create_store(STORE).map_err(|e| e.to_string())
+        data.create_store(STORE).map_err(|e| e.to_string())?;
+        // One-time legacy backfill (B2-3): stamp explicit type/account on rows that
+        // predate the money model / accounts, so aggregation stops relying on lossy
+        // read-time defaults. Runs once per process; idempotent if it runs again.
+        if !self.migrated.load(Ordering::Acquire) {
+            migrate_legacy_transactions(data)?;
+            self.migrated.store(true, Ordering::Release);
+        }
+        Ok(())
     }
 
     // ---- deterministic flows (shared by agentic + manual paths) ----
@@ -1005,6 +1016,10 @@ impl App for FinanceApp {
             "save_accounts" => self.do_save_accounts(data, args),
             "add_transfer" => self.do_add_transfer(data, args),
             "save_goals" => self.do_save_goals(data, args),
+            "migrate_transactions" => {
+                self.ensure_store(data)?;
+                migrate_legacy_transactions(data).map(|n| json!({ "migrated": n }))
+            }
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -1552,6 +1567,42 @@ fn import_hash(date: &str, amount: f64, merchant: &str, account: &str) -> String
     format!("{:016x}", h.finish())
 }
 
+/// Pure legacy backfill: given a stored transaction, return an updated copy when
+/// it predates the explicit money model (missing/empty `type`) or accounts
+/// (missing/empty `account`), else None. Only absent fields are stamped — existing
+/// values are never overwritten.
+fn legacy_backfill(rec: &Value) -> Option<Value> {
+    let obj = rec.as_object()?;
+    let has = |k: &str| obj.get(k).and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+    let (needs_type, needs_account) = (!has("type"), !has("account"));
+    if !needs_type && !needs_account {
+        return None;
+    }
+    let mut out = obj.clone();
+    if needs_type {
+        out.insert("type".into(), json!("expense"));
+    }
+    if needs_account {
+        out.insert("account".into(), json!(DEFAULT_ACCOUNT));
+    }
+    Some(Value::Object(out))
+}
+
+/// One-time backfill over the transactions store (review C2). Idempotent: only
+/// rows actually missing an explicit `type`/`account` are rewritten, so a second
+/// run is a no-op. Returns the number of rows migrated.
+fn migrate_legacy_transactions(data: &DataStore) -> Result<u64, String> {
+    let rows = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+    let mut migrated = 0u64;
+    for r in rows {
+        if let Some(updated) = legacy_backfill(&r.data) {
+            data.update(STORE, r.id, &updated).map_err(|e| e.to_string())?;
+            migrated += 1;
+        }
+    }
+    Ok(migrated)
+}
+
 /// Lifetime balance = sum(income) − sum(expense) over normalized records.
 fn lifetime_balance(records: &[Record]) -> f64 {
     records
@@ -1785,6 +1836,20 @@ mod tests {
         assert_eq!(unlinked["type"], json!("unlinked"));
         assert_eq!(unlinked["balance"], json!(50.0));
         assert_eq!(net, 120.0); // 100 - 30 (Checking) + 50 (OldCard)
+    }
+
+    #[test]
+    fn legacy_backfill_stamps_missing_type_and_account() {
+        // Legacy row (no type/account) → explicit expense + Cash.
+        let out = legacy_backfill(&json!({ "amount": 10, "date": "2026-01-01" })).unwrap();
+        assert_eq!(out["type"], json!("expense"));
+        assert_eq!(out["account"], json!(DEFAULT_ACCOUNT));
+        // A fully-explicit row is left alone (None = no rewrite → idempotent).
+        assert!(legacy_backfill(&json!({ "type": "income", "amount": 5, "account": "Bank" })).is_none());
+        // Partial: keeps the existing type, stamps only the missing account.
+        let p = legacy_backfill(&json!({ "type": "transfer", "amount": 1 })).unwrap();
+        assert_eq!(p["type"], json!("transfer"));
+        assert_eq!(p["account"], json!(DEFAULT_ACCOUNT));
     }
 
     #[test]
