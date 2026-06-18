@@ -1,3 +1,5 @@
 /target
 .zanto
 .backup
+.~*
+.claude/worktrees

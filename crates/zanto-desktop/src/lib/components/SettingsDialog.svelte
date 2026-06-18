@@ -176,7 +176,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="max-w-lg">
+  <Dialog.Content class="sm:max-w-[80vw]">
     <Dialog.Header>
       <Dialog.Title class="font-display">Settings</Dialog.Title>
     </Dialog.Header>

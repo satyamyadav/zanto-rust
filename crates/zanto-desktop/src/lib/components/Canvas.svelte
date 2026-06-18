@@ -24,7 +24,7 @@
   }
 </script>
 
-<div class="h-full bg-background">
+<div class="h-full bg-background p-4">
   {#if sessionStore.promotedLink}
     <!-- C-12: external links can't be reliably embedded in the WebKitGTK webview
          (X-Frame-Options/CSP → blank page), so the panel is a clean open-card

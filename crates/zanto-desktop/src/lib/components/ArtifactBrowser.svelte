@@ -129,7 +129,7 @@
   );
 </script>
 
-<div class="flex h-full flex-col gap-3 p-4">
+<div class="flex h-full flex-col gap-3">
     <div class="flex items-center justify-between gap-2">
       <h2 class="font-display text-sm font-medium text-foreground">Artifacts</h2>
       <Button variant="ghost" size="icon" class="size-6" onclick={onClose} title="Close">
