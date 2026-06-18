@@ -21,6 +21,12 @@ const GOALS_STORE: &str = "finance_goals";
 /// Account a transaction belongs to when none is given (also the seeded account).
 const DEFAULT_ACCOUNT: &str = "Cash";
 
+/// Every dashboard widget kind the UI can render. The save validator and
+/// `default_widgets()` both draw from this list so they can't drift (the default
+/// layout previously shipped kinds `do_save_widgets` rejected → save dropped them).
+const WIDGET_KINDS: &[&str] =
+    &["kpi", "chart", "table", "budget", "subscriptions", "accounts", "goals", "forecast"];
+
 /// Default expense categories seeded when a profile omits them.
 const DEFAULT_CATEGORIES: &[&str] =
     &["groceries", "dining", "transport", "utilities", "rent", "entertainment", "other"];
@@ -526,7 +532,7 @@ impl FinanceApp {
                 .iter()
                 .filter_map(|w| {
                     let kind = w.get("kind").and_then(|v| v.as_str())?;
-                    if !matches!(kind, "kpi" | "chart" | "table") {
+                    if !WIDGET_KINDS.contains(&kind) {
                         return None;
                     }
                     let source = w.get("source").and_then(|v| v.as_str()).unwrap_or("");
@@ -1561,6 +1567,18 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["merchant"], json!("Netflix"));
         assert_eq!(items[0]["count"], json!(3));
+    }
+
+    #[test]
+    fn every_default_widget_kind_is_saveable() {
+        // Regression: default_widgets() ships budget/subscriptions/accounts/goals/
+        // forecast, which do_save_widgets used to reject → saving the dashboard
+        // silently dropped them. Every default kind must be in WIDGET_KINDS.
+        let defaults = default_widgets();
+        for w in defaults.as_array().unwrap() {
+            let kind = w.get("kind").and_then(|v| v.as_str()).unwrap();
+            assert!(WIDGET_KINDS.contains(&kind), "default widget kind '{kind}' is not saveable");
+        }
     }
 
     #[test]
