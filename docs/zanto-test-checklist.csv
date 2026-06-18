@@ -240,3 +240,8 @@ Finance v0.4,FA-2,Net worth,"With Checking 1000 + a 50 Card expense","Net worth 
 Finance v0.4,FA-3,Transfer,"Accounts -> Transfer 200 Checking -> Card","Checking -200, Card +200; neither shows as income/expense; net worth unchanged",,,v0.4 new,
 Finance v0.4,FA-4,Account column,"Transactions tab -> edit a row's account","Account column shows; edit persists; balances recompute",,,v0.4 new,
 Finance v0.4,FA-5,Net-worth + accounts widgets,"Default dashboard / add accounts widget","Net worth KPI present; Accounts widget lists per-account balances",,,v0.4 new,
+Finance v0.5,FG-1,Savings goal,"Edit -> Goals -> add 'Emergency' savings on Savings, target 10000 -> Save (Savings balance ~2500)","Goals tab shows ~25% progress; completes at target",,,v0.5 new,
+Finance v0.5,FG-2,Debt goal,"Add a debt goal on a card account (balance negative)","Shows 'amount left to pay off'; completes at 0 owed",,,v0.5 new,
+Finance v0.5,FG-3,Forecast,"Dashboard -> Forecast card (with a few months of history)","Projected end-of-month net worth + expected in/out shown; reflects run-rate",,,v0.5 new,
+Finance v0.5,FG-4,Pace nudge,"Budget dining 200; spend ~160 partway through the month","Amber 'on track to exceed' chip + one native nudge per month/category",,,v0.5 new,
+Finance v0.5,FG-5,Goals/forecast widgets,"Edit -> add Goals / Forecast widgets; projected net worth KPI","New widget kinds render; projected net worth KPI available",,,v0.5 new,
