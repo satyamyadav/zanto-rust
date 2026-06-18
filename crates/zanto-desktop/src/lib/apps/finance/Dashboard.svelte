@@ -15,6 +15,9 @@
   import BudgetBars from "./BudgetBars.svelte";
   import Subscriptions from "./Subscriptions.svelte";
   import Trends from "./Trends.svelte";
+  import Goals from "./Goals.svelte";
+  import GoalsEditor from "./GoalsEditor.svelte";
+  import Forecast from "./Forecast.svelte";
   import WidgetBuilder, { type Widget } from "./WidgetBuilder.svelte";
   import { formatCurrency } from "./format";
   import {
@@ -34,6 +37,7 @@
     LineChart,
     Upload,
     Landmark,
+    Target,
   } from "@lucide/svelte";
 
   type Category = { category: string; total: number };
@@ -45,6 +49,18 @@
     over: boolean;
   };
   type OverBudget = { category: string; limit: number; spent: number; by: number };
+  type GoalStatus = {
+    name: string;
+    kind: "savings" | "debt";
+    account: string;
+    target: number;
+    current?: number;
+    owed?: number;
+    progress: number;
+    remaining?: number;
+    complete: boolean;
+  };
+  type PaceWarning = { category: string; limit: number; spent: number; projected: number };
   type Overview = {
     empty: boolean;
     balance?: number;
@@ -62,6 +78,9 @@
     mom_pct?: number;
     accounts?: { name: string; type: string; balance: number }[];
     net_worth?: number;
+    goal_status?: GoalStatus[];
+    projected_net_worth?: number;
+    pace_warnings?: PaceWarning[];
   };
   type Profile = {
     setup: boolean;
@@ -89,6 +108,7 @@
     | "import"
     | "subscriptions"
     | "trends"
+    | "goals"
     | "resources"
   >("dashboard");
   // F4 edit toggle for the widget builder.
@@ -187,6 +207,42 @@
     }
   });
 
+  // Pace warnings (budget categories on track to exceed) drive the amber chip and
+  // a once-per-month-per-category native nudge.
+  const paceWarnings = $derived<PaceWarning[]>(overview?.pace_warnings ?? []);
+
+  const paceText = $derived.by(() => {
+    const list = paceWarnings;
+    if (!list.length) return "";
+    const shown = list.slice(0, 2).map((p) => `${p.category} is on track to exceed its budget`);
+    const rest = list.length - shown.length;
+    let text = shown.join(", ");
+    if (rest > 0) text += ` +${rest} more`;
+    return text;
+  });
+
+  // Mirror the over-budget nudge: fire a native notification once per month per
+  // pace-warning category, deduped via localStorage.
+  $effect(() => {
+    if (!overview) return;
+    const month = overview.month;
+    const list = overview.pace_warnings ?? [];
+    if (!month || !list.length) return;
+    for (const p of list) {
+      const key = `zanto.finance.pace.${month}.${p.category}`;
+      try {
+        if (localStorage.getItem(key)) continue;
+        ipc.notify(
+          "Heads up",
+          `${p.category} is on track to exceed its ${money(p.limit)} budget`,
+        );
+        localStorage.setItem(key, "1");
+      } catch {
+        /* localStorage / notify unavailable — skip silently */
+      }
+    }
+  });
+
   function money(v: number | undefined): string {
     return formatCurrency(v, currency);
   }
@@ -195,6 +251,7 @@
   const KPI_ICON: Record<string, typeof Wallet> = {
     balance: Wallet,
     net_worth: Landmark,
+    projected_net_worth: TrendingUp,
     month_total: TrendingDown,
     income: TrendingUp,
     net_cash_flow: Scale,
@@ -329,6 +386,15 @@
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "goals"}
+            class={tabClass(tab === "goals")}
+            onclick={() => (tab = "goals")}
+          >
+            <Target class="size-4" /> Goals
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "resources"}
             class={tabClass(tab === "resources")}
             onclick={() => (tab = "resources")}
@@ -370,6 +436,8 @@
         <Subscriptions {currency} />
       {:else if tab === "trends"}
         <Trends {currency} />
+      {:else if tab === "goals"}
+        <Goals goalStatus={overview.goal_status} {currency} />
       {:else}
         {#if overBudget.length}
           <div
@@ -377,6 +445,15 @@
           >
             <AlertTriangle class="size-4 shrink-0" />
             <span class="min-w-0 flex-1">{overBudgetText}</span>
+          </div>
+        {/if}
+
+        {#if paceWarnings.length}
+          <div
+            class="flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning"
+          >
+            <AlertTriangle class="size-4 shrink-0" />
+            <span class="min-w-0 flex-1">{paceText}</span>
           </div>
         {/if}
 
@@ -399,6 +476,7 @@
         {#if editing}
           <WidgetBuilder bind:widgets={draftWidgets} onSaved={onWidgetsSaved} />
           <AccountsEditor onSaved={load} />
+          <GoalsEditor accounts={(overview.accounts ?? []).map((a) => a.name)} onSaved={load} />
           <Budgets categories={profileCategories} onSaved={load} />
           <CategoryRules categories={profileCategories} />
         {/if}
@@ -445,6 +523,8 @@
             <BudgetBars status={overview.budget_status ?? []} {currency} />
           </div>
         {/if}
+
+        <Forecast {currency} />
 
         {#each widgets.filter((w) => w.kind !== "kpi") as w, i (i)}
           {#if w.kind === "chart" && w.source === "series" && overview.series && overview.series.labels.length}
@@ -496,6 +576,13 @@
             <div class="rounded-lg border border-border bg-card p-3">
               <Trends {currency} />
             </div>
+          {:else if w.kind === "goals"}
+            <div class="rounded-lg border border-border bg-card p-3">
+              <div class="mb-3 text-sm font-medium">{w.title}</div>
+              <Goals goalStatus={overview.goal_status} {currency} />
+            </div>
+          {:else if w.kind === "forecast"}
+            <Forecast {currency} />
           {:else if w.kind === "accounts"}
             {@const accts = overview.accounts ?? []}
             <div class="rounded-lg border border-border bg-card p-3">

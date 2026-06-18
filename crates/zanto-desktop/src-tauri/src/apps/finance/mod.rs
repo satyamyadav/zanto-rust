@@ -82,7 +82,8 @@ impl FinanceApp {
                     label: "Monthly review".into(),
                     prompt: "Run my monthly review: call monthly_summary for the current month, then \
                              query_transactions for that month to list the underlying transactions, \
-                             and finish with a short written takeaway of where my money went.".into(),
+                             and finish with a short written takeaway of where my money went, and \
+                             mention any goals progress and the rest-of-month forecast.".into(),
                 },
             ],
         };
@@ -802,6 +803,8 @@ fn default_widgets() -> Value {
         { "kind": "budget", "title": "Budget vs actual", "source": "budget_status" },
         { "kind": "subscriptions", "title": "Subscriptions", "source": "recurring" },
         { "kind": "accounts", "title": "Accounts", "source": "accounts" },
+        { "kind": "goals", "title": "Goals", "source": "goal_status" },
+        { "kind": "forecast", "title": "Forecast", "source": "forecast" },
     ])
 }
 

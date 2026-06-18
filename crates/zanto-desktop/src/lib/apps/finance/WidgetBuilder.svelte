@@ -11,7 +11,9 @@
     | "budget"
     | "subscriptions"
     | "trends"
-    | "accounts";
+    | "accounts"
+    | "goals"
+    | "forecast";
   export type Widget = { kind: WidgetKind; title: string; source: string };
 
   // F4 — lightweight dashboard editor. Add/remove/reorder/duplicate widgets, then
@@ -30,6 +32,7 @@
       { value: "net_cash_flow", label: "Net cash flow" },
       { value: "transaction_count", label: "Transaction count" },
       { value: "net_worth", label: "Net worth" },
+      { value: "projected_net_worth", label: "Projected net worth" },
       { value: "mom_delta", label: "MoM change" },
     ],
     chart: [{ value: "series", label: "6-month spend series" }],
@@ -38,6 +41,8 @@
     subscriptions: [{ value: "recurring", label: "Subscriptions" }],
     trends: [{ value: "trends", label: "Category trends" }],
     accounts: [{ value: "accounts", label: "Account balances" }],
+    goals: [{ value: "goal_status", label: "Goal progress" }],
+    forecast: [{ value: "forecast", label: "Forecast" }],
   };
 
   let saving = $state(false);
@@ -141,6 +146,8 @@
           <option value="subscriptions">Subscriptions</option>
           <option value="trends">Trends</option>
           <option value="accounts">Accounts</option>
+          <option value="goals">Goals</option>
+          <option value="forecast">Forecast</option>
         </select>
 
         <select class={selectClass} bind:value={w.source} aria-label="Data source">
@@ -196,6 +203,12 @@
     </Button>
     <Button variant="outline" size="xs" onclick={() => add("accounts")}>
       <Plus /> Accounts
+    </Button>
+    <Button variant="outline" size="xs" onclick={() => add("goals")}>
+      <Plus /> Goals
+    </Button>
+    <Button variant="outline" size="xs" onclick={() => add("forecast")}>
+      <Plus /> Forecast
     </Button>
     <Button class="ml-auto" size="sm" onclick={save} disabled={saving}>
       <Check />
