@@ -132,7 +132,7 @@ impl FinanceApp {
 
         // Import dedupe: an imported row carries a stable hash of date+amount+
         // merchant; if one already exists, skip (re-running an import is a no-op).
-        let import_h = (source == "import").then(|| import_hash(&date, amount, &merchant));
+        let import_h = (source == "import").then(|| import_hash(&date, amount, &merchant, &account));
         if let Some(h) = &import_h {
             let mut q = Query::default();
             q.filters.push(Filter { field: "import_hash".into(), op: FilterOp::Eq, value: json!(h) });
@@ -1338,9 +1338,12 @@ fn compute_goal_status(goals: &[Value], accounts: &[Value]) -> Vec<Value> {
             };
             let account = g.get("account").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let target = g.get("target").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            // A goal whose account isn't present at all is "unlinked" — it must
+            // never claim complete just because a missing balance reads as 0.
+            let linked = accounts.iter().any(|a| a.get("name").and_then(|v| v.as_str()) == Some(account.as_str()));
             let b = balance_of(&account);
             let mut out = json!({
-                "name": name, "kind": kind, "account": account, "target": target,
+                "name": name, "kind": kind, "account": account, "target": target, "linked": linked,
                 "target_date": g.get("target_date").cloned().unwrap_or(Value::Null),
             });
             if kind == "debt" {
@@ -1354,14 +1357,14 @@ fn compute_goal_status(goals: &[Value], accounts: &[Value]) -> Vec<Value> {
                 };
                 out["owed"] = json!(owed);
                 out["progress"] = json!(progress);
-                out["complete"] = json!(owed <= 0.0);
+                out["complete"] = json!(linked && owed <= 0.0);
             } else {
                 let current = b.max(0.0);
                 let progress = if target > 0.0 { (current / target).clamp(0.0, 1.0) } else { 0.0 };
                 out["current"] = json!(current);
                 out["progress"] = json!(progress);
                 out["remaining"] = json!((target - current).max(0.0));
-                out["complete"] = json!(target > 0.0 && current >= target);
+                out["complete"] = json!(linked && target > 0.0 && current >= target);
             }
             Some(out)
         })
@@ -1378,7 +1381,8 @@ fn default_accounts() -> Value {
 /// between accounts but leave net worth unchanged. Returns (accounts, net_worth).
 fn compute_account_balances(accounts: &[Value], records: &[Record]) -> (Vec<Value>, f64) {
     let mut bal: HashMap<String, f64> = HashMap::new();
-    let mut order: Vec<(String, String)> = Vec::new(); // (name, type) — preserve order
+    let mut order: Vec<(String, String)> = Vec::new(); // declared (name, type) — preserve order
+    let mut declared: std::collections::HashSet<String> = std::collections::HashSet::new();
     for a in accounts {
         let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
         if name.is_empty() {
@@ -1386,42 +1390,42 @@ fn compute_account_balances(accounts: &[Value], records: &[Record]) -> (Vec<Valu
         }
         let typ = a.get("type").and_then(|v| v.as_str()).unwrap_or("cash").to_string();
         bal.insert(name.clone(), a.get("opening_balance").and_then(|v| v.as_f64()).unwrap_or(0.0));
+        declared.insert(name.clone());
         order.push((name, typ));
     }
+    // Apply every transaction to its account, creating a bucket for any account
+    // a transaction references that ISN'T declared (renamed/deleted account) —
+    // so money is never silently dropped from net worth.
     for r in records {
         let t = normalize_txn(&r.data);
-        let acct = r.data.get("account").and_then(|v| v.as_str()).unwrap_or(DEFAULT_ACCOUNT);
+        let acct = r.data.get("account").and_then(|v| v.as_str()).unwrap_or(DEFAULT_ACCOUNT).to_string();
         match t.kind {
-            TxnKind::Income => {
-                if let Some(b) = bal.get_mut(acct) {
-                    *b += t.amount;
-                }
-            }
-            TxnKind::Expense => {
-                if let Some(b) = bal.get_mut(acct) {
-                    *b -= t.amount;
-                }
-            }
+            TxnKind::Income => *bal.entry(acct).or_insert(0.0) += t.amount,
+            TxnKind::Expense => *bal.entry(acct).or_insert(0.0) -= t.amount,
             TxnKind::Transfer => {
-                if let Some(b) = bal.get_mut(acct) {
-                    *b -= t.amount;
-                }
-                let to = r.data.get("to_account").and_then(|v| v.as_str()).unwrap_or("");
-                if let Some(b) = bal.get_mut(to) {
-                    *b += t.amount;
+                *bal.entry(acct).or_insert(0.0) -= t.amount;
+                let to = r.data.get("to_account").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if !to.is_empty() {
+                    *bal.entry(to).or_insert(0.0) += t.amount;
                 }
             }
         }
     }
     let mut net = 0.0;
-    let out: Vec<Value> = order
-        .iter()
-        .map(|(name, typ)| {
-            let b = *bal.get(name).unwrap_or(&0.0);
-            net += b;
-            json!({ "name": name, "type": typ, "balance": b })
-        })
-        .collect();
+    let mut out: Vec<Value> = Vec::new();
+    for (name, typ) in &order {
+        let b = *bal.get(name).unwrap_or(&0.0);
+        net += b;
+        out.push(json!({ "name": name, "type": typ, "balance": b }));
+    }
+    // Orphaned accounts (referenced by transactions but not declared) surface as
+    // "unlinked" rather than vanishing. Sorted for stable output.
+    let mut orphans: Vec<(&String, &f64)> = bal.iter().filter(|(n, _)| !declared.contains(*n)).collect();
+    orphans.sort_by(|a, b| a.0.cmp(b.0));
+    for (name, b) in orphans {
+        net += *b;
+        out.push(json!({ "name": name, "type": "unlinked", "balance": *b }));
+    }
     (out, net)
 }
 
@@ -1480,10 +1484,10 @@ fn days_in_month(year: i64, month: u32) -> u32 {
 /// A stable identity hash for import dedupe, over date + amount (2dp) + merchant
 /// (case-insensitive). `DefaultHasher::new()` uses fixed keys → deterministic
 /// across runs, which is all dedupe needs.
-fn import_hash(date: &str, amount: f64, merchant: &str) -> String {
+fn import_hash(date: &str, amount: f64, merchant: &str, account: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    format!("{date}|{amount:.2}|{}", merchant.to_lowercase()).hash(&mut h);
+    format!("{date}|{amount:.2}|{}|{}", merchant.to_lowercase(), account.to_lowercase()).hash(&mut h);
     format!("{:016x}", h.finish())
 }
 
@@ -1699,10 +1703,27 @@ mod tests {
     }
 
     #[test]
-    fn import_hash_stable_and_merchant_case_insensitive() {
-        let a = import_hash("2026-06-01", 12.5, "Cafe");
-        assert_eq!(a, import_hash("2026-06-01", 12.50, "CAFE")); // same row → same hash
-        assert_ne!(a, import_hash("2026-06-02", 12.5, "Cafe")); // different date → different
+    fn import_hash_stable_case_insensitive_and_account_scoped() {
+        let a = import_hash("2026-06-01", 12.5, "Cafe", "Checking");
+        assert_eq!(a, import_hash("2026-06-01", 12.50, "CAFE", "checking")); // same row → same hash
+        assert_ne!(a, import_hash("2026-06-02", 12.5, "Cafe", "Checking")); // different date
+        assert_ne!(a, import_hash("2026-06-01", 12.5, "Cafe", "Savings")); // same row, different account
+    }
+
+    #[test]
+    fn orphaned_account_money_is_not_lost() {
+        // A transaction on an account that is NOT declared (renamed/deleted) must
+        // still count toward net worth as an "unlinked" bucket.
+        let accounts = vec![json!({ "name": "Checking", "type": "checking", "opening_balance": 100 })];
+        let recs = vec![
+            Record { id: 1, data: json!({ "type": "expense", "amount": 30, "account": "Checking" }), created_at: 0 },
+            Record { id: 2, data: json!({ "type": "income", "amount": 50, "account": "OldCard" }), created_at: 0 },
+        ];
+        let (accts, net) = compute_account_balances(&accounts, &recs);
+        let unlinked = accts.iter().find(|a| a["name"] == "OldCard").unwrap();
+        assert_eq!(unlinked["type"], json!("unlinked"));
+        assert_eq!(unlinked["balance"], json!(50.0));
+        assert_eq!(net, 120.0); // 100 - 30 (Checking) + 50 (OldCard)
     }
 
     #[test]
