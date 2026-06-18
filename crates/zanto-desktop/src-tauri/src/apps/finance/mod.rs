@@ -492,6 +492,8 @@ fn default_widgets() -> Value {
     json!([
         { "kind": "kpi", "title": "Balance", "source": "balance" },
         { "kind": "kpi", "title": "This month", "source": "month_total" },
+        { "kind": "kpi", "title": "Income", "source": "income" },
+        { "kind": "kpi", "title": "Net", "source": "net_cash_flow" },
         { "kind": "chart", "title": "Spending — last 6 months", "source": "series" },
         { "kind": "table", "title": "Top categories", "source": "top_categories" },
     ])

@@ -10,6 +10,7 @@
         <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Date</th>
         <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Merchant</th>
         <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Category</th>
+        <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Type</th>
         <th scope="col" class="px-3 py-1.5 text-right font-medium text-muted-foreground">Amount</th>
       </tr>
     </thead>
@@ -19,12 +20,20 @@
           <td class="px-3 py-1.5 font-mono tabular-nums text-foreground">{r.date}</td>
           <td class="px-3 py-1.5 break-words text-foreground">{r.merchant}</td>
           <td class="px-3 py-1.5 text-muted-foreground">{r.category}</td>
-          <td class="px-3 py-1.5 text-right font-mono tabular-nums text-foreground">{r.amount}</td>
+          <td class="px-3 py-1.5 text-muted-foreground">{r.type ?? "expense"}</td>
+          <td
+            class={[
+              "px-3 py-1.5 text-right font-mono tabular-nums",
+              r.type === "income" ? "text-success" : "text-destructive",
+            ].join(" ")}
+          >
+            {r.type === "income" ? "+" : "−"}{r.amount}
+          </td>
         </tr>
       {/each}
       {#if rows.length === 0}
         <tr>
-          <td colspan="4" class="px-3 py-4 text-center text-muted-foreground"
+          <td colspan="5" class="px-3 py-4 text-center text-muted-foreground"
             >No transactions yet.</td
           >
         </tr>

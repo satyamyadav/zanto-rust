@@ -6,8 +6,23 @@
   import Chart from "$lib/blocks/Chart.svelte";
   import Onboarding from "./Onboarding.svelte";
   import ResourcesPanel from "./ResourcesPanel.svelte";
+  import TransactionsView from "./TransactionsView.svelte";
+  import CategoryRules from "./CategoryRules.svelte";
   import WidgetBuilder, { type Widget } from "./WidgetBuilder.svelte";
-  import { Plus, Receipt, Wallet, TrendingDown, FolderOpen, LayoutDashboard, Pencil } from "@lucide/svelte";
+  import { formatCurrency } from "./format";
+  import {
+    Plus,
+    Receipt,
+    Wallet,
+    TrendingDown,
+    TrendingUp,
+    Scale,
+    FolderOpen,
+    LayoutDashboard,
+    ListChecks,
+    AlertCircle,
+    Pencil,
+  } from "@lucide/svelte";
 
   type Category = { category: string; total: number };
   type Overview = {
@@ -15,6 +30,9 @@
     balance?: number;
     month?: string;
     month_total?: number;
+    income?: number;
+    net_cash_flow?: number;
+    uncategorized_count?: number;
     transaction_count?: number;
     top_categories?: Category[];
     series?: { labels: string[]; data: number[] };
@@ -36,10 +54,17 @@
   // Working copy while editing — committed only when the builder saves, so the
   // rendered dashboard never updates mid-edit. Cancel discards it.
   let draftWidgets = $state<Widget[]>([]);
-  // Top-level view: the dashboard or the F3 resources browser.
-  let tab = $state<"dashboard" | "resources">("dashboard");
+  // Top-level view: the dashboard, the editable transactions surface, or the F3
+  // resources browser.
+  let tab = $state<"dashboard" | "transactions" | "resources">("dashboard");
   // F4 edit toggle for the widget builder.
   let editing = $state(false);
+  // Currency ISO code from the profile, for currency-aware formatting.
+  let currency = $state<string | undefined>(undefined);
+  // Categories from the profile, passed to the transactions/rules editors.
+  let profileCategories = $state<string[]>([]);
+  // Filter the TransactionsView opens with (set when reviewing uncategorized).
+  let txFilter = $state<"all" | "uncategorized">("all");
 
   async function load() {
     overview = null;
@@ -52,8 +77,11 @@
       ]);
       overview = ov;
       widgets = (w?.widgets ?? []) as Widget[];
+      // Always fetch the profile so currency + categories are available.
+      const profile: Profile = await ipc.queryApp("finance", "profile");
+      currency = profile?.currency;
+      profileCategories = profile?.categories ?? [];
       if (overview?.empty) {
-        const profile: Profile = await ipc.queryApp("finance", "profile");
         needsOnboarding = !profile?.setup;
       } else {
         needsOnboarding = false;
@@ -89,13 +117,15 @@
   onMount(load);
 
   function money(v: number | undefined): string {
-    return (v ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return formatCurrency(v, currency);
   }
 
   // Resolve a widget's `source` against the overview data into a renderable shape.
   const KPI_ICON: Record<string, typeof Wallet> = {
     balance: Wallet,
     month_total: TrendingDown,
+    income: TrendingUp,
+    net_cash_flow: Scale,
     transaction_count: Receipt,
   };
 
@@ -182,6 +212,15 @@
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "transactions"}
+            class={tabClass(tab === "transactions")}
+            onclick={() => (tab = "transactions")}
+          >
+            <ListChecks class="size-4" /> Transactions
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "resources"}
             class={tabClass(tab === "resources")}
             onclick={() => (tab = "resources")}
@@ -201,9 +240,30 @@
 
       {#if tab === "resources"}
         <ResourcesPanel />
+      {:else if tab === "transactions"}
+        {#key txFilter}
+          <TransactionsView {currency} categories={profileCategories} initialFilter={txFilter} />
+        {/key}
       {:else}
+        {#if (overview.uncategorized_count ?? 0) > 0}
+          <button
+            type="button"
+            class="flex w-full items-center gap-2 rounded-md bg-accent px-3 py-2 text-left text-sm text-accent-foreground outline-none transition-colors hover:bg-accent/80 focus-visible:ring-2 focus-visible:ring-ring"
+            onclick={() => {
+              txFilter = "uncategorized";
+              tab = "transactions";
+            }}
+          >
+            <AlertCircle class="size-4 shrink-0" />
+            <span class="min-w-0 flex-1">
+              {overview.uncategorized_count} uncategorized transaction{(overview.uncategorized_count ?? 0) === 1 ? "" : "s"} — review
+            </span>
+          </button>
+        {/if}
+
         {#if editing}
           <WidgetBuilder bind:widgets={draftWidgets} onSaved={onWidgetsSaved} />
+          <CategoryRules categories={profileCategories} />
         {/if}
 
         {@const kpis = widgets.filter((w) => w.kind === "kpi")}

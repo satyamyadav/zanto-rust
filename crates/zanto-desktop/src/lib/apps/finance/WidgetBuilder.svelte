@@ -19,6 +19,8 @@
     kpi: [
       { value: "balance", label: "Balance" },
       { value: "month_total", label: "This month's spend" },
+      { value: "income", label: "Income (this month)" },
+      { value: "net_cash_flow", label: "Net cash flow" },
       { value: "transaction_count", label: "Transaction count" },
     ],
     chart: [{ value: "series", label: "6-month spend series" }],
