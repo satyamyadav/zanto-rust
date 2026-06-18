@@ -386,6 +386,14 @@ impl FinanceApp {
         let mom_prev = if n >= 2 { series[n - 2] } else { 0.0 };
         let mom_pct = if mom_prev > 0.0 { mom_delta / mom_prev } else { 0.0 };
 
+        // Rest-of-month run-rate forecast (v0.5): projected end-of-month net worth,
+        // using the 3 complete months before this one as the run-rate baseline.
+        let prev3 = &months[months.len().saturating_sub(4)..months.len().saturating_sub(1)];
+        let projected_net_worth = compute_forecast_data(&all, net_worth, &this_month, prev3)
+            .get("projected_net_worth")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(net_worth);
+
         Ok(json!({
             "empty": false,
             "balance": balance,
@@ -403,6 +411,7 @@ impl FinanceApp {
             "accounts": accounts,
             "net_worth": net_worth,
             "goal_status": goal_status,
+            "projected_net_worth": projected_net_worth,
             "series": { "labels": months, "data": series },
         }))
     }
@@ -568,6 +577,17 @@ impl FinanceApp {
         self.ensure_store(data)?;
         let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
         Ok(json!({ "items": detect_recurring(&all, &today()[..7]) }))
+    }
+
+    /// Rest-of-this-month cash-flow forecast (run-rate + 3-month averages).
+    fn compute_forecast(&self, data: &DataStore) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let (_, net_worth) = compute_account_balances(&self.accounts_vec(data), &all);
+        let this_month = today()[..7].to_string();
+        let months = last_n_months(&this_month, 4);
+        let prev: Vec<String> = months.iter().take(3).cloned().collect();
+        Ok(compute_forecast_data(&all, net_worth, &this_month, &prev))
     }
 
     /// Per-category 6-month expense trends + overall month-over-month change.
@@ -906,6 +926,7 @@ impl App for FinanceApp {
             "budgets" => self.get_budgets(data),
             "recurring" => self.compute_recurring(data),
             "trends" => self.compute_trends(data),
+            "forecast" => self.compute_forecast(data),
             "accounts" => self.get_accounts(data),
             "goals" => self.get_goals(data),
             "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
@@ -1228,6 +1249,59 @@ fn compute_trends_data(records: &[Record], months: &[String]) -> Value {
     json!({ "months": months, "categories": categories })
 }
 
+/// Rest-of-month run-rate forecast. `prev_months` are the complete months used
+/// for the average baseline. Projects this month's end net worth by adding only
+/// the *remaining* expected income/expense to the (month-to-date-inclusive) net
+/// worth. Expected = max(month-to-date, 3-month average).
+fn compute_forecast_data(records: &[Record], net_worth: f64, this_month: &str, prev_months: &[String]) -> Value {
+    let (mut mtd_exp, mut mtd_inc) = (0.0_f64, 0.0_f64);
+    let mut by_month_exp: HashMap<String, f64> = HashMap::new();
+    let mut by_month_inc: HashMap<String, f64> = HashMap::new();
+    for r in records {
+        let t = normalize_txn(&r.data);
+        if t.date.len() < 7 {
+            continue;
+        }
+        let m = t.date[..7].to_string();
+        match t.kind {
+            TxnKind::Expense => {
+                if m == this_month {
+                    mtd_exp += t.amount;
+                }
+                *by_month_exp.entry(m).or_insert(0.0) += t.amount;
+            }
+            TxnKind::Income => {
+                if m == this_month {
+                    mtd_inc += t.amount;
+                }
+                *by_month_inc.entry(m).or_insert(0.0) += t.amount;
+            }
+            TxnKind::Transfer => {}
+        }
+    }
+    let avg = |map: &HashMap<String, f64>| -> f64 {
+        if prev_months.is_empty() {
+            return 0.0;
+        }
+        let sum: f64 = prev_months.iter().map(|m| *map.get(m).unwrap_or(&0.0)).sum();
+        sum / prev_months.len() as f64
+    };
+    let avg_exp = avg(&by_month_exp);
+    let avg_inc = avg(&by_month_inc);
+    let expected_expense = mtd_exp.max(avg_exp);
+    let expected_income = mtd_inc.max(avg_inc);
+    let projected = net_worth + (expected_income - mtd_inc) - (expected_expense - mtd_exp);
+    json!({
+        "month": this_month,
+        "projected_net_worth": projected,
+        "expected_income": expected_income,
+        "expected_expense": expected_expense,
+        "avg_monthly_expense": avg_exp,
+        "month_to_date_income": mtd_inc,
+        "month_to_date_expense": mtd_exp,
+    })
+}
+
 /// Goal progress derived from the linked account's balance. Savings: current vs
 /// target; debt: amount still owed (a liability account's negative balance).
 fn compute_goal_status(goals: &[Value], accounts: &[Value]) -> Vec<Value> {
@@ -1482,6 +1556,23 @@ mod tests {
         assert_eq!(m["merchant"], json!("Details"));
         assert_eq!(m["debit"], json!("Debit"));
         assert_eq!(m["credit"], json!("Credit"));
+    }
+
+    #[test]
+    fn forecast_projects_from_run_rate() {
+        // 3 complete months at £1000 expense; £300 spent so far this month.
+        let recs = vec![
+            Record { id: 1, data: json!({ "type": "expense", "amount": 1000, "date": "2026-03-15" }), created_at: 0 },
+            Record { id: 2, data: json!({ "type": "expense", "amount": 1000, "date": "2026-04-15" }), created_at: 0 },
+            Record { id: 3, data: json!({ "type": "expense", "amount": 1000, "date": "2026-05-15" }), created_at: 0 },
+            Record { id: 4, data: json!({ "type": "expense", "amount": 300, "date": "2026-06-10" }), created_at: 0 },
+        ];
+        let prev = vec!["2026-03".to_string(), "2026-04".to_string(), "2026-05".to_string()];
+        let f = compute_forecast_data(&recs, 5000.0, "2026-06", &prev);
+        assert_eq!(f["avg_monthly_expense"], json!(1000.0));
+        assert_eq!(f["expected_expense"], json!(1000.0)); // max(300, 1000)
+        // 5000 + (0−0) − (1000−300) = 4300
+        assert_eq!(f["projected_net_worth"], json!(4300.0));
     }
 
     #[test]
