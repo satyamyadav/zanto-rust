@@ -22,6 +22,7 @@ pub enum DataError {
     NoDataDir,
     UnknownStore(String),
     InvalidName(String),
+    NotFound { store: String, id: i64 },
 }
 
 impl std::fmt::Display for DataError {
@@ -33,6 +34,7 @@ impl std::fmt::Display for DataError {
             Self::NoDataDir => write!(f, "could not resolve app data directory"),
             Self::UnknownStore(s) => write!(f, "unknown store: {s}"),
             Self::InvalidName(s) => write!(f, "invalid store name: {s}"),
+            Self::NotFound { store, id } => write!(f, "no record {id} in store {store}"),
         }
     }
 }
@@ -236,6 +238,51 @@ impl DataStore {
         }
         Ok(out)
     }
+
+    /// Replace a record's JSON by id. Errors `NotFound` if no row matched.
+    pub fn update(&self, store: &str, id: i64, record: &Value) -> Result<(), DataError> {
+        let conn = self.conn.lock().unwrap();
+        let table = resolve_table(&conn, &self.workspace, store)?;
+        let json = serde_json::to_string(record)?;
+        let n = conn.execute(
+            &format!("UPDATE {table} SET data = ?1 WHERE id = ?2"),
+            params![json, id],
+        )?;
+        if n == 0 {
+            return Err(DataError::NotFound { store: store.to_string(), id });
+        }
+        Ok(())
+    }
+
+    /// Delete a record by id. Ok even if it was already gone (idempotent).
+    pub fn delete(&self, store: &str, id: i64) -> Result<(), DataError> {
+        let conn = self.conn.lock().unwrap();
+        let table = resolve_table(&conn, &self.workspace, store)?;
+        conn.execute(&format!("DELETE FROM {table} WHERE id = ?1"), params![id])?;
+        Ok(())
+    }
+
+    /// Fetch one record by id.
+    pub fn get(&self, store: &str, id: i64) -> Result<Option<Record>, DataError> {
+        let conn = self.conn.lock().unwrap();
+        let table = resolve_table(&conn, &self.workspace, store)?;
+        let mut stmt =
+            conn.prepare(&format!("SELECT id, data, created_at FROM {table} WHERE id = ?1"))?;
+        let mut rows = stmt.query_map(params![id], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+        })?;
+        match rows.next() {
+            Some(row) => {
+                let (id, data_str, created_at) = row?;
+                Ok(Some(Record {
+                    id,
+                    data: serde_json::from_str(&data_str)?,
+                    created_at: created_at as u64,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 // ---- Helpers ----
@@ -324,6 +371,32 @@ mod tests {
         ds.create_store("transactions").unwrap();
         ds.create_store("transactions").unwrap(); // idempotent
         assert_eq!(ds.list_stores().unwrap(), vec!["transactions".to_string()]);
+    }
+
+    #[test]
+    fn update_replaces_and_get_reflects() {
+        let (ds, _dir) = store("/ws");
+        ds.create_store("t").unwrap();
+        let id = ds.insert("t", &json!({ "n": 1 })).unwrap();
+        ds.update("t", id, &json!({ "n": 2 })).unwrap();
+        assert_eq!(ds.get("t", id).unwrap().unwrap().data, json!({ "n": 2 }));
+    }
+
+    #[test]
+    fn delete_removes_record_idempotently() {
+        let (ds, _dir) = store("/ws");
+        ds.create_store("t").unwrap();
+        let id = ds.insert("t", &json!({ "n": 1 })).unwrap();
+        ds.delete("t", id).unwrap();
+        assert!(ds.get("t", id).unwrap().is_none());
+        ds.delete("t", id).unwrap(); // already gone → still Ok
+    }
+
+    #[test]
+    fn update_missing_id_is_not_found() {
+        let (ds, _dir) = store("/ws");
+        ds.create_store("t").unwrap();
+        assert!(matches!(ds.update("t", 999, &json!({})), Err(DataError::NotFound { .. })));
     }
 
     #[test]
