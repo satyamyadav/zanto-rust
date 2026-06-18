@@ -9,7 +9,17 @@ import { activeApp, appStore } from "$lib/stores/app.svelte";
 export type ChatSegment =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
-  | { kind: "tool_call"; id: string; name: string; args: any; output?: string; ok?: boolean }
+  | {
+      kind: "tool_call";
+      id: string;
+      name: string;
+      args: any;
+      output?: string;
+      ok?: boolean;
+      // True when this tool's result rendered as an inline block — its tool-call
+      // card is hidden by this flag, not by matching tool names (B5-1).
+      renders_as_block?: boolean;
+    }
   | { kind: "block"; block: ChatBlock }
   | { kind: "error"; message: string; retryText: string };
 
@@ -140,6 +150,16 @@ export function initStreaming() {
     }
     const idx = ensureLiveEntry();
     const segs = [...sessionStore.convo[idx].segments];
+    // An inline block is produced by the most recent in-flight tool call (the
+    // dispatch emits the block between the tool_call and its result). Flag that
+    // tool call so its card is hidden authoritatively (B5-1).
+    for (let k = segs.length - 1; k >= 0; k--) {
+      const s = segs[k];
+      if (s.kind === "tool_call") {
+        segs[k] = { ...s, renders_as_block: true };
+        break;
+      }
+    }
     segs.push({ kind: "block", block });
     setSegments(idx, segs);
   });
@@ -278,7 +298,7 @@ function toEntries(msgs: RenderMsg[]): ChatEntry[] {
             case "reasoning":
               return { kind: "reasoning", text: s.text };
             case "tool_call":
-              return { kind: "tool_call", id: s.id, name: s.name, args: s.args, output: s.output, ok: s.ok };
+              return { kind: "tool_call", id: s.id, name: s.name, args: s.args, output: s.output, ok: s.ok, renders_as_block: s.renders_as_block };
             case "block":
               return { kind: "block", block: s.block };
             default:

@@ -99,7 +99,7 @@ export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_conte
 export type PersistedSegment =
   | { kind: "text"; text: string }
   | { kind: "reasoning"; text: string }
-  | { kind: "tool_call"; id: string; name: string; args: any; output?: string; ok?: boolean }
+  | { kind: "tool_call"; id: string; name: string; args: any; output?: string; ok?: boolean; renders_as_block?: boolean }
   | { kind: "block"; block: ChatBlock };
 
 // `blocks` carries persisted component blocks for a past assistant message

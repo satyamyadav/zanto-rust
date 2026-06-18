@@ -17,20 +17,20 @@
 
   type ToolCallSegmentData = Extract<ChatSegment, { kind: "tool_call" }>;
 
-  // Artifact-system tool calls are internal: their result renders inline as a
-  // block (chart/render_artifact) or is pure plumbing (list/get/pin). We never
-  // show a tool-call card for them — the artifact reads like markdown/text.
-  const HIDDEN_TOOL_CALLS = new Set([
-    "chart",
-    "render_artifact",
-    "list_artifacts",
-    "get_artifact",
-    "pin_artifact",
-    // Finance view-rendering tools: their result is a rendered block, so the
-    // tool-call card is redundant (the artifact reads like markdown/text).
-    "monthly_summary",
-    "query_transactions",
-  ]);
+  // Pure-plumbing artifact reads: they produce no block and nothing the user needs
+  // to see, so their tool-call card is always hidden. Block-rendering tools
+  // (chart/render_artifact/finance views) are NOT listed here — they're hidden by
+  // the authoritative `renders_as_block` segment flag instead of by name (B5-1).
+  const PLUMBING_TOOL_CALLS = new Set(["list_artifacts", "get_artifact", "pin_artifact"]);
+
+  // A tool-call segment whose card should be hidden: it rendered a block, or it's
+  // internal plumbing.
+  function isHiddenToolCall(seg: ChatSegment): boolean {
+    return (
+      seg.kind === "tool_call" &&
+      (seg.renders_as_block === true || PLUMBING_TOOL_CALLS.has(seg.name))
+    );
+  }
 
   // Index of the LAST tool_call segment in document order (-1 if none). Text
   // BEFORE this index is the model's intermediate "working" narration (hoisted
@@ -61,7 +61,7 @@
     const segs = entry.segments.filter((seg, idx) => {
       if (seg.kind === "reasoning") return false;
       if (seg.kind === "text" && idx < lti) return false;
-      if (seg.kind === "tool_call" && HIDDEN_TOOL_CALLS.has(seg.name)) return false;
+      if (isHiddenToolCall(seg)) return false;
       return true;
     });
     let i = 0;
@@ -103,9 +103,7 @@
       .join("\n\n"),
   );
   const stepCount = $derived(
-    entry.segments.filter(
-      (s) => s.kind === "tool_call" && !HIDDEN_TOOL_CALLS.has(s.name),
-    ).length,
+    entry.segments.filter((s) => s.kind === "tool_call" && !isHiddenToolCall(s)).length,
   );
   // Show the block when the turn produced working text OR any tool call — so
   // tool turns and narrating turns get a persistent affordance, but a trivial

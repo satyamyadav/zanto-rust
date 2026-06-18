@@ -73,15 +73,46 @@ impl Catalogue {
     }
 }
 
+/// Upper bounds on chart input (review A4): a model can't push an unbounded
+/// series count or point count into the renderer.
+const CHART_MAX_SERIES: usize = 12;
+const CHART_MAX_POINTS: usize = 500;
+
+/// Truncate a JSON array value in place to at most `max` elements (non-arrays pass through).
+fn cap_array(v: Value, max: usize) -> Value {
+    match v {
+        Value::Array(mut a) => {
+            a.truncate(max);
+            Value::Array(a)
+        }
+        other => other,
+    }
+}
+
 /// Build the chart component's `data` object from the lenient `chart` tool args.
 /// Accepts either explicit `datasets` or a single-series `values` shortcut, so a
 /// weak model can render a chart in one call without learning the dataset shape.
+/// Series count and per-series point count are capped (A4).
 pub fn chart_data_from_args(args: &Value) -> Value {
     let chart_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("bar");
-    let labels = args.get("labels").cloned().unwrap_or_else(|| json!([]));
-    let datasets = match args.get("datasets") {
+    let labels = cap_array(args.get("labels").cloned().unwrap_or_else(|| json!([])), CHART_MAX_POINTS);
+    let datasets_raw = match args.get("datasets") {
         Some(ds) if ds.as_array().map(|a| !a.is_empty()).unwrap_or(false) => ds.clone(),
         _ => json!([{ "data": args.get("values").cloned().unwrap_or_else(|| json!([])) }]),
+    };
+    let datasets = match datasets_raw {
+        Value::Array(a) => Value::Array(
+            a.into_iter()
+                .take(CHART_MAX_SERIES)
+                .map(|mut d| {
+                    if let Some(pts) = d.get_mut("data") {
+                        *pts = cap_array(pts.take(), CHART_MAX_POINTS);
+                    }
+                    d
+                })
+                .collect(),
+        ),
+        other => other,
     };
     let mut data = json!({ "type": chart_type, "labels": labels, "datasets": datasets });
     if let Some(t) = args.get("title") {
@@ -348,5 +379,20 @@ mod tests {
         let data = chart_data_from_args(&args);
         assert_eq!(data["datasets"][0]["label"], json!("x"));
         Catalogue::load().validate("chart", &data).expect("explicit datasets chart must validate");
+    }
+
+    #[test]
+    fn chart_tool_caps_series_and_points() {
+        // Oversized input is truncated to the A4 bounds, not passed through whole.
+        let labels: Vec<i64> = (0..CHART_MAX_POINTS as i64 + 50).collect();
+        let pts: Vec<i64> = (0..CHART_MAX_POINTS as i64 + 50).collect();
+        let series: Vec<Value> = (0..CHART_MAX_SERIES + 5)
+            .map(|_| json!({ "data": pts }))
+            .collect();
+        let args = json!({ "type": "bar", "labels": labels, "datasets": series });
+        let data = chart_data_from_args(&args);
+        assert_eq!(data["labels"].as_array().unwrap().len(), CHART_MAX_POINTS);
+        assert_eq!(data["datasets"].as_array().unwrap().len(), CHART_MAX_SERIES);
+        assert_eq!(data["datasets"][0]["data"].as_array().unwrap().len(), CHART_MAX_POINTS);
     }
 }

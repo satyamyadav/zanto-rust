@@ -489,10 +489,19 @@ async fn route_tool_calls(
             flush_parallel(config, tools, store, session, &read_batch, display).await?;
             read_batch.clear();
             emit_tool_call(config, display, call).await;
-            let (resp_text, ok) = match &config.app_dispatch {
+            // `llm_text` is the tool result the MODEL sees (full data). `display_text`
+            // is what the UI/persistence stores: for a block-rendered tool it's a short
+            // reference, because the block segment already carries the data — storing it
+            // again in the tool-call output would persist + re-parse a second full copy
+            // (review A2 / B5-2).
+            let (llm_text, display_text, ok) = match &config.app_dispatch {
                 Some(disp) => match disp.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
-                    Some(Ok(AppResult::Data(v))) => (v.to_string(), true),
+                    Some(Ok(AppResult::Data(v))) => {
+                        let s = v.to_string();
+                        (s.clone(), s, true)
+                    }
                     Some(Ok(AppResult::Block { component_id, data, target })) => {
+                        let reference = format!("[rendered {component_id} block]");
                         let block = ChatBlock::Component { component_id, data: data.clone(), target };
                         if let Some(sink) = &config.sink {
                             sink.on_block(&block).await;
@@ -500,16 +509,28 @@ async fn route_tool_calls(
                         // Record the block segment in document order: after the
                         // tool_call, before its result fill — matching the live sink.
                         display.push_block(&block);
+                        // Flag the tool-call segment as block-rendering so the UI hides
+                        // its card authoritatively, by this flag — not by tool name (B5-1).
+                        display.mark_renders_as_block(&call.call_id);
                         blocks.push(block);
-                        (data.to_string(), true)
+                        (data.to_string(), reference, true)
                     }
-                    Some(Err(e)) => (format!("error: {e}"), false),
-                    None => (format!("error: unknown tool {}", call.fn_name), false),
+                    Some(Err(e)) => {
+                        let s = format!("error: {e}");
+                        (s.clone(), s, false)
+                    }
+                    None => {
+                        let s = format!("error: unknown tool {}", call.fn_name);
+                        (s.clone(), s, false)
+                    }
                 },
-                None => (format!("error: unknown tool {}", call.fn_name), false),
+                None => {
+                    let s = format!("error: unknown tool {}", call.fn_name);
+                    (s.clone(), s, false)
+                }
             };
-            emit_tool_result(config, display, &call.call_id, &resp_text, ok).await;
-            push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), resp_text))).await?;
+            emit_tool_result(config, display, &call.call_id, &display_text, ok).await;
+            push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), llm_text))).await?;
         }
     }
 
@@ -607,6 +628,22 @@ impl TurnDisplay {
                 if let Value::Object(obj) = seg {
                     obj.insert("output".into(), Value::String(output.to_string()));
                     obj.insert("ok".into(), Value::Bool(ok));
+                }
+                return;
+            }
+        }
+    }
+
+    /// Mark a tool-call segment (by id) as one whose result renders as a block, so
+    /// the UI hides its tool-call card by this authoritative flag rather than by
+    /// matching against a set of bare tool names (review A1 / B5-1).
+    fn mark_renders_as_block(&mut self, id: &str) {
+        for seg in self.segments.iter_mut().rev() {
+            if seg.get("kind").and_then(Value::as_str) == Some("tool_call")
+                && seg.get("id").and_then(Value::as_str) == Some(id)
+            {
+                if let Value::Object(obj) = seg {
+                    obj.insert("renders_as_block".into(), Value::Bool(true));
                 }
                 return;
             }
