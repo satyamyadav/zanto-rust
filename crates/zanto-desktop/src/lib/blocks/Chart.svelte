@@ -37,7 +37,10 @@
       tooltip: { theme: dark ? "dark" : "light" },
       grid: { borderColor: c.grid },
       dataLabels: { enabled: false },
-      title: d.title ? { text: d.title, style: { fontSize: "12px", fontWeight: 500, color: c.fore } } : undefined,
+      // ApexCharts reads `cnf.title.text` unconditionally — passing `undefined`
+      // for `title` throws "undefined is not an object". Always give a title
+      // object with (possibly empty) text.
+      title: { text: d.title ?? "", style: { fontSize: "12px", fontWeight: 500, color: c.fore } },
       noData: { text: "No data", style: { color: c.fore } },
     };
 
@@ -52,16 +55,27 @@
   }
 
   onMount(async () => {
-    const mod = await import("apexcharts");
-    const ApexCharts = mod.default;
-    chart = new ApexCharts(el, buildOptions(data));
-    await chart.render();
+    try {
+      const mod = await import("apexcharts");
+      const ApexCharts = mod.default;
+      chart = new ApexCharts(el, buildOptions(data));
+      await chart.render();
+    } catch (e) {
+      // A bad config must not become an unhandled rejection that breaks the page.
+      console.error("chart render failed", e);
+    }
   });
 
   // Re-render in place when the artifact data changes (e.g. streaming update).
+  // Guarded so a single bad update can't throw across the reactive boundary.
   $effect(() => {
     const opts = buildOptions(data);
-    if (chart) chart.updateOptions(opts, true, true);
+    if (!chart) return;
+    try {
+      chart.updateOptions(opts, true, true);
+    } catch (e) {
+      console.error("chart update failed", e);
+    }
   });
 
   onDestroy(() => chart?.destroy());
