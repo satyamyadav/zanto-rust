@@ -359,7 +359,13 @@ impl FinanceApp {
         }
 
         // Budget vs actual for this month (uses the per-category spend above).
-        let (budget_status, over_budget) = compute_budget_status(&self.budgets_vec(data), &by_cat);
+        // `f` = fraction of the month elapsed, for the run-rate pace warning.
+        let day_of_month: f64 = today().get(8..10).and_then(|s| s.parse().ok()).unwrap_or(1.0);
+        let year: i64 = this_month.get(..4).and_then(|s| s.parse().ok()).unwrap_or(2000);
+        let month_n: u32 = this_month.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(1);
+        let f = (day_of_month / days_in_month(year, month_n) as f64).clamp(0.0, 1.0);
+        let (budget_status, over_budget, pace_warnings) =
+            compute_budget_status(&self.budgets_vec(data), &by_cat, f);
 
         // Per-account balances + net worth (v0.4).
         let (accounts, net_worth) = compute_account_balances(&self.accounts_vec(data), &all);
@@ -412,6 +418,7 @@ impl FinanceApp {
             "net_worth": net_worth,
             "goal_status": goal_status,
             "projected_net_worth": projected_net_worth,
+            "pace_warnings": pace_warnings,
             "series": { "labels": months, "data": series },
         }))
     }
@@ -1409,12 +1416,19 @@ fn compute_account_balances(accounts: &[Value], records: &[Record]) -> (Vec<Valu
     (out, net)
 }
 
-/// Budget vs actual for the current month. Returns (budget_status, over_budget):
-/// `budget_status` is one row per budgeted category (spent defaults 0);
-/// `over_budget` is the subset where spent exceeds the limit.
-fn compute_budget_status(budgets: &[Value], spent_by_cat: &HashMap<String, f64>) -> (Vec<Value>, Vec<Value>) {
+/// Budget vs actual for the current month. `f` is the fraction of the month
+/// elapsed (day/days-in-month) used for a run-rate projection. Returns
+/// (budget_status, over_budget, pace_warnings): `budget_status` is one row per
+/// budgeted category (with `projected` + `on_track_to_exceed`); `over_budget` is
+/// already over; `pace_warnings` is projected-to-exceed but not yet over.
+fn compute_budget_status(
+    budgets: &[Value],
+    spent_by_cat: &HashMap<String, f64>,
+    f: f64,
+) -> (Vec<Value>, Vec<Value>, Vec<Value>) {
     let mut status = Vec::new();
     let mut over = Vec::new();
+    let mut pace = Vec::new();
     for b in budgets {
         let category = b.get("category").and_then(|v| v.as_str()).unwrap_or("");
         let limit = b.get("limit").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -1423,15 +1437,35 @@ fn compute_budget_status(budgets: &[Value], spent_by_cat: &HashMap<String, f64>)
         }
         let spent = *spent_by_cat.get(category).unwrap_or(&0.0);
         let is_over = spent > limit;
+        let projected = if f > 0.0 { spent / f } else { spent };
+        let on_track = !is_over && projected > limit;
         status.push(json!({
-            "category": category, "limit": limit, "spent": spent,
-            "pct": spent / limit, "over": is_over,
+            "category": category, "limit": limit, "spent": spent, "pct": spent / limit,
+            "over": is_over, "projected": projected, "on_track_to_exceed": on_track,
         }));
         if is_over {
             over.push(json!({ "category": category, "limit": limit, "spent": spent, "by": spent - limit }));
+        } else if on_track {
+            pace.push(json!({ "category": category, "limit": limit, "spent": spent, "projected": projected }));
         }
     }
-    (status, over)
+    (status, over, pace)
+}
+
+/// Days in a civil month (leap-year aware).
+fn days_in_month(year: i64, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 30,
+    }
 }
 
 /// A stable identity hash for import dedupe, over date + amount (2dp) + merchant
@@ -1619,16 +1653,28 @@ mod tests {
         let budgets = vec![json!({ "category": "dining", "limit": 200 })];
         let mut spent = HashMap::new();
         spent.insert("dining".to_string(), 240.0);
-        let (status, over) = compute_budget_status(&budgets, &spent);
+        let (status, over, _pace) = compute_budget_status(&budgets, &spent, 1.0);
         assert_eq!(status.len(), 1);
         assert_eq!(status[0]["over"], json!(true));
         assert_eq!(over.len(), 1);
         assert_eq!(over[0]["by"], json!(40.0));
 
         // A budgeted category with no spend → 0 spent, not over.
-        let (status2, over2) = compute_budget_status(&budgets, &HashMap::new());
+        let (status2, over2, _) = compute_budget_status(&budgets, &HashMap::new(), 1.0);
         assert_eq!(status2[0]["spent"], json!(0.0));
         assert!(over2.is_empty());
+    }
+
+    #[test]
+    fn pace_warning_when_on_track_to_exceed() {
+        let budgets = vec![json!({ "category": "dining", "limit": 200 })];
+        let mut spent = HashMap::new();
+        spent.insert("dining".to_string(), 160.0);
+        // 60% through the month: projected 160/0.6 ≈ 266 > 200, not yet over.
+        let (status, over, pace) = compute_budget_status(&budgets, &spent, 0.6);
+        assert!(over.is_empty());
+        assert_eq!(pace.len(), 1);
+        assert_eq!(status[0]["on_track_to_exceed"], json!(true));
     }
 
     #[test]
