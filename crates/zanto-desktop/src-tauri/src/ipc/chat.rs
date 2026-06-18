@@ -41,7 +41,10 @@ fn provider_is_multimodal(p: Provider) -> bool {
 const ARTIFACT_PROTOCOL: &str = "\
 To show the user any data UI — a table, chart, metric, list, key/values, or markdown \
 document — you MUST call the `render_artifact` tool. That tool call is the only thing \
-that displays an artifact; describing it in your reply shows the user nothing. Flow: \
+that displays an artifact; describing it in your reply shows the user nothing. \
+To show a chart specifically, call `chart({type, labels, values})` directly in ONE step — \
+do NOT use list_artifacts/get_artifact/render_artifact for charts. \
+Flow: \
 `list_artifacts` to see options, `get_artifact(id)` to read its dataSchema, then \
 `render_artifact({id, data, target})` with `data` matching that schema (target \
 \"inline\" for the chat, \"canvas\" for the side panel). If `render_artifact` returns a \

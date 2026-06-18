@@ -73,6 +73,23 @@ impl Catalogue {
     }
 }
 
+/// Build the chart component's `data` object from the lenient `chart` tool args.
+/// Accepts either explicit `datasets` or a single-series `values` shortcut, so a
+/// weak model can render a chart in one call without learning the dataset shape.
+pub fn chart_data_from_args(args: &Value) -> Value {
+    let chart_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("bar");
+    let labels = args.get("labels").cloned().unwrap_or_else(|| json!([]));
+    let datasets = match args.get("datasets") {
+        Some(ds) if ds.as_array().map(|a| !a.is_empty()).unwrap_or(false) => ds.clone(),
+        _ => json!([{ "data": args.get("values").cloned().unwrap_or_else(|| json!([])) }]),
+    };
+    let mut data = json!({ "type": chart_type, "labels": labels, "datasets": datasets });
+    if let Some(t) = args.get("title") {
+        data["title"] = t.clone();
+    }
+    data
+}
+
 /// Tool schemas shared by every app: the artifact tools + the `ask` HITL form tool.
 pub fn shared_tools() -> Vec<GenaiTool> {
     vec![
@@ -118,6 +135,29 @@ pub fn shared_tools() -> Vec<GenaiTool> {
                     "target": { "type": "string", "enum": ["inline", "canvas"] }
                 },
                 "required": ["id", "data"]
+            })),
+        GenaiTool::new("chart")
+            .with_description("Show a chart to the user, inline in the chat. Call this DIRECTLY with the data — do not call list_artifacts or get_artifact first, and do not announce a chart without calling this. For one series pass `values`; for multiple series pass `datasets`. `labels` are the category names (x-axis or slices).")
+            .with_schema(json!({
+                "type": "object",
+                "properties": {
+                    "type": { "type": "string", "enum": ["bar", "line", "pie", "doughnut"] },
+                    "title": { "type": "string" },
+                    "labels": { "type": "array", "items": { "type": "string" } },
+                    "values": { "type": "array", "items": { "type": "number" }, "description": "Single-series shortcut. Use this OR datasets, not both." },
+                    "datasets": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": { "type": "string" },
+                                "data": { "type": "array", "items": { "type": "number" } }
+                            },
+                            "required": ["data"]
+                        }
+                    }
+                },
+                "required": ["type", "labels"]
             })),
         GenaiTool::new("pin_artifact")
             .with_description("Persist a view+data artifact so the user can reopen it later from the Artifacts browser. Unlike render_artifact (which only shows it now and is not saved), pin_artifact saves the view and its data to the database. Call get_artifact(id) first to read its dataSchema, then call this with `data` matching that schema. For file documents (markdown/notes) use store_artifact instead. Pinning does not display anything — call render_artifact separately if you also want to show it now.")
@@ -247,6 +287,20 @@ impl AppDispatcher for SharedDispatcher {
                     Err(e) => Some(Err(format!("could not pin artifact: {e}"))),
                 }
             }
+            "chart" => {
+                let data = chart_data_from_args(&args);
+                match self.catalogue.validate("chart", &data) {
+                    Ok(()) => Some(Ok(AppResult::Block {
+                        component_id: "chart".to_string(),
+                        data,
+                        target: Target::Inline,
+                    })),
+                    Err(details) => Some(Ok(AppResult::Data(json!({
+                        "error": "chart data was invalid. Provide `type`, `labels`, and either `values` (one series) or `datasets`, then call chart again.",
+                        "details": details,
+                    })))),
+                }
+            }
             _ => self.app.dispatch_tool(&self.data, name, args),
         }
     }
@@ -277,5 +331,22 @@ mod tests {
             serde_json::from_str(r#"{ "id": "x", "description": "d", "data_schema": {} }"#)
                 .expect("parse def without storage");
         assert_eq!(def.storage, "view");
+    }
+
+    #[test]
+    fn chart_tool_normalizes_values_shortcut() {
+        let args = json!({ "type": "bar", "labels": ["Mon", "Tue"], "values": [120, 200], "title": "Weekly" });
+        let data = chart_data_from_args(&args);
+        assert_eq!(data["datasets"][0]["data"], json!([120, 200]));
+        assert_eq!(data["title"], json!("Weekly"));
+        Catalogue::load().validate("chart", &data).expect("normalized chart must validate");
+    }
+
+    #[test]
+    fn chart_tool_accepts_explicit_datasets() {
+        let args = json!({ "type": "line", "labels": ["a", "b"], "datasets": [{ "label": "x", "data": [3, 4] }] });
+        let data = chart_data_from_args(&args);
+        assert_eq!(data["datasets"][0]["label"], json!("x"));
+        Catalogue::load().validate("chart", &data).expect("explicit datasets chart must validate");
     }
 }
