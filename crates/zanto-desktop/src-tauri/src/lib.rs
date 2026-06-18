@@ -9,7 +9,7 @@ use tauri::Manager;
 use zanto_core::config::Settings;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
-use zanto_core::session::{ContextPolicy, Session, Store};
+use zanto_core::session::{Session, Store};
 use crate::app::AppRegistry;
 use crate::interaction::TauriInteractor;
 use crate::ipc::DesktopState;
@@ -49,11 +49,6 @@ pub fn run() {
                 .or_else(|| settings.endpoint.clone())
                 .filter(|e| !e.is_empty())
                 .unwrap_or_else(|| "http://192.168.1.66:11434/".to_string());
-            let policy = match settings.max_context_turns {
-                Some(n) => ContextPolicy::Summarize { keep_last: n },
-                None => ContextPolicy::default(),
-            };
-
             // One HITL interaction channel: powers permission approvals (Approver)
             // and agent `ask` forms. Shared by the permission guard and dispatcher.
             let interactor = TauriInteractor::new(app.handle().clone());
@@ -76,7 +71,6 @@ pub fn run() {
                 catalogue,
                 interactor,
                 session,
-                policy,
                 model: std::sync::Mutex::new(model),
                 endpoint: std::sync::Mutex::new(endpoint),
                 workspace: WORKSPACE.to_string(),

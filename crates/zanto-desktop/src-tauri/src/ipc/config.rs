@@ -115,7 +115,8 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
     }
 
     if let Some(t) = patch.max_context_turns {
-        settings.max_context_turns = Some(t);
+        // 0 means "off" — clear it so the default (no summarization) applies.
+        settings.max_context_turns = if t == 0 { None } else { Some(t) };
     }
 
     settings.save().map_err(|e| e.to_string())

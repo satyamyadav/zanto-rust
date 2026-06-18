@@ -9,6 +9,7 @@ use tauri_plugin_notification::NotificationExt;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn, ImageAttachment};
 use zanto_core::config::{Provider, Settings};
 use zanto_core::permissions::Op;
+use zanto_core::session::ContextPolicy;
 use crate::catalogue::{shared_tools, SharedDispatcher};
 use crate::interaction::TauriSink;
 use super::DesktopState;
@@ -208,7 +209,13 @@ pub async fn send_message(
     let sink = TauriSink::new(app.clone());
     config.sink = Some(Arc::new(sink.clone()));
 
-    let result = chat(config, &state.store, &mut session, &text, &state.policy).await;
+    // Read the context policy per-turn so changing `max_context_turns` in
+    // Settings takes effect without an app restart.
+    let policy = match Settings::load().max_context_turns {
+        Some(n) => ContextPolicy::Summarize { keep_last: n },
+        None => ContextPolicy::default(),
+    };
+    let result = chat(config, &state.store, &mut session, &text, &policy).await;
 
     // Clear the active cancel flag now the turn is done (success, stop, or error).
     *state.active_cancel.lock().unwrap() = None;

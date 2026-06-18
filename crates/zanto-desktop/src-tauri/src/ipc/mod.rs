@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 use zanto_core::config::ContextSource;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
-use zanto_core::session::{ContextPolicy, Session, Store};
+use zanto_core::session::{Session, Store};
 use crate::app::AppRegistry;
 use crate::catalogue::Catalogue;
 use crate::interaction::TauriInteractor;
@@ -30,7 +30,6 @@ pub struct DesktopState {
     pub catalogue: Arc<Catalogue>,
     pub interactor: TauriInteractor,
     pub session: Mutex<Session>,
-    pub policy: ContextPolicy,
     /// Runtime-mutable so Settings can change them live.
     pub model: StdMutex<String>,
     pub endpoint: StdMutex<String>,

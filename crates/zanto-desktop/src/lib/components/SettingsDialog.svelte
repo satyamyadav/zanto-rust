@@ -18,6 +18,10 @@
   let skills = $state<SkillDto[]>([]);
   let activeSkill = $state(NO_SKILL);
 
+  // Turns kept verbatim before older ones are LLM-summarized into context.
+  // 0 = off (default truncation, no summarization). Applies on the next turn.
+  let contextTurns = $state(0);
+
   let activeProvider = $state("");
   let providers = $state<ProviderPatch[]>([]);
   let keyInput = $state("");
@@ -38,9 +42,20 @@
       }));
       resetKeyState();
       activeSkill = appStore.config.selected_skill ?? NO_SKILL;
+      contextTurns = appStore.config.max_context_turns ?? 0;
       loadSkills();
     }
   });
+
+  async function saveContext() {
+    try {
+      await ipc.setConfig({ max_context_turns: Math.max(0, Math.floor(contextTurns || 0)) });
+      await refreshConfig();
+      toast.success(contextTurns > 0 ? `Summarizing beyond ${contextTurns} turns` : "Summarization off");
+    } catch (e) {
+      toast.error("Could not save context settings", { description: `${e}` });
+    }
+  }
 
   async function loadSkills() {
     try {
@@ -328,6 +343,31 @@
           <FolderPlusIcon class="size-3.5" />
           Add folder…
         </Button>
+      </section>
+
+      <!-- Context -->
+      <section class="space-y-3">
+        <h3 class="font-display text-sm font-semibold tracking-tight">Context</h3>
+        <div class="space-y-1.5">
+          <label class="text-xs text-muted-foreground" for="cfg-context-turns">
+            Summarize beyond (turns)
+          </label>
+          <div class="flex items-center gap-2">
+            <Input
+              id="cfg-context-turns"
+              type="number"
+              min="0"
+              step="1"
+              bind:value={contextTurns}
+              class="w-28 font-mono focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <Button size="sm" onclick={saveContext}>Save</Button>
+          </div>
+          <p class="text-xs text-muted-foreground">
+            Keep the last N turns verbatim and LLM-summarize older ones into context.
+            <span class="font-medium">0 = off</span> (default: keep the last 20, no summary). Applies on your next message.
+          </p>
+        </div>
       </section>
 
       <!-- Skill -->
