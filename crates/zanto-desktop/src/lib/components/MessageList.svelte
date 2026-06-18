@@ -93,7 +93,10 @@
             </div>
           {/if}
         {/each}
-        {#if sessionStore.busy && !sessionStore.streaming}
+        <!-- Dots are a pre-content placeholder ONLY: shown while busy until the
+             live assistant turn has any segment. Once it does, the hoisted
+             ThinkingBlock takes over (so the two never show at once). -->
+        {#if sessionStore.busy && !(sessionStore.convo.at(-1)?.role === "assistant" && (sessionStore.convo.at(-1)?.segments.length ?? 0) > 0)}
           <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
             <span class="inline-flex gap-1">
               <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]"></span>

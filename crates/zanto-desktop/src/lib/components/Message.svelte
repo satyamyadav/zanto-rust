@@ -16,26 +16,22 @@
   let { entry, isLast = false }: { entry: ChatEntry; isLast?: boolean } = $props();
 
   type ToolCallSegmentData = Extract<ChatSegment, { kind: "tool_call" }>;
-  // A rendered item is one of: a reasoning run (its own collapsible ThinkingBlock),
-  // a workflow run (≥2 consecutive tool_calls → WorkflowGroup), or a single
-  // segment. Walk segments in document order, coalescing maximal runs of
-  // consecutive tool_call segments. Everything renders INLINE in order — the only
-  // collapsible is the reasoning ThinkingBlock; tool calls / workflows / blocks /
-  // text appear where they happened.
+  // A rendered item is one of: a workflow run (≥2 consecutive tool_calls →
+  // WorkflowGroup) or a single segment. Reasoning is NOT an inline item — it is
+  // hoisted into ONE persistent ThinkingBlock at the top of the turn (below).
+  // Walk the non-reasoning segments in document order, coalescing maximal runs of
+  // consecutive tool_call segments. Tool calls / workflows / blocks / text appear
+  // inline, interleaved, where they happened.
   type RenderItem =
-    | { kind: "reasoning"; seg: Extract<ChatSegment, { kind: "reasoning" }> }
     | { kind: "workflow"; steps: ToolCallSegmentData[] }
     | { kind: "single"; seg: ChatSegment };
   const items = $derived.by<RenderItem[]>(() => {
     const out: RenderItem[] = [];
-    const segs = entry.segments;
+    const segs = entry.segments.filter((s) => s.kind !== "reasoning");
     let i = 0;
     while (i < segs.length) {
       const seg = segs[i];
-      if (seg.kind === "reasoning") {
-        out.push({ kind: "reasoning", seg });
-        i++;
-      } else if (seg.kind === "tool_call") {
+      if (seg.kind === "tool_call") {
         let j = i;
         while (j < segs.length && segs[j].kind === "tool_call") j++;
         const run = segs.slice(i, j) as ToolCallSegmentData[];
@@ -50,15 +46,23 @@
     return out;
   });
 
-  // The turn is live (streaming) only for the trailing assistant entry.
-  const live = $derived(isLast && entry.role === "assistant" && sessionStore.streaming);
+  // The turn is live for the whole run (reasoning → tools → text) — driven by
+  // `busy`, not just `streaming`, so the hoisted block stays live across tool
+  // gaps and doesn't vanish the instant the first text chunk arrives.
+  const live = $derived(isLast && entry.role === "assistant" && sessionStore.busy);
 
-  // Index of the last reasoning item — the only one that may animate, and only
-  // while the turn is still streaming with no later output trailing it.
-  const lastReasoningIdx = $derived.by(() => {
-    for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === "reasoning") return i;
-    return -1;
-  });
+  // Hoisted "thinking/working" block inputs. The block shows when the turn did any
+  // reasoning OR any tool call — so tool turns and reasoning turns get a
+  // persistent affordance, but a trivial pure-text turn does not.
+  const reasoningText = $derived(
+    entry.segments
+      .filter((s) => s.kind === "reasoning")
+      .map((s) => s.text)
+      .join("\n\n"),
+  );
+  const hasReasoning = $derived(entry.segments.some((s) => s.kind === "reasoning"));
+  const stepCount = $derived(entry.segments.filter((s) => s.kind === "tool_call").length);
+  const showThinking = $derived(entry.role === "assistant" && (hasReasoning || stepCount > 0));
 
   // Concatenated plain text of the message's text/markdown segments.
   const copyText = $derived(
@@ -145,12 +149,8 @@
 
 </script>
 
-{#snippet renderItem(item: RenderItem, idx: number)}
-  {#if item.kind === "reasoning"}
-    <!-- Reasoning gets its own collapsible "Thinking" block. Only the trailing
-         reasoning of a still-streaming turn animates. -->
-    <ThinkingBlock text={item.seg.text} live={live && idx === lastReasoningIdx} />
-  {:else if item.kind === "workflow"}
+{#snippet renderItem(item: RenderItem)}
+  {#if item.kind === "workflow"}
     <WorkflowGroup steps={item.steps} />
   {:else if item.seg.kind === "text"}
     <TextSegment text={item.seg.text} />
@@ -164,8 +164,14 @@
 {/snippet}
 
 {#snippet assistantBody()}
+  <!-- ONE persistent thinking/working block, hoisted above the inline items.
+       Live across the whole turn (busy); collapses to a "Thought…" summary when
+       done — it is never removed, so it doesn't vanish on the first chunk. -->
+  {#if showThinking}
+    <ThinkingBlock reasoning={reasoningText} {stepCount} {live} />
+  {/if}
   {#each items as item, i (i)}
-    {@render renderItem(item, i)}
+    {@render renderItem(item)}
   {/each}
 {/snippet}
 
@@ -175,7 +181,7 @@
       class="flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm"
     >
       {#each items as item, i (i)}
-        {@render renderItem(item, i)}
+        {@render renderItem(item)}
       {/each}
     </div>
   </div>
