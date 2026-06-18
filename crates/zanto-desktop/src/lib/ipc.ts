@@ -182,6 +182,8 @@ export const ipc = {
   notify: (title: string, body: string) => invoke<void>("notify", { title, body }),
   financeParseStatement: (path: string) =>
     invoke<any>("finance_parse_statement", { path }),
+  financeImportStatement: (path: string, mapping: Record<string, string>, account: string) =>
+    invoke<any>("finance_import_statement", { path, mapping, account }),
   // Sessions (scoped to the active app)
   listSessions: () => invoke<SessionMeta[]>("list_sessions"),
   listSessionsPage: (offset: number, limit: number) =>

@@ -23,7 +23,6 @@
     columns: string[];
     headers: string[];
     preview: string[][];
-    rows: string[][];
     row_count: number;
     suggested_mapping: {
       date?: string;
@@ -170,12 +169,9 @@
     }
     importing = true;
     try {
-      const res = (await ipc.runAppAction("finance", "import_transactions", {
-        headers: parsed.headers,
-        rows: parsed.rows,
-        mapping,
-        account,
-      })) as ImportResult;
+      // Server re-reads the permission-checked path and parses it itself — the
+      // rows never round-trip through the client.
+      const res = (await ipc.financeImportStatement(path.trim(), mapping, account)) as ImportResult;
       result = res;
       showErrors = false;
       stage = "result";
@@ -354,9 +350,12 @@
         </div>
       </div>
 
-      <Button onclick={runImport} disabled={importing}>
+      <Button onclick={runImport} disabled={importing || !account}>
         <FileUp /> {importing ? "Importing…" : `Import ${parsed.row_count} rows`}
       </Button>
+      {#if !account}
+        <p class="text-xs text-muted-foreground">Create an account first (Edit → Accounts) to import into.</p>
+      {/if}
     </div>
   {:else if stage === "result" && result}
     <div class="space-y-3">
