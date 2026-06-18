@@ -8,6 +8,8 @@
   import ResourcesPanel from "./ResourcesPanel.svelte";
   import TransactionsView from "./TransactionsView.svelte";
   import CategoryRules from "./CategoryRules.svelte";
+  import Budgets from "./Budgets.svelte";
+  import BudgetBars from "./BudgetBars.svelte";
   import WidgetBuilder, { type Widget } from "./WidgetBuilder.svelte";
   import { formatCurrency } from "./format";
   import {
@@ -21,10 +23,19 @@
     LayoutDashboard,
     ListChecks,
     AlertCircle,
+    AlertTriangle,
     Pencil,
   } from "@lucide/svelte";
 
   type Category = { category: string; total: number };
+  type BudgetStatus = {
+    category: string;
+    limit: number;
+    spent: number;
+    pct: number;
+    over: boolean;
+  };
+  type OverBudget = { category: string; limit: number; spent: number; by: number };
   type Overview = {
     empty: boolean;
     balance?: number;
@@ -36,6 +47,10 @@
     transaction_count?: number;
     top_categories?: Category[];
     series?: { labels: string[]; data: number[] };
+    budget_status?: BudgetStatus[];
+    over_budget?: OverBudget[];
+    mom_delta?: number;
+    mom_pct?: number;
   };
   type Profile = {
     setup: boolean;
@@ -115,6 +130,43 @@
   }
 
   onMount(load);
+
+  // Over-budget categories drive the in-app banner and native nudges.
+  const overBudget = $derived<OverBudget[]>(overview?.over_budget ?? []);
+
+  // Summarise the banner text: up to 2 categories, then "+N more".
+  const overBudgetText = $derived.by(() => {
+    const list = overBudget;
+    if (!list.length) return "";
+    const shown = list.slice(0, 2).map((o) => `${o.category} by ${money(o.by)}`);
+    const rest = list.length - shown.length;
+    let text = `Over budget in ${shown.join(", ")}`;
+    if (rest > 0) text += ` +${rest} more`;
+    return text;
+  });
+
+  // Fire a native notification once per month per over-budget category. Deduped
+  // via localStorage so reopening the app doesn't re-nudge. Runs only when
+  // overview data has arrived (not during SSR).
+  $effect(() => {
+    if (!overview) return;
+    const month = overview.month;
+    const list = overview.over_budget ?? [];
+    if (!month || !list.length) return;
+    for (const o of list) {
+      const key = `zanto.finance.overbudget.${month}.${o.category}`;
+      try {
+        if (localStorage.getItem(key)) continue;
+        ipc.notify(
+          "Over budget",
+          `${o.category} is ${money(o.by)} over your ${money(o.limit)} limit`,
+        );
+        localStorage.setItem(key, "1");
+      } catch {
+        /* localStorage / notify unavailable — skip silently */
+      }
+    }
+  });
 
   function money(v: number | undefined): string {
     return formatCurrency(v, currency);
@@ -245,6 +297,15 @@
           <TransactionsView {currency} categories={profileCategories} initialFilter={txFilter} />
         {/key}
       {:else}
+        {#if overBudget.length}
+          <div
+            class="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          >
+            <AlertTriangle class="size-4 shrink-0" />
+            <span class="min-w-0 flex-1">{overBudgetText}</span>
+          </div>
+        {/if}
+
         {#if (overview.uncategorized_count ?? 0) > 0}
           <button
             type="button"
@@ -263,6 +324,7 @@
 
         {#if editing}
           <WidgetBuilder bind:widgets={draftWidgets} onSaved={onWidgetsSaved} />
+          <Budgets categories={profileCategories} onSaved={load} />
           <CategoryRules categories={profileCategories} />
         {/if}
 
@@ -280,6 +342,13 @@
                 </div>
               </div>
             {/each}
+          </div>
+        {/if}
+
+        {#if (overview.budget_status ?? []).length}
+          <div class="rounded-lg border border-border bg-card p-3">
+            <div class="mb-3 text-sm font-medium">Budget vs actual ({overview.month})</div>
+            <BudgetBars status={overview.budget_status ?? []} {currency} />
           </div>
         {/if}
 
