@@ -13,6 +13,7 @@ use crate::app::{App, AppManifest, ComponentDecl, StartAction};
 const STORE: &str = "transactions";
 const PROFILE_STORE: &str = "finance_profile";
 const WIDGETS_STORE: &str = "finance_widgets";
+const RULES_STORE: &str = "finance_category_rules";
 
 /// Default expense categories seeded when a profile omits them.
 const DEFAULT_CATEGORIES: &[&str] =
@@ -28,7 +29,12 @@ impl FinanceApp {
             id: "finance".to_string(),
             name: "Personal Finance".to_string(),
             description: "Track expenses and view spending summaries.".to_string(),
-            stores: vec![STORE.to_string(), PROFILE_STORE.to_string(), WIDGETS_STORE.to_string()],
+            stores: vec![
+                STORE.to_string(),
+                PROFILE_STORE.to_string(),
+                WIDGETS_STORE.to_string(),
+                RULES_STORE.to_string(),
+            ],
             components: vec![
                 ComponentDecl {
                     id: "transactions_table".to_string(),
@@ -87,7 +93,9 @@ impl FinanceApp {
         let kind = txn_kind_str(args.get("type"));
         let amount = coerce_amount(args.get("amount")).abs();
         let merchant = args.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("uncategorized").to_string();
+        // Enforce categories: keep a requested category only if it's in the
+        // profile; else try merchant rules; else "uncategorized" (review queue).
+        let category = self.resolve_category(data, &merchant, args.get("category").and_then(|v| v.as_str()));
         let note = args.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let date = args
             .get("date")
@@ -116,19 +124,29 @@ impl FinanceApp {
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("no transaction with id {id}"))?
             .data;
-        let obj = rec
-            .as_object_mut()
-            .ok_or_else(|| "transaction record is not an object".to_string())?;
-        if args.get("type").is_some() {
-            obj.insert("type".into(), json!(txn_kind_str(args.get("type"))));
-        }
-        if args.get("amount").is_some() {
-            obj.insert("amount".into(), json!(coerce_amount(args.get("amount")).abs()));
-        }
-        for field in ["merchant", "category", "date", "note"] {
-            if let Some(s) = args.get(field).and_then(|v| v.as_str()) {
-                obj.insert(field.into(), json!(s));
+        {
+            let obj = rec
+                .as_object_mut()
+                .ok_or_else(|| "transaction record is not an object".to_string())?;
+            if args.get("type").is_some() {
+                obj.insert("type".into(), json!(txn_kind_str(args.get("type"))));
             }
+            if args.get("amount").is_some() {
+                obj.insert("amount".into(), json!(coerce_amount(args.get("amount")).abs()));
+            }
+            for field in ["merchant", "category", "date", "note"] {
+                if let Some(s) = args.get(field).and_then(|v| v.as_str()) {
+                    obj.insert(field.into(), json!(s));
+                }
+            }
+        }
+        // Re-resolve the category when merchant or category changed, so edits go
+        // through the same enforcement as adds.
+        if args.get("category").is_some() || args.get("merchant").is_some() {
+            let merchant = rec.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let requested = rec.get("category").and_then(|v| v.as_str()).map(str::to_string);
+            let resolved = self.resolve_category(data, &merchant, requested.as_deref());
+            rec["category"] = json!(resolved);
         }
         data.update(STORE, id, &rec).map_err(|e| e.to_string())?;
         Ok(json!({ "status": "updated", "id": id, "record": rec }))
@@ -142,6 +160,72 @@ impl FinanceApp {
             .and_then(|v| v.as_i64())
             .ok_or_else(|| "delete_transaction requires an integer `id`".to_string())?;
         data.delete(STORE, id).map_err(|e| e.to_string())?;
+        Ok(json!({ "status": "deleted", "id": id }))
+    }
+
+    // ---- category enforcement + rules (v0.2) ----
+
+    /// The profile's category list, or the defaults when none/empty — so category
+    /// enforcement still works before onboarding.
+    fn profile_categories(&self, data: &DataStore) -> Vec<String> {
+        let cats: Vec<String> = self
+            .get_profile(data)
+            .ok()
+            .and_then(|p| p.get("categories").cloned())
+            .and_then(|c| c.as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()))
+            .unwrap_or_default();
+        if cats.is_empty() {
+            DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect()
+        } else {
+            cats
+        }
+    }
+
+    /// All saved merchant→category rules, each carrying its `id`.
+    fn get_category_rules(&self, data: &DataStore) -> Result<Vec<Value>, String> {
+        data.create_store(RULES_STORE).map_err(|e| e.to_string())?;
+        let rows = data.query(RULES_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let mut o = r.data;
+                o["id"] = json!(r.id);
+                o
+            })
+            .collect())
+    }
+
+    /// Resolve a category: a requested one that's in the profile wins; else a
+    /// matching merchant rule; else "uncategorized".
+    fn resolve_category(&self, data: &DataStore, merchant: &str, requested: Option<&str>) -> String {
+        let cats = self.profile_categories(data);
+        let rules = self.get_category_rules(data).unwrap_or_default();
+        resolve_category_pure(merchant, requested, &cats, &rules)
+    }
+
+    fn do_save_category_rule(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        data.create_store(RULES_STORE).map_err(|e| e.to_string())?;
+        let merchant_contains = args
+            .get("merchant_contains")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_lowercase();
+        let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        if merchant_contains.is_empty() || category.is_empty() {
+            return Err("a rule needs a non-empty merchant_contains and category".to_string());
+        }
+        let record = json!({ "merchant_contains": merchant_contains, "category": category });
+        let id = data.insert(RULES_STORE, &record).map_err(|e| e.to_string())?;
+        Ok(json!({ "status": "saved", "id": id, "record": record }))
+    }
+
+    fn do_delete_category_rule(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        let id = args
+            .get("id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| "delete_category_rule requires an integer `id`".to_string())?;
+        data.delete(RULES_STORE, id).map_err(|e| e.to_string())?;
         Ok(json!({ "status": "deleted", "id": id }))
     }
 
@@ -504,6 +588,7 @@ impl App for FinanceApp {
             "overview" => self.compute_overview(data),
             "profile" => self.get_profile(data),
             "widgets" => self.get_widgets(data),
+            "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
             other => Err(format!("unknown query: {other}")),
         }
     }
@@ -515,6 +600,8 @@ impl App for FinanceApp {
             "delete_transaction" => self.do_delete_transaction(data, args),
             "save_profile" => self.do_save_profile(data, args),
             "save_widgets" => self.do_save_widgets(data, args),
+            "save_category_rule" => self.do_save_category_rule(data, args),
+            "delete_category_rule" => self.do_delete_category_rule(data, args),
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -591,6 +678,32 @@ fn normalize_txn(v: &Value) -> Txn {
     Txn { kind, amount: coerce_amount(v.get("amount")).abs(), category, date }
 }
 
+/// Pure category resolution (no DataStore): a requested category that's in the
+/// profile list wins (normalized to the profile's casing); else the first
+/// merchant rule whose `merchant_contains` is a case-insensitive substring of the
+/// merchant; else "uncategorized".
+fn resolve_category_pure(
+    merchant: &str,
+    requested: Option<&str>,
+    cats: &[String],
+    rules: &[Value],
+) -> String {
+    if let Some(req) = requested.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(found) = cats.iter().find(|c| c.eq_ignore_ascii_case(req)) {
+            return found.clone();
+        }
+    }
+    let ml = merchant.to_lowercase();
+    for rule in rules {
+        let sub = rule.get("merchant_contains").and_then(|v| v.as_str()).unwrap_or("");
+        let cat = rule.get("category").and_then(|v| v.as_str()).unwrap_or("");
+        if !sub.is_empty() && !cat.is_empty() && ml.contains(&sub.to_lowercase()) {
+            return cat.to_string();
+        }
+    }
+    "uncategorized".to_string()
+}
+
 /// Lifetime balance = sum(income) − sum(expense) over normalized records.
 fn lifetime_balance(records: &[Record]) -> f64 {
     records
@@ -629,6 +742,18 @@ mod tests {
         let legacy = normalize_txn(&json!({ "amount": 5, "date": "2026-06-01" }));
         assert_eq!(legacy.kind, TxnKind::Expense);
         assert_eq!(legacy.category, "uncategorized");
+    }
+
+    #[test]
+    fn resolve_category_prefers_profile_then_rules_then_uncategorized() {
+        let cats = vec!["dining".to_string(), "transport".to_string()];
+        let rules = vec![json!({ "merchant_contains": "starbucks", "category": "dining" })];
+        // requested category in the profile (case-insensitive) → profile casing
+        assert_eq!(resolve_category_pure("x", Some("Dining"), &cats, &rules), "dining");
+        // merchant matches a rule
+        assert_eq!(resolve_category_pure("STARBUCKS #5", None, &cats, &rules), "dining");
+        // requested not in profile + no rule → uncategorized
+        assert_eq!(resolve_category_pure("Acme", Some("foobar"), &cats, &rules), "uncategorized");
     }
 
     #[test]
