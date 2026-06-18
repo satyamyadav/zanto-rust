@@ -1,0 +1,209 @@
+Area,ID,Feature / Workflow,How to test,Expected,Status,Severity,Notes,Model used
+Setup,S1,Launch app,cd crates/zanto-desktop && pnpm dev,"Window opens, lands in Chat",pass,,,
+Setup,S2,Pick provider + key,"Settings -> set provider (Gemini/Claude/OpenAI) + API key, or use Ollama",Key saved (keychain); next turn uses chosen model,pass,,,
+Window,W-1,Window state persistence,"Resize/move window, quit, relaunch",Reopens at same size + position,pass,,,
+Window,W-2,Single instance,Launch the app a second time,"Existing window is focused, no 2nd window",pass,,,
+Window,W-3,Notification on turn done,"Start a long turn, switch to another app",Native notification 'Reply ready' when done; none when focused,pass,,,
+Window,W-4,Notification on approval,Trigger a gated action while window unfocused,'zanto needs your input' notification fires,pass,,,
+Design,D-1,Light/dark + density,Settings -> Appearance,Theme + density change; violet accent,pass,,,
+Design,D-2,Typography,Look at headings / tool names / code,Display font headings; monospace for tools/paths/JSON,pass,,,
+Chat,C-1,Streaming,Send any message,Tokens stream in live,pass,,,
+Chat,C-2,Stop mid-turn,"Send a long question, click Stop while streaming",Stops; partial kept; 'Stopped' marker shown,verify,,"Round-trip persists segments+stopped flag (verified in code); known edge: a stop with ZERO produced segments writes no message so no marker. RETEST. ORIG: Stop marker was added but coming back to old session it disappeared",Qwen2.5:7b
+Chat,C-3,Queue while busy,Type + Enter while a turn is running,Pending bubble; auto-sent FIFO after turn ends,pass,,,
+Chat,C-4,Thinking block,Ask something that uses a tool,'Working... running <tool>' header; collapses to 'Thought for N steps'; expandable,fixed-retest,,"FIXED 2026-06-18: thinking is one hoisted block per run; tool calls render inline; artifact-rendering tool calls now hidden (render like markdown); reasoning/tool_call/block/stopped all persist+restore in metadata (verified in code). RETEST reopening an old session in pnpm dev. ORIG: thinkling and tool call should not be merged in stead thinking is one block for complete run and tool call should be inline at the place it was used, like in between text responses or artifacts, same for artifacts also. Also thinking block and the tool calls are not perstent in session, so opening back old session not showing it. ",
+Chat,C-5,Workflow grouping,Ask something needing several tool calls,Multiple tools grouped as 'Workflow (N steps)',fixed-retest,,related to c-4 (workflow grouping unchanged; retest),
+Chat,C-6,Copy,"Hover a reply / a code block, click copy",Copies message / code; 'Copied' feedback,pass,,,
+Chat,C-7,Paste expander,Paste a very large block into composer,Collapses to a pasted-N-lines chip; full text still sent,partial,,"it is working perfect in the comoser but it should also be a sub view in chat user message bubble, with expanded and editable view ( this can be a v2 or p2 feature) current one is working fine.",
+Chat,C-8,@-tag,Type @ in composer,File picker autocomplete; inserts @path,pass,,"Chat - quick actions
+what is in @/home/lazy/Documents/orbit-test/src/utils.py
+Thought for 1 step1 step
+The file�/home/lazy/Documents/orbit-test/src/utils.py�contains the following Python code:
+import os
+import json
+def load_config(path: str) -> dict:
+    with open(path) as f:
+        return json.load(f)
+def list_files(directory: str):
+    return [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+Copy
+This script defines two functions:
+load_config: Loads a JSON configuration file into a dictionary.
+list_files: Lists files in the specified directory.
+Would you like to inspect or modify any part of this code?
+Copy
+how about @/home/lazy/Documents/orbit-test/foo.txt
+Thought for 1 step1 step
+read_filedoneargs{
+  ""path"": ""/home/lazy/Documents/orbit-test/foo.txt""
+}Copyoutput
+It seems that there is no file named�foo.txt�in the path�/home/lazy/Documents/orbit-test/. Would you like to create this file or explore another file?
+Copy",
+Chat,C-9,Slash menu,Type / at line start,"Slash menu (/new, /clear)",fixed,,"FIXED 2026-06-18: /clear is always selectable (no longer gated on clearable content, which caused the deadlock); clears the composer (no-op when empty). ORIG: new is working fine but the /clear command is in deadlock, if there is content it is not triggered, if thre is no content what will it clear ?",
+Chat,C-10,Error + retry,"Set a bad endpoint in Settings, send a message",Inline error card with Retry; retry re-runs cleanly,pass,,,
+Chat,C-11,Infinite scroll,"Open a long session, scroll to top","Older messages load, scroll position preserved",pass,,,
+Chat,C-12,Link handling,"Get a reply with a URL, click it",Preview popup (Open in browser / Copy / View in panel); app never navigates,fixed-retest,,"VERIFIED in code 2026-06-18: links open in the canvas panel as an internal webview (Canvas.svelte promotedLink) with an in-panel toolbar (Open in browser / Copy / Close); app never navigates. RETEST in pnpm dev. ORIG: it should directly opne in panel with internal webview ( previously complte app cleint was navigated to that page it was wrong ) with toolbar that is coming as modal/pop with different options, the open i8n borwseser copy link  is working fine but it will be in panel toolbar. ",
+Sessions,SS-1,New / switch / rename / delete,Use Sidebar session actions (keyboard too),All work; actions reachable by keyboard,pass,,,
+Sessions,SS-2,Archive,Archive a session; open Archived section; unarchive,Moves out of active list; restorable,pass,,,
+Sessions,SS-3,Reopen restores artifacts,Reopen a session that had a chart/table,"Blocks restored, not just text",pass,,"charts are not rendered, show me an example of artifacts you can render inline
+The following table has been rendered inline:
+Name
+Age
+City
+Alice
+30
+New York
+Bob
+25
+Los Angeles
+This is an example of how artifacts can be displayed. If you would like to see another type of artifact, let me know!
+Example User Table
+Name
+Age
+City
+Alice
+30
+New York
+Bob
+25
+Los Angeles
+Copy
+show some chart example
+The following bar chart has been rendered inline:
+This bar chart visualizes two datasets over five months. If you would like to see another type of chart or modify this one, let me know!
+Sample ChartCopy
+more different ones
+The following line chart has been rendered inline:
+![](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAABCAYAAABSc3JubAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAazJREFUSEvjt19
+Copy",
+Sessions,SS-4,App switch,Switch Chat <-> Finance,Sessions scoped per app; active bar = violet,fixed-retest,,"FIXED 2026-06-18: 'Switching…' spinner shown during app switch (was a silent dim); session list already has infinite scroll (loadMoreSessions) + a generation race-guard against stale appends on rapid switches. RETEST. ORIG: no loading state so it lags, no infine scroll for the threads so it taks time to swithc and frequent swirches break it ",
+Workspace,WS-1,Set project dir,Sidebar -> Workspace -> Set project,Project shown; outputs note (<project>/.zanto/artifacts),pass,,,
+Workspace,WS-2,Context sources,"Workspace -> add a file/dir, toggle enable, remove",List + enable toggle + composer 'N sources' chip,pass,,,
+Workspace,WS-3,Context actually used,"Add a notes file as source, ask something needing it; toggle off",Answers from it when on; ignores when off,pass,,,
+Artifacts,A-1,Render table,Ask 'show ... as a table',Table renders inline,pass,,,
+Artifacts,A-2,Render chart,"Ask 'bar chart of Mon-Sun values 120,200,150,80,70,110,130'",Chart.js chart inline; 'open in panel' -> canvas,fixed-retest,,"FIXED 2026-06-18 (plan 2026-06-18-charts-and-csv-fixes): dedicated one-shot `chart` tool (model calls it directly; lenient values/datasets), rendered inline via ApexCharts (SVG, WebKitGTK-safe), no tool-call card. RETEST in pnpm dev. ORIG: Ask 'bar chart of Mon-Sun values 120,200,150,80,70,110,130'
+
+Thought for 2 steps
+2 steps
+It seems there was an issue with the artifact ID. Let's proceed by directly rendering the bar chart without trying to pin it first.
+
+Thought for 1 step
+1 step
+It seems there was no existing bar chart artifact to render directly. Let's proceed by creating a new bar chart using the provided data.
+I will generate a bar chart displaying the weekly values: 120, 200, 150, 80, 70, 110, and 130 for Monday through Sunday respectively. This chart will be displayed inline in this chat.
+
+Thought for 1 step
+1 step
+It seems there is no pre-existing bar chart artifact in the catalogue that we can render directly. Instead, let's create a new one based on your request.
+Here is a bar chart showing the values for each day of the week: Monday (120), Tuesday (200), Wednesday (150), Thursday (80), Friday (70), Saturday (110), and Sunday (130).
+I will generate this bar chart now.
+
+Thought for 1 step
+1 step
+It seems there is no existing bar chart artifact to render directly. Let's proceed by creating a new one.
+I will generate the bar chart data and display it using the render_artifact function. Here is the bar chart for the weekly values you provided:
+{
+    ""labels"": [""Mon"", ""Tue"", ""Wed"", ""Thu"", ""Fri"", ""Sat"", ""Sun""],
+    ""title"": ""Weekly Values"",
+    ""values"": [120, 200, 150, 80, 70, 110, 130]
+}
+Copy
+I will now render this bar chart.
+
+Thought for 1 step
+1 step
+render_artifact
+done
+args
+{
+  ""data"": {
+    ""labels"": [
+      ""Mon"",
+      ""Tue"",
+      ""Wed"",
+      ""Thu"",
+      ""Fri"",
+      ""Sat"",
+      ""Sun""
+    ],
+    ""title"": ""Weekly Values"",
+    ""values"": [
+      120,
+      200,
+      150,
+      80,
+      70,
+      110,
+      130
+    ]
+  },
+  ""id"": ""bar-chart-generated"",
+  ""target"": ""inline""
+}
+Copy
+output
+It seems there are no existing bar chart artifacts in the artifact catalogue to render directly. However, we can create a new one using the data you provided.
+Here is the bar chart for the weekly values:
+Weekly Values
+
+| Day   | Value |
+|-------|-------|
+| Mon   | 120   |
+| Tue   | 200   |
+| Wed   | 150   |
+| Thu   | 80    |
+| Fri   | 70    |
+| Sat   | 110   |
+| Sun   | 130   |
+Copy
+If you would like to see a bar chart rendered, we can create one now. Would you like to proceed with creating and rendering this bar chart?
+Copy
+artifact name is chart only
+
+Thought for 1 step
+1 step
+It looks like there was a mismatch between the provided data and the expected schema for the bar chart artifact. The required fields are:
+type: Must be set to ""bar"" (or another valid type such as ""line"", ""pie"", or ""doughnut"").
+labels: An array of string labels.
+datasets: An array of objects, each containing a data array and a label string.
+Let's correct the data and try again. Here is the corrected JSON for rendering the bar chart:
+{
+  ""type"": ""bar"",
+  ""labels"": [""Mon"", ""Tue"", ""Wed"", ""Thu"", ""Fri"", ""Sat"", ""Sun""],
+  ""datasets"": [
+    {
+      ""data"": [120, 200, 150, 80, 70, 110, 130],
+      ""label"": ""Weekly Values""
+    }
+  ]
+}
+Copy
+Now, I will render the bar chart using this corrected data.
+
+Thought for 1 step
+1 step
+The bar chart for the weekly values has been rendered successfully. Here it is:
+![](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAaYAAAOQCAYAAAAfSC+IAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyRpVFh0WE1MOmNvbS5hZG9iZS5ayIAAAAdElEQVR4nO3U6xubW7vHn3eXe3fz//z/7v3L3u/fvn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9",
+Artifacts,A-3,Markdown / page,Ask for a markdown doc or a multi-section page,Rendered markdown / page artifact,pass,,,
+Artifacts,A-4,Browser tabs,Sidebar -> Artifacts,Documents + Pinned views tabs,fixed-retest,,"VERIFIED in code 2026-06-18: ArtifactBrowser renders in the side canvas panel (not a modal), opened from a labeled 'Artifacts' button in the sidebar. RETEST overflow at the live panel width. ORIG: everything works but it is a narrow modal, everything overflows out of it, trigger button place and icon is also a little un discoverable. Using side panel would be good as it also is adding switching the views",
+Artifacts,A-5,Pin a view,"Pin a chart/table, reopen from Pinned views",Re-renders from the DB record,fixed-retest,,"FIXED 2026-06-18: Pin button now visible at rest (opacity-60, full on hover/focus) on rendered view artifacts; once charts render (A-2) a pinnable view actually appears. RETEST. ORIG: can not find this option",
+Artifacts,A-6,Save / Reveal,In Artifacts -> a document -> Save a copy / Reveal,Save dialog writes file; Reveal opens file manager,pass,,,
+Documents,DOC-1,Drag-drop a file,Drag a PDF/CSV/DOCX/XLSX onto the window,Attaches as a chip,pass,,,
+Documents,DOC-2,Read document,"With a doc attached, ask 'summarize it'",Agent calls read_document; answers from content,pass,,,
+Documents,DOC-3,Attach button,"Click paperclip, pick files",File dialog opens; files attach (FLAG if dialog fails),pass,,,
+Documents,DOC-4,Vision,"(Gemini/Claude) attach an image, ask 'what is in this image?'",Model describes the image; Ollama -> degrade note,,,,
+Finance,F-1,Onboarding / empty state,Mount Finance with no data,Empty-state CTAs / onboarding,,,,
+Finance,F-2,Add + summarize,Add transactions via chat; 'this month summary',Persisted; KPIs + chart,,,,
+Finance,F-3,Widgets / resources,Edit dashboard widgets; open resources panel,Add/remove/reorder widgets; browse resource files,,,,
+HITL,H-1,Permission approval,Ask to write/read a file outside granted folders,Approval overlay above composer (once/session/forever/deny),pass,,,
+HITL,H-2,Agent ask form,Trigger a clarifying question from the agent,Multi-field form above composer; answers return to agent,pass,,multi step and complete keyboard support will be good  to have,
+Core,CO-1,Skills,"Create <project>/.zanto/skills/x.md, select in Settings, ask",Selected skill steers the reply,,,,
+Core,CO-2,Summarization,"Set max_context_turns, have a long conversation",Older turns summarized into context,,,,
+Core,CO-3,Web tool,Ask the agent to fetch a public URL,fetch_url returns extracted text,pass,,,
+Workflow,FLOW-1,Doc Q&A -> visualize -> keep,Drop a spreadsheet -> summarize -> chart the totals -> pin -> reopen,End-to-end works across read_document + chart + pin,,,,
+Workflow,FLOW-2,Generate + download report,'Write a markdown report on X and save it' -> Save a copy -> Reveal,Saved to Artifacts; exported to disk,,,,
+Workflow,FLOW-3,Vision,Attach a screenshot -> 'describe + list problems',Useful vision answer (multimodal model),,,,
+Workflow,FLOW-4,Filesystem assistant,"'list ~/Downloads as a table, delete the .tmp files'",list_directory -> table -> approval on delete,,,,
+Workflow,FLOW-5,Interrupt + queue,Long question -> Stop; then queue 2 follow-ups while busy,Stop works; queued msgs run in order,,,,
+Workflow,FLOW-6,Workspace context,Set project + add a notes source -> ask using it,Answer uses the source; off = ignored,,,,
+Workflow,FLOW-7,Finance zero-to-dashboard,Onboard -> add transactions -> summary -> build widget,Full finance loop works,,,,
+Workflow,FLOW-8,Skill-steered review,Author reviewer.md skill -> select -> ask it to review code,Reply in the skill's voice,,,,
