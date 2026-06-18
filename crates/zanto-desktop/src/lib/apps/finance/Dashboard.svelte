@@ -10,6 +10,8 @@
   import Import from "./Import.svelte";
   import CategoryRules from "./CategoryRules.svelte";
   import Budgets from "./Budgets.svelte";
+  import Accounts from "./Accounts.svelte";
+  import AccountsEditor from "./AccountsEditor.svelte";
   import BudgetBars from "./BudgetBars.svelte";
   import Subscriptions from "./Subscriptions.svelte";
   import Trends from "./Trends.svelte";
@@ -31,6 +33,7 @@
     Repeat,
     LineChart,
     Upload,
+    Landmark,
   } from "@lucide/svelte";
 
   type Category = { category: string; total: number };
@@ -57,6 +60,8 @@
     over_budget?: OverBudget[];
     mom_delta?: number;
     mom_pct?: number;
+    accounts?: { name: string; type: string; balance: number }[];
+    net_worth?: number;
   };
   type Profile = {
     setup: boolean;
@@ -78,7 +83,13 @@
   // Top-level view: the dashboard, the editable transactions surface, or the F3
   // resources browser.
   let tab = $state<
-    "dashboard" | "transactions" | "import" | "subscriptions" | "trends" | "resources"
+    | "dashboard"
+    | "transactions"
+    | "accounts"
+    | "import"
+    | "subscriptions"
+    | "trends"
+    | "resources"
   >("dashboard");
   // F4 edit toggle for the widget builder.
   let editing = $state(false);
@@ -183,6 +194,7 @@
   // Resolve a widget's `source` against the overview data into a renderable shape.
   const KPI_ICON: Record<string, typeof Wallet> = {
     balance: Wallet,
+    net_worth: Landmark,
     month_total: TrendingDown,
     income: TrendingUp,
     net_cash_flow: Scale,
@@ -281,6 +293,15 @@
           <button
             type="button"
             role="tab"
+            aria-selected={tab === "accounts"}
+            class={tabClass(tab === "accounts")}
+            onclick={() => (tab = "accounts")}
+          >
+            <Landmark class="size-4" /> Accounts
+          </button>
+          <button
+            type="button"
+            role="tab"
             aria-selected={tab === "import"}
             class={tabClass(tab === "import")}
             onclick={() => (tab = "import")}
@@ -329,8 +350,20 @@
         <ResourcesPanel />
       {:else if tab === "transactions"}
         {#key txFilter}
-          <TransactionsView {currency} categories={profileCategories} initialFilter={txFilter} />
+          <TransactionsView
+            {currency}
+            categories={profileCategories}
+            accounts={(overview.accounts ?? []).map((a) => a.name)}
+            initialFilter={txFilter}
+          />
         {/key}
+      {:else if tab === "accounts"}
+        <Accounts
+          accounts={overview.accounts}
+          netWorth={overview.net_worth}
+          {currency}
+          onChanged={load}
+        />
       {:else if tab === "import"}
         <Import onImported={load} />
       {:else if tab === "subscriptions"}
@@ -365,6 +398,7 @@
 
         {#if editing}
           <WidgetBuilder bind:widgets={draftWidgets} onSaved={onWidgetsSaved} />
+          <AccountsEditor onSaved={load} />
           <Budgets categories={profileCategories} onSaved={load} />
           <CategoryRules categories={profileCategories} />
         {/if}
@@ -461,6 +495,33 @@
           {:else if w.kind === "trends"}
             <div class="rounded-lg border border-border bg-card p-3">
               <Trends {currency} />
+            </div>
+          {:else if w.kind === "accounts"}
+            {@const accts = overview.accounts ?? []}
+            <div class="rounded-lg border border-border bg-card p-3">
+              <div class="mb-2 flex items-center justify-between text-sm font-medium">
+                <span>{w.title}</span>
+                <span class="tabular-nums">{money(overview.net_worth)}</span>
+              </div>
+              {#if accts.length}
+                <ul class="space-y-1 text-sm">
+                  {#each accts as a (a.name)}
+                    <li class="flex items-center justify-between">
+                      <span class="min-w-0 flex-1 break-words text-muted-foreground">{a.name}</span>
+                      <span
+                        class={[
+                          "font-mono tabular-nums",
+                          a.balance < 0 ? "text-destructive" : "",
+                        ].join(" ")}
+                      >
+                        {money(a.balance)}
+                      </span>
+                    </li>
+                  {/each}
+                </ul>
+              {:else}
+                <div class="text-sm text-muted-foreground">No accounts yet.</div>
+              {/if}
             </div>
           {/if}
         {/each}

@@ -708,6 +708,7 @@ impl FinanceApp {
 /// names a slice of the `overview` query result.
 fn default_widgets() -> Value {
     json!([
+        { "kind": "kpi", "title": "Net worth", "source": "net_worth" },
         { "kind": "kpi", "title": "Balance", "source": "balance" },
         { "kind": "kpi", "title": "This month", "source": "month_total" },
         { "kind": "kpi", "title": "Income", "source": "income" },
@@ -716,6 +717,7 @@ fn default_widgets() -> Value {
         { "kind": "table", "title": "Top categories", "source": "top_categories" },
         { "kind": "budget", "title": "Budget vs actual", "source": "budget_status" },
         { "kind": "subscriptions", "title": "Subscriptions", "source": "recurring" },
+        { "kind": "accounts", "title": "Accounts", "source": "accounts" },
     ])
 }
 

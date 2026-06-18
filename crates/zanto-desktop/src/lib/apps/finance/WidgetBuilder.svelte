@@ -10,7 +10,8 @@
     | "table"
     | "budget"
     | "subscriptions"
-    | "trends";
+    | "trends"
+    | "accounts";
   export type Widget = { kind: WidgetKind; title: string; source: string };
 
   // F4 — lightweight dashboard editor. Add/remove/reorder/duplicate widgets, then
@@ -28,6 +29,7 @@
       { value: "income", label: "Income (this month)" },
       { value: "net_cash_flow", label: "Net cash flow" },
       { value: "transaction_count", label: "Transaction count" },
+      { value: "net_worth", label: "Net worth" },
       { value: "mom_delta", label: "MoM change" },
     ],
     chart: [{ value: "series", label: "6-month spend series" }],
@@ -35,6 +37,7 @@
     budget: [{ value: "budget_status", label: "Budget vs actual" }],
     subscriptions: [{ value: "recurring", label: "Subscriptions" }],
     trends: [{ value: "trends", label: "Category trends" }],
+    accounts: [{ value: "accounts", label: "Account balances" }],
   };
 
   let saving = $state(false);
@@ -137,6 +140,7 @@
           <option value="budget">Budget</option>
           <option value="subscriptions">Subscriptions</option>
           <option value="trends">Trends</option>
+          <option value="accounts">Accounts</option>
         </select>
 
         <select class={selectClass} bind:value={w.source} aria-label="Data source">
@@ -189,6 +193,9 @@
     </Button>
     <Button variant="outline" size="xs" onclick={() => add("trends")}>
       <Plus /> Trends
+    </Button>
+    <Button variant="outline" size="xs" onclick={() => add("accounts")}>
+      <Plus /> Accounts
     </Button>
     <Button class="ml-auto" size="sm" onclick={save} disabled={saving}>
       <Check />

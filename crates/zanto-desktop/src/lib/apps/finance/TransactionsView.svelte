@@ -13,11 +13,13 @@
     category: string;
     note?: string;
     source?: string;
+    account?: string;
   };
 
-  let { currency, categories = [], initialFilter = "all" }: {
+  let { currency, categories = [], accounts = [], initialFilter = "all" }: {
     currency?: string;
     categories?: string[];
+    accounts?: string[];
     initialFilter?: "all" | "uncategorized";
   } = $props();
 
@@ -34,6 +36,7 @@
   let editCategory = $state("");
   let editAmount = $state(0);
   let editType = $state<"income" | "expense">("expense");
+  let editAccount = $state("");
   let saving = $state(false);
 
   async function load() {
@@ -62,6 +65,7 @@
     editCategory = r.category;
     editAmount = r.amount;
     editType = r.type === "income" ? "income" : "expense";
+    editAccount = r.account ?? "Cash";
   }
 
   function cancelEdit() {
@@ -77,6 +81,7 @@
         category: editCategory,
         amount: Number(editAmount),
         type: editType,
+        account: editAccount,
       });
       editId = null;
       // Backend re-resolves the category against the profile + rules, so reload.
@@ -105,6 +110,14 @@
     const opts = [...categories];
     if (current && !opts.includes(current)) opts.unshift(current);
     if (!opts.includes("uncategorized")) opts.push("uncategorized");
+    return opts;
+  }
+
+  // Account select options: the passed account names, plus the row's current
+  // account if missing, with "Cash" as a default fallback.
+  function accountOptions(current: string): string[] {
+    const opts = accounts.length ? [...accounts] : ["Cash"];
+    if (current && !opts.includes(current)) opts.unshift(current);
     return opts;
   }
 
@@ -159,6 +172,7 @@
             <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Date</th>
             <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Merchant</th>
             <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Category</th>
+            <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Account</th>
             <th scope="col" class="px-3 py-1.5 font-medium text-muted-foreground">Type</th>
             <th scope="col" class="px-3 py-1.5 text-right font-medium text-muted-foreground">Amount</th>
             <th scope="col" class="px-3 py-1.5 text-right font-medium text-muted-foreground"></th>
@@ -174,6 +188,13 @@
                   <select class={selectClass} bind:value={editCategory} aria-label="Category">
                     {#each categoryOptions(r.category) as c (c)}
                       <option value={c}>{c}</option>
+                    {/each}
+                  </select>
+                </td>
+                <td class="px-3 py-1.5">
+                  <select class={selectClass} bind:value={editAccount} aria-label="Account">
+                    {#each accountOptions(r.account ?? "Cash") as a (a)}
+                      <option value={a}>{a}</option>
                     {/each}
                   </select>
                 </td>
@@ -219,6 +240,7 @@
                 <td class="px-3 py-1.5 font-mono tabular-nums text-foreground">{r.date}</td>
                 <td class="px-3 py-1.5 break-words text-foreground">{r.merchant}</td>
                 <td class="px-3 py-1.5 text-muted-foreground">{r.category}</td>
+                <td class="px-3 py-1.5 text-muted-foreground">{r.account ?? "Cash"}</td>
                 <td class="px-3 py-1.5 text-muted-foreground">{r.type}</td>
                 <td
                   class={[
