@@ -82,7 +82,7 @@ impl FinanceApp {
 
     fn do_add_transaction(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let amount = args.get("amount").cloned().unwrap_or(json!(0));
+        let amount = json!(coerce_amount(args.get("amount")));
         let merchant = args.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("uncategorized").to_string();
         let date = args
@@ -350,16 +350,16 @@ impl App for FinanceApp {
     fn agent_tools(&self) -> Vec<GenaiTool> {
         vec![
             GenaiTool::new("add_transaction")
-                .with_description("Record a transaction in the user's finances.")
+                .with_description("Record a transaction in the user's finances. Call this directly with the details — `amount` is required; merchant/category/date default if omitted.")
                 .with_schema(json!({
                     "type": "object",
                     "properties": {
-                        "amount": { "type": "number", "description": "Amount spent" },
+                        "amount": { "type": "number", "description": "Amount spent (a number)" },
                         "merchant": { "type": "string" },
                         "category": { "type": "string" },
                         "date": { "type": "string", "description": "YYYY-MM-DD; defaults to today" }
                     },
-                    "required": ["amount", "merchant"]
+                    "required": ["amount"]
                 })),
             GenaiTool::new("query_transactions")
                 .with_description("Show transactions, optionally filtered by category or month.")
@@ -432,6 +432,41 @@ fn target_of(args: &Value) -> Target {
 /// Today's date as `YYYY-MM-DD` (from the core's display formatter).
 fn today() -> String {
     format_ts_display(unix_now_pub())[..10].to_string()
+}
+
+/// Coerce a model-supplied amount into a number. Weak models often send the
+/// amount as a string ("12.50", "$12.50", "12,50"); `as_f64()` alone would
+/// silently treat those as 0, so parse a numeric value out of strings too.
+fn coerce_amount(v: Option<&Value>) -> f64 {
+    match v {
+        Some(v) if v.is_number() => v.as_f64().unwrap_or(0.0),
+        Some(v) => v
+            .as_str()
+            .map(|s| {
+                let cleaned: String = s
+                    .chars()
+                    .filter(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+                    .collect();
+                cleaned.parse::<f64>().unwrap_or(0.0)
+            })
+            .unwrap_or(0.0),
+        None => 0.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coerce_amount_handles_number_and_string() {
+        assert_eq!(coerce_amount(Some(&json!(12.5))), 12.5);
+        assert_eq!(coerce_amount(Some(&json!("12.50"))), 12.5);
+        assert_eq!(coerce_amount(Some(&json!("$1,299"))), 1299.0);
+        assert_eq!(coerce_amount(Some(&json!("-8"))), -8.0);
+        assert_eq!(coerce_amount(Some(&json!(null))), 0.0);
+        assert_eq!(coerce_amount(None), 0.0);
+    }
 }
 
 /// The `n` months ending at `end` (inclusive), oldest → newest, as `YYYY-MM`.

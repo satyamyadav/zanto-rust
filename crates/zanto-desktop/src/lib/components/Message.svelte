@@ -26,6 +26,10 @@
     "list_artifacts",
     "get_artifact",
     "pin_artifact",
+    // Finance view-rendering tools: their result is a rendered block, so the
+    // tool-call card is redundant (the artifact reads like markdown/text).
+    "monthly_summary",
+    "query_transactions",
   ]);
 
   // Index of the LAST tool_call segment in document order (-1 if none). Text
