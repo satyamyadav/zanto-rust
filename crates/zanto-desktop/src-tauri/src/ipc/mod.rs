@@ -5,6 +5,7 @@ pub mod apps;
 pub mod artifacts;
 pub mod chat;
 pub mod config;
+pub mod finance;
 pub mod files;
 pub mod session;
 pub mod skills;

@@ -95,6 +95,7 @@ pub fn run() {
             ipc::apps::query_app,
             ipc::apps::run_app_action,
             ipc::apps::notify,
+            ipc::finance::finance_parse_statement,
             ipc::session::list_sessions,
             ipc::session::list_sessions_page,
             ipc::session::load_session,

@@ -180,6 +180,8 @@ export const ipc = {
   runAppAction: (id: string, action: string, args: any = {}) =>
     invoke<any>("run_app_action", { id, action, args }),
   notify: (title: string, body: string) => invoke<void>("notify", { title, body }),
+  financeParseStatement: (path: string) =>
+    invoke<any>("finance_parse_statement", { path }),
   // Sessions (scoped to the active app)
   listSessions: () => invoke<SessionMeta[]>("list_sessions"),
   listSessionsPage: (offset: number, limit: number) =>

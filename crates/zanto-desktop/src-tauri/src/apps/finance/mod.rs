@@ -16,6 +16,9 @@ const WIDGETS_STORE: &str = "finance_widgets";
 const RULES_STORE: &str = "finance_category_rules";
 const BUDGETS_STORE: &str = "finance_budgets";
 
+/// Account a transaction belongs to when none is given (also the seeded account).
+const DEFAULT_ACCOUNT: &str = "Cash";
+
 /// Default expense categories seeded when a profile omits them.
 const DEFAULT_CATEGORIES: &[&str] =
     &["groceries", "dining", "transport", "utilities", "rent", "entertainment", "other"];
@@ -108,6 +111,13 @@ impl FinanceApp {
             Some("import") => "import",
             _ => "manual",
         };
+        // Which of the user's own accounts this belongs to (v0.4). Defaults to Cash.
+        let account = args
+            .get("account")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_ACCOUNT)
+            .to_string();
 
         // Import dedupe: an imported row carries a stable hash of date+amount+
         // merchant; if one already exists, skip (re-running an import is a no-op).
@@ -121,8 +131,8 @@ impl FinanceApp {
         }
 
         let mut record = json!({
-            "type": kind, "date": date, "amount": amount,
-            "merchant": merchant, "category": category, "note": note, "source": source,
+            "type": kind, "date": date, "amount": amount, "merchant": merchant,
+            "category": category, "note": note, "source": source, "account": account,
         });
         if let Some(h) = import_h {
             record["import_hash"] = json!(h);
@@ -500,6 +510,44 @@ impl FinanceApp {
         Ok(record)
     }
 
+    /// Batch-import statement rows (already parsed + permission-checked in IPC).
+    /// args: `{ headers: [..], rows: [[..]], mapping, account }`. Reuses
+    /// `do_add_transaction` so category resolution + import dedupe both apply.
+    fn do_import_transactions(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let headers: Vec<String> = args
+            .get("headers")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let rows = args.get("rows").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let mapping = args.get("mapping").cloned().unwrap_or_else(|| json!({}));
+        let account = args.get("account").and_then(|v| v.as_str()).unwrap_or(DEFAULT_ACCOUNT).to_string();
+
+        let (mut inserted, mut skipped) = (0u64, 0u64);
+        let mut errors = Vec::new();
+        for (i, row_v) in rows.iter().enumerate() {
+            let row: Vec<String> = row_v
+                .as_array()
+                .map(|a| a.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect())
+                .unwrap_or_default();
+            match import_row_to_args(&headers, &row, &mapping, &account) {
+                Some(targs) => match self.do_add_transaction(data, targs) {
+                    Ok(res) => {
+                        if res.get("status").and_then(|s| s.as_str()) == Some("duplicate_skipped") {
+                            skipped += 1;
+                        } else {
+                            inserted += 1;
+                        }
+                    }
+                    Err(e) => errors.push(json!({ "row": i, "reason": e })),
+                },
+                None => errors.push(json!({ "row": i, "reason": "no amount — map a debit/credit or amount column" })),
+            }
+        }
+        Ok(json!({ "inserted": inserted, "skipped": skipped, "errors": errors }))
+    }
+
     /// Recurring/subscription detection over all transactions.
     fn compute_recurring(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
@@ -724,6 +772,7 @@ impl App for FinanceApp {
             "save_category_rule" => self.do_save_category_rule(data, args),
             "delete_category_rule" => self.do_delete_category_rule(data, args),
             "save_budgets" => self.do_save_budgets(data, args),
+            "import_transactions" => self.do_import_transactions(data, args),
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -824,6 +873,81 @@ fn resolve_category_pure(
         }
     }
     "uncategorized".to_string()
+}
+
+/// Heuristic column mapping for a statement's headers: best-effort match of
+/// date / merchant / category, and either debit+credit or a single amount.
+pub fn suggest_mapping(headers: &[String]) -> Value {
+    let find = |keys: &[&str]| -> Option<String> {
+        headers
+            .iter()
+            .find(|h| {
+                let hl = h.to_lowercase();
+                keys.iter().any(|k| hl.contains(k))
+            })
+            .cloned()
+    };
+    let mut m = serde_json::Map::new();
+    if let Some(h) = find(&["date"]) {
+        m.insert("date".into(), json!(h));
+    }
+    if let Some(h) = find(&["description", "merchant", "payee", "name", "details", "narration"]) {
+        m.insert("merchant".into(), json!(h));
+    }
+    if let Some(h) = find(&["category"]) {
+        m.insert("category".into(), json!(h));
+    }
+    let debit = find(&["debit", "withdrawal", "paid out", "money out"]);
+    let credit = find(&["credit", "deposit", "paid in", "money in"]);
+    if debit.is_some() || credit.is_some() {
+        if let Some(d) = debit {
+            m.insert("debit".into(), json!(d));
+        }
+        if let Some(c) = credit {
+            m.insert("credit".into(), json!(c));
+        }
+    } else if let Some(h) = find(&["amount", "value", "total"]) {
+        m.insert("amount".into(), json!(h));
+    }
+    Value::Object(m)
+}
+
+/// Map one statement row to `add_transaction` args using `mapping` (field →
+/// header name). Returns None when there's no usable amount (debit/credit/amount).
+fn import_row_to_args(headers: &[String], row: &[String], mapping: &Value, account: &str) -> Option<Value> {
+    let col = |key: &str| -> Option<&str> {
+        let header = mapping.get(key).and_then(|v| v.as_str())?;
+        let idx = headers.iter().position(|h| h.eq_ignore_ascii_case(header))?;
+        row.get(idx).map(|s| s.as_str())
+    };
+    let to_amt = |s: &str| coerce_amount(Some(&json!(s)));
+
+    let (kind, amount) = if let Some(a) = col("amount").filter(|s| !s.trim().is_empty()) {
+        let v = to_amt(a);
+        if v == 0.0 {
+            return None;
+        }
+        (if v < 0.0 { "expense" } else { "income" }, v.abs())
+    } else {
+        let debit = col("debit").map(to_amt).map(f64::abs).unwrap_or(0.0);
+        let credit = col("credit").map(to_amt).map(f64::abs).unwrap_or(0.0);
+        if debit > 0.0 {
+            ("expense", debit)
+        } else if credit > 0.0 {
+            ("income", credit)
+        } else {
+            return None;
+        }
+    };
+
+    let mut args = json!({
+        "type": kind, "amount": amount, "account": account, "source": "import",
+        "merchant": col("merchant").unwrap_or(""), "date": col("date").unwrap_or(""),
+    });
+    if let Some(c) = col("category").filter(|s| !s.trim().is_empty()) {
+        args["category"] = json!(c);
+    }
+    Some(args)
 }
 
 // Recurring-charge detection thresholds (named so they're tunable).
@@ -1061,6 +1185,38 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["merchant"], json!("Netflix"));
         assert_eq!(items[0]["count"], json!(3));
+    }
+
+    #[test]
+    fn import_maps_debit_credit_and_signed_amount() {
+        let headers = vec!["Date".into(), "Description".into(), "Debit".into(), "Credit".into()];
+        let mapping = json!({ "date": "Date", "merchant": "Description", "debit": "Debit", "credit": "Credit" });
+        let expense = import_row_to_args(&headers, &vec!["2026-06-01".into(), "Cafe".into(), "12.50".into(), "".into()], &mapping, "Checking").unwrap();
+        assert_eq!(expense["type"], json!("expense"));
+        assert_eq!(expense["amount"], json!(12.5));
+        assert_eq!(expense["account"], json!("Checking"));
+        let income = import_row_to_args(&headers, &vec!["2026-06-02".into(), "Payroll".into(), "".into(), "2000".into()], &mapping, "Checking").unwrap();
+        assert_eq!(income["type"], json!("income"));
+        assert_eq!(income["amount"], json!(2000.0));
+
+        // A single signed amount column: negative = expense.
+        let h2 = vec!["Date".into(), "Amount".into()];
+        let m2 = json!({ "date": "Date", "amount": "Amount" });
+        let signed = import_row_to_args(&h2, &vec!["2026-06-03".into(), "-5".into()], &m2, "X").unwrap();
+        assert_eq!(signed["type"], json!("expense"));
+        assert_eq!(signed["amount"], json!(5.0));
+
+        // A row with no amount is skipped.
+        assert!(import_row_to_args(&headers, &vec!["2026-06-04".into(), "x".into(), "".into(), "".into()], &mapping, "X").is_none());
+    }
+
+    #[test]
+    fn suggest_mapping_detects_columns() {
+        let m = suggest_mapping(&["Transaction Date".into(), "Details".into(), "Debit".into(), "Credit".into()]);
+        assert_eq!(m["date"], json!("Transaction Date"));
+        assert_eq!(m["merchant"], json!("Details"));
+        assert_eq!(m["debit"], json!("Debit"));
+        assert_eq!(m["credit"], json!("Credit"));
     }
 
     #[test]
