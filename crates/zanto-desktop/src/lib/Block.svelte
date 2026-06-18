@@ -58,7 +58,7 @@
           disabled={pinning}
           title="Pin to Artifacts"
           aria-label="Pin to Artifacts"
-          class="absolute right-1 top-1 z-10 rounded-md border border-border bg-background/80 p-1 text-muted-foreground opacity-0 backdrop-blur transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-50"
+          class="absolute right-1 top-1 z-10 rounded-md border border-border bg-background/80 p-1 text-muted-foreground opacity-60 backdrop-blur transition-opacity hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-50"
         >
           <PinIcon class="size-4" />
         </button>
