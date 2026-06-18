@@ -358,6 +358,12 @@ impl FinanceApp {
         let months = last_n_months(&this_month, 6);
         let series: Vec<f64> = months.iter().map(|m| *by_month.get(m).unwrap_or(&0.0)).collect();
 
+        // Month-over-month change in spend (this vs previous month).
+        let n = series.len();
+        let mom_delta = if n >= 2 { series[n - 1] - series[n - 2] } else { 0.0 };
+        let mom_prev = if n >= 2 { series[n - 2] } else { 0.0 };
+        let mom_pct = if mom_prev > 0.0 { mom_delta / mom_prev } else { 0.0 };
+
         Ok(json!({
             "empty": false,
             "balance": balance,
@@ -370,6 +376,8 @@ impl FinanceApp {
             "uncategorized_count": uncategorized_count,
             "budget_status": budget_status,
             "over_budget": over_budget,
+            "mom_delta": mom_delta,
+            "mom_pct": mom_pct,
             "series": { "labels": months, "data": series },
         }))
     }
@@ -497,6 +505,32 @@ impl FinanceApp {
         self.ensure_store(data)?;
         let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
         Ok(json!({ "items": detect_recurring(&all, &today()[..7]) }))
+    }
+
+    /// Per-category 6-month expense trends + overall month-over-month change.
+    fn compute_trends(&self, data: &DataStore) -> Result<Value, String> {
+        self.ensure_store(data)?;
+        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let months = last_n_months(&today()[..7], 6);
+        let mut trends = compute_trends_data(&all, &months);
+
+        // Overall MoM (this vs previous month).
+        let mut by_month: HashMap<String, f64> = HashMap::new();
+        for r in &all {
+            let t = normalize_txn(&r.data);
+            if matches!(t.kind, TxnKind::Expense) && t.date.len() >= 7 {
+                *by_month.entry(t.date[..7].to_string()).or_insert(0.0) += t.amount;
+            }
+        }
+        let this = *by_month.get(&months[months.len() - 1]).unwrap_or(&0.0);
+        let last = if months.len() >= 2 { *by_month.get(&months[months.len() - 2]).unwrap_or(&0.0) } else { 0.0 };
+        let mom_delta = this - last;
+        let mom_pct = if last > 0.0 { mom_delta / last } else { 0.0 };
+        if let Value::Object(o) = &mut trends {
+            o.insert("mom_delta".into(), json!(mom_delta));
+            o.insert("mom_pct".into(), json!(mom_pct));
+        }
+        Ok(trends)
     }
 
     // ---- budgets (v0.3) ----
@@ -672,6 +706,7 @@ impl App for FinanceApp {
             "widgets" => self.get_widgets(data),
             "budgets" => self.get_budgets(data),
             "recurring" => self.compute_recurring(data),
+            "trends" => self.compute_trends(data),
             "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
             other => Err(format!("unknown query: {other}")),
         }
@@ -878,6 +913,38 @@ fn detect_recurring(records: &[Record], _now_month: &str) -> Vec<Value> {
     out
 }
 
+/// Per-category expense series over the given months (top ~5 categories by total).
+/// Returns `{ months, categories: [{ category, data: [..per month..] }] }`.
+fn compute_trends_data(records: &[Record], months: &[String]) -> Value {
+    let mset: std::collections::HashSet<&str> = months.iter().map(|s| s.as_str()).collect();
+    let mut by_mc: HashMap<(String, String), f64> = HashMap::new();
+    let mut totals: HashMap<String, f64> = HashMap::new();
+    for r in records {
+        let t = normalize_txn(&r.data);
+        if !matches!(t.kind, TxnKind::Expense) || t.date.len() < 7 {
+            continue;
+        }
+        let m = &t.date[..7];
+        if !mset.contains(m) {
+            continue;
+        }
+        *by_mc.entry((m.to_string(), t.category.clone())).or_insert(0.0) += t.amount;
+        *totals.entry(t.category).or_insert(0.0) += t.amount;
+    }
+    let mut tv: Vec<(String, f64)> = totals.into_iter().collect();
+    tv.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let categories: Vec<Value> = tv
+        .into_iter()
+        .take(5)
+        .map(|(c, _)| {
+            let data: Vec<f64> =
+                months.iter().map(|m| *by_mc.get(&(m.clone(), c.clone())).unwrap_or(&0.0)).collect();
+            json!({ "category": c, "data": data })
+        })
+        .collect();
+    json!({ "months": months, "categories": categories })
+}
+
 /// Budget vs actual for the current month. Returns (budget_status, over_budget):
 /// `budget_status` is one row per budgeted category (spent defaults 0);
 /// `over_budget` is the subset where spent exceeds the limit.
@@ -963,6 +1030,21 @@ mod tests {
         assert_eq!(resolve_category_pure("STARBUCKS #5", None, &cats, &rules), "dining");
         // requested not in profile + no rule → uncategorized
         assert_eq!(resolve_category_pure("Acme", Some("foobar"), &cats, &rules), "uncategorized");
+    }
+
+    #[test]
+    fn trends_builds_per_category_expense_series() {
+        let months = vec!["2026-05".to_string(), "2026-06".to_string()];
+        let recs = vec![
+            Record { id: 1, data: json!({ "type": "expense", "category": "dining", "amount": 10, "date": "2026-05-10" }), created_at: 0 },
+            Record { id: 2, data: json!({ "type": "expense", "category": "dining", "amount": 20, "date": "2026-06-10" }), created_at: 0 },
+            Record { id: 3, data: json!({ "type": "income", "category": "salary", "amount": 1000, "date": "2026-06-01" }), created_at: 0 },
+        ];
+        let t = compute_trends_data(&recs, &months);
+        let cats = t["categories"].as_array().unwrap();
+        assert_eq!(cats.len(), 1); // income excluded
+        assert_eq!(cats[0]["category"], json!("dining"));
+        assert_eq!(cats[0]["data"], json!([10.0, 20.0]));
     }
 
     #[test]
