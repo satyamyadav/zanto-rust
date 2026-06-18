@@ -33,6 +33,11 @@ pub fn list_skills() -> Vec<SkillDto> {
 /// Set (or clear, with `None`) the user-selected skill appended on each turn.
 #[tauri::command]
 pub fn set_active_skill(state: State<'_, DesktopState>, name: Option<String>) -> Result<(), String> {
-    *state.selected_skill.lock().unwrap() = name;
+    *state.selected_skill.lock().unwrap() = name.clone();
+    // Persist the choice so it survives a restart (the runtime Mutex above is the
+    // live value used per turn; this writes it through to Settings).
+    let mut settings = Settings::load();
+    settings.selected_skill = name;
+    settings.save().map_err(|e| e.to_string())?;
     Ok(())
 }

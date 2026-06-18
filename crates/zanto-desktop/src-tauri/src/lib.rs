@@ -80,7 +80,7 @@ pub fn run() {
                 model: std::sync::Mutex::new(model),
                 endpoint: std::sync::Mutex::new(endpoint),
                 workspace: WORKSPACE.to_string(),
-                selected_skill: std::sync::Mutex::new(None),
+                selected_skill: std::sync::Mutex::new(settings.selected_skill.clone()),
                 active_cancel: std::sync::Mutex::new(None),
             });
             Ok(())

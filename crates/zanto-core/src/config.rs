@@ -129,6 +129,10 @@ pub struct Settings {
     /// an old `["/a","/b"]` list deserializes as enabled sources.
     #[serde(default)]
     pub context_sources: Vec<ContextSource>,
+    /// The user-selected skill (file stem) appended to the system prompt each
+    /// turn. Persisted so the choice survives an app restart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_skill: Option<String>,
 }
 
 impl Settings {
