@@ -145,6 +145,8 @@ pub struct ChatConfig {
     /// Empty (the default) means a plain text user message. The caller decides
     /// whether the active provider can read images before populating this.
     pub images: Vec<ImageAttachment>,
+    /// Global generation parameters applied to this turn's request options.
+    pub generation: crate::config::GenerationParams,
 }
 
 impl ChatConfig {
@@ -161,6 +163,7 @@ impl ChatConfig {
             sink: None,
             cancel: None,
             images: Vec::new(),
+            generation: crate::config::Settings::load().generation,
         }
     }
 }
@@ -330,10 +333,12 @@ When a user message contains an @<path> token, treat it as a request to read tha
 
     // Capture the concatenated content and tool calls at stream end; text is also
     // accumulated per-chunk so the sink can render it live.
-    let stream_options = ChatOptions::default()
-        .with_capture_content(true)
-        .with_capture_tool_calls(true)
-        .with_capture_reasoning_content(true);
+    let stream_options = config.generation.apply(
+        ChatOptions::default()
+            .with_capture_content(true)
+            .with_capture_tool_calls(true)
+            .with_capture_reasoning_content(true),
+    );
 
     let mut blocks: Vec<ChatBlock> = Vec::new();
     // Ordered display segments for this assistant turn (reasoning/tool_call/block/
