@@ -75,11 +75,11 @@ export type ProviderInfo = {
 };
 
 export type GenerationParams = {
-  temperature?: number | null;
-  max_tokens?: number | null;
-  top_p?: number | null;
-  reasoning_effort?: string | null;
-  seed?: number | null;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
+  reasoning_effort?: string;
+  seed?: number;
   stop_sequences?: string[];
   extra_body?: unknown;
 };
