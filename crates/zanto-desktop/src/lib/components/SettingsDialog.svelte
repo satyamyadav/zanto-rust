@@ -15,6 +15,7 @@
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
   const NO_SKILL = "__none__";
+  const NO_EFFORT = "__default__";
   let skills = $state<SkillDto[]>([]);
   let activeSkill = $state(NO_SKILL);
 
@@ -216,6 +217,15 @@
   const activeSkillLabel = $derived(
     activeSkill === NO_SKILL ? "None" : activeSkill
   );
+
+  // Maps between the sentinel and undefined for the reasoning-effort select.
+  const activeReasoningEffort = $derived(gen.reasoning_effort ?? NO_EFFORT);
+  const activeReasoningEffortLabel = $derived(
+    activeReasoningEffort === NO_EFFORT ? "Default" : activeReasoningEffort
+  );
+  function selectReasoningEffort(val: string) {
+    gen.reasoning_effort = val === NO_EFFORT ? undefined : val;
+  }
 </script>
 
 <Dialog.Root bind:open>
@@ -444,11 +454,12 @@
         </div>
         <div class="space-y-1.5">
           <span class="text-xs text-muted-foreground" id="cfg-reasoning-label">Reasoning effort</span>
-          <Select.Root type="single" bind:value={gen.reasoning_effort}>
+          <Select.Root type="single" value={activeReasoningEffort} onValueChange={selectReasoningEffort}>
             <Select.Trigger class="w-full" aria-labelledby="cfg-reasoning-label">
-              {gen.reasoning_effort ?? "default"}
+              {activeReasoningEffortLabel}
             </Select.Trigger>
             <Select.Content>
+              <Select.Item value={NO_EFFORT} label="Default" />
               {#each ["none", "minimal", "low", "medium", "high", "xhigh"] as e (e)}
                 <Select.Item value={e} label={e} />
               {/each}

@@ -141,10 +141,17 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
 /// Infer the provider for a model name. Falls back to Ollama (local) when genai
 /// can't classify the name from its prefix.
 pub fn provider_of(model: &str) -> Provider {
-    AdapterKind::from_model(model)
-        .ok()
-        .map(Provider)
-        .unwrap_or(Provider(AdapterKind::Ollama))
+    let kind = AdapterKind::from_model(model).unwrap_or(AdapterKind::Ollama);
+    // genai may classify some OpenAI models (e.g. gpt-5*) to the OpenAIResp
+    // adapter, whose lowercase id differs from "openai". Our keychain username
+    // is derived from this id, and OpenAI keys are stored under "openai", so
+    // collapse the Responses variant to OpenAI to keep auth resolution stable.
+    // (genai still selects the correct adapter when executing the request.)
+    let kind = match kind {
+        AdapterKind::OpenAIResp => AdapterKind::OpenAI,
+        other => other,
+    };
+    Provider(kind)
 }
 
 /// Approximate context-window size (in tokens) for a model, by provider, used to
@@ -290,7 +297,9 @@ pub struct ProviderConfig {
 }
 
 /// Deserialize the provider list, silently dropping entries whose id genai does
-/// not recognize (rather than failing the whole settings file).
+/// not recognize (rather than failing the whole settings file). Unknown ids are
+/// dropped on load and — because `set_config` re-saves — the drop is persisted
+/// to disk on the next save. This is intentional: stale ids don't accumulate.
 fn de_providers<'de, D>(d: D) -> Result<Vec<ProviderConfig>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -731,6 +740,14 @@ mod tests {
         assert_eq!(provider_of("o1-mini"), Provider(AdapterKind::OpenAI));
         assert_eq!(provider_of("llama3"), Provider(AdapterKind::Ollama));
         assert_eq!(provider_of("qwen2.5"), Provider(AdapterKind::Ollama));
+    }
+
+    #[test]
+    fn provider_of_collapses_openai_resp_to_openai() {
+        // gpt-5* classifies to OpenAIResp in genai 0.6.4 (adapter_kind.rs:297-300);
+        // we normalize so the keychain username stays "openai".
+        assert_eq!(provider_of("gpt-5").as_str(), "openai");
+        assert_eq!(provider_of("gpt-4o").as_str(), "openai");
     }
 
     #[test]
