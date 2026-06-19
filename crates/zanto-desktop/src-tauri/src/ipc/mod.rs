@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use zanto_core::config::ContextSource;
+pub use zanto_core::config::{GenerationParams, ProviderInfo};
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{Session, Store};
@@ -85,6 +86,9 @@ pub struct ProviderDto {
     pub model: String,
     pub endpoint: Option<String>,
     pub has_key: bool,
+    pub label: String,
+    pub needs_key: bool,
+    pub default_endpoint: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -102,6 +106,8 @@ pub struct ConfigDto {
     pub max_context_turns: Option<usize>,
     pub providers: Vec<ProviderDto>,
     pub active_provider: Option<String>,
+    pub provider_registry: Vec<ProviderInfo>,
+    pub generation: GenerationParams,
 }
 
 #[derive(Deserialize)]
@@ -118,5 +124,6 @@ pub struct ConfigPatch {
     pub max_context_turns: Option<usize>,
     pub providers: Option<Vec<ProviderPatch>>,
     pub active_provider: Option<String>,
+    pub generation: Option<GenerationParams>,
 }
 

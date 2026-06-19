@@ -491,6 +491,20 @@ impl Settings {
     }
 }
 
+// ---- Model listing ----
+
+/// List model names a provider exposes, using the saved key/endpoint.
+/// Errors (missing key, offline, no list endpoint) are returned as `Err`.
+pub async fn list_models(p: Provider) -> Result<Vec<String>, String> {
+    use genai::resolver::{AuthData, Endpoint, ProviderConfig};
+    let auth = api_key(p).map(AuthData::from_single);
+    let endpoint = p.default_endpoint().map(Endpoint::from_owned);
+    genai::Client::default()
+        .all_model_names(p.0, ProviderConfig { endpoint, auth })
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ---- API keys (OS keychain with env-var fallback) ----
 
 /// The keyring entry for a provider, or an error string if the entry could not

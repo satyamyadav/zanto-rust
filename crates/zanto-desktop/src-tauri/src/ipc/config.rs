@@ -1,18 +1,22 @@
 //! Configuration IPC commands.
 
 use tauri::State;
-use zanto_core::config::AdapterKind;
 use zanto_core::config::{self, ContextSource, Provider, ProviderConfig, Settings};
 use super::{ConfigDto, ConfigPatch, DesktopState, ProviderDto};
 
-/// Default provider list when none are configured.
+/// Default provider list when none are configured: registry-derived.
 fn default_providers() -> Vec<ProviderConfig> {
-    vec![
-        ProviderConfig { provider: Provider(AdapterKind::Anthropic), model: "claude-opus-4-5".to_string(), endpoint: None },
-        ProviderConfig { provider: Provider(AdapterKind::OpenAI),    model: "gpt-4o".to_string(),           endpoint: None },
-        ProviderConfig { provider: Provider(AdapterKind::Gemini),    model: "gemini-2.0-flash".to_string(), endpoint: None },
-        ProviderConfig { provider: Provider(AdapterKind::Ollama),    model: "qwen2.5:14b".to_string(),      endpoint: Some("http://localhost:11434/".to_string()) },
-    ]
+    config::SUPPORTED
+        .iter()
+        .map(|k| {
+            let p = Provider(*k);
+            ProviderConfig {
+                provider: p,
+                model: p.default_model().to_string(),
+                endpoint: p.default_endpoint().map(str::to_string),
+            }
+        })
+        .collect()
 }
 
 /// Map a provider id string to a `Provider`; returns `Err` for unknown ids.
@@ -36,6 +40,9 @@ pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
             let has_key = config::has_api_key(pc.provider);
             ProviderDto {
                 provider: pc.provider.as_str().to_string(),
+                label: pc.provider.label().to_string(),
+                needs_key: pc.provider.needs_key(),
+                default_endpoint: pc.provider.default_endpoint().map(str::to_string),
                 model: pc.model,
                 endpoint: pc.endpoint,
                 has_key,
@@ -57,6 +64,8 @@ pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
         max_context_turns: settings.max_context_turns,
         providers,
         active_provider,
+        provider_registry: config::provider_registry(),
+        generation: settings.generation.clone(),
     }
 }
 
@@ -107,6 +116,10 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
     if let Some(t) = patch.max_context_turns {
         // 0 means "off" — clear it so the default (no summarization) applies.
         settings.max_context_turns = if t == 0 { None } else { Some(t) };
+    }
+
+    if let Some(gen) = patch.generation {
+        settings.generation = gen;
     }
 
     settings.save().map_err(|e| e.to_string())
@@ -206,4 +219,12 @@ pub fn set_api_key(provider: String, key: String) -> Result<(), String> {
 pub fn clear_api_key(provider: String) -> Result<(), String> {
     let p = parse_provider(&provider)?;
     config::clear_api_key(p)
+}
+
+/// List the models a provider exposes, using the saved key/endpoint.
+/// Errors (missing key, offline, no list endpoint) surface to the UI as `Err`.
+#[tauri::command]
+pub async fn list_models(provider: String) -> Result<Vec<String>, String> {
+    let p = parse_provider(&provider)?;
+    config::list_models(p).await
 }

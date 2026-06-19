@@ -111,6 +111,7 @@ pub fn run() {
             ipc::config::set_project_dir,
             ipc::config::set_api_key,
             ipc::config::clear_api_key,
+            ipc::config::list_models,
             ipc::skills::list_skills,
             ipc::skills::set_active_skill,
             ipc::files::browse_dir,
