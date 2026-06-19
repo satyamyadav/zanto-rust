@@ -161,6 +161,69 @@ pub fn model_context_window(model: &str) -> usize {
     }
 }
 
+/// Global generation parameters surfaced in Settings and applied to every turn.
+/// All-`None`/empty by default → genai's defaults (today's behavior).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GenerationParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    /// One of none|minimal|low|medium|high|xhigh. Unparseable values are ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stop_sequences: Vec<String>,
+    /// Advanced escape hatch: merged into the provider request body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_body: Option<serde_json::Value>,
+}
+
+impl GenerationParams {
+    /// Apply the set fields onto an existing `ChatOptions` (capture flags etc.
+    /// are preserved by the caller building the base options first).
+    pub fn apply(&self, mut opts: genai::chat::ChatOptions) -> genai::chat::ChatOptions {
+        use genai::chat::ReasoningEffort;
+        if let Some(t) = self.temperature {
+            opts = opts.with_temperature(t);
+        }
+        if let Some(m) = self.max_tokens {
+            opts = opts.with_max_tokens(m);
+        }
+        if let Some(p) = self.top_p {
+            opts = opts.with_top_p(p);
+        }
+        if let Some(s) = self.seed {
+            opts = opts.with_seed(s);
+        }
+        if let Some(eff) = self.reasoning_effort.as_deref() {
+            let parsed = match eff {
+                "none" => Some(ReasoningEffort::None),
+                "minimal" => Some(ReasoningEffort::Minimal),
+                "low" => Some(ReasoningEffort::Low),
+                "medium" => Some(ReasoningEffort::Medium),
+                "high" => Some(ReasoningEffort::High),
+                "xhigh" => Some(ReasoningEffort::XHigh),
+                _ => None,
+            };
+            if let Some(e) = parsed {
+                opts = opts.with_reasoning_effort(e);
+            }
+        }
+        if !self.stop_sequences.is_empty() {
+            opts = opts.with_stop_sequences(self.stop_sequences.clone());
+        }
+        if let Some(body) = &self.extra_body {
+            opts = opts.with_extra_body(body.clone());
+        }
+        opts
+    }
+}
+
 /// A context source (file or dir) fed to the assistant, with an enable toggle.
 ///
 /// Serializes as `{ "path": "...", "enabled": true }`. Deserialization is
@@ -282,6 +345,9 @@ pub struct Settings {
     /// turn. Persisted so the choice survives an app restart.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_skill: Option<String>,
+    /// Global generation parameters applied to every turn.
+    #[serde(default)]
+    pub generation: GenerationParams,
 }
 
 impl Settings {
@@ -657,5 +723,31 @@ mod tests {
     fn api_key_none_for_ollama() {
         assert_eq!(api_key(Provider(AdapterKind::Ollama)), None);
         assert!(!has_api_key(Provider(AdapterKind::Ollama)));
+    }
+
+    #[test]
+    fn generation_params_apply_only_set_fields() {
+        use genai::chat::ChatOptions;
+        let gp = GenerationParams {
+            temperature: Some(0.3),
+            max_tokens: Some(1024),
+            reasoning_effort: Some("high".into()),
+            stop_sequences: vec!["STOP".into()],
+            ..Default::default()
+        };
+        let opts = gp.apply(ChatOptions::default());
+        assert_eq!(opts.temperature, Some(0.3));
+        assert_eq!(opts.max_tokens, Some(1024));
+        assert_eq!(opts.top_p, None);
+        assert_eq!(opts.stop_sequences, vec!["STOP".to_string()]);
+    }
+
+    #[test]
+    fn generation_params_default_is_empty() {
+        let gp = GenerationParams::default();
+        assert!(gp.temperature.is_none());
+        assert!(gp.stop_sequences.is_empty());
+        let s: Settings = serde_json::from_str("{}").unwrap();
+        assert!(s.generation.temperature.is_none());
     }
 }
