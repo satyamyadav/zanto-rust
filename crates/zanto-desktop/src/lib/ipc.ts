@@ -62,6 +62,26 @@ export type ProviderDto = {
   model: string;
   endpoint: string | null;
   has_key: boolean;
+  label: string;
+  needs_key: boolean;
+  default_endpoint: string | null;
+};
+
+export type ProviderInfo = {
+  id: string;
+  label: string;
+  needs_key: boolean;
+  default_endpoint: string | null;
+};
+
+export type GenerationParams = {
+  temperature?: number | null;
+  max_tokens?: number | null;
+  top_p?: number | null;
+  reasoning_effort?: string | null;
+  seed?: number | null;
+  stop_sequences?: string[];
+  extra_body?: unknown;
 };
 
 export type ProviderPatch = {
@@ -84,6 +104,8 @@ export type Config = {
   max_context_turns: number | null;
   providers: ProviderDto[];
   active_provider: string | null;
+  provider_registry: ProviderInfo[];
+  generation: GenerationParams;
 };
 
 // A discoverable markdown skill: file stem + a short body preview.
@@ -92,6 +114,7 @@ export type SkillDto = { name: string; preview: string };
 export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_context_turns">> & {
   providers?: ProviderPatch[];
   active_provider?: string;
+  generation?: GenerationParams;
 };
 
 // A persisted display segment for a past assistant turn, mirroring `ChatSegment`
@@ -219,6 +242,7 @@ export const ipc = {
 
   // Config
   getConfig: () => invoke<Config>("get_config"),
+  listModels: (provider: string) => invoke<string[]>("list_models", { provider }),
   setConfig: (patch: ConfigPatch) => invoke<void>("set_config", { patch }),
   pickFolder: () => invoke<string | null>("pick_folder"),
   // Multi-select open-file dialog via the (already-registered) dialog plugin.
