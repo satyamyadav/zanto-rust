@@ -1,7 +1,7 @@
 //! Configuration IPC commands.
 
 use tauri::State;
-use genai::adapter::AdapterKind;
+use zanto_core::config::AdapterKind;
 use zanto_core::config::{self, ContextSource, Provider, ProviderConfig, Settings};
 use super::{ConfigDto, ConfigPatch, DesktopState, ProviderDto};
 

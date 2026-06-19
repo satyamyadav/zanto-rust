@@ -6,7 +6,9 @@ pub const PROJECT_CONFIG: &str = ".zanto/settings.json";
 /// Keyring service name under which API keys are stored.
 const KEYRING_SERVICE: &str = "zanto";
 
-use genai::adapter::AdapterKind;
+// Re-exported so downstream crates (the desktop app) can name provider kinds
+// without depending on genai directly.
+pub use genai::adapter::AdapterKind;
 
 /// An LLM provider — a thin newtype over genai's `AdapterKind`, which is the
 /// single source of truth for which providers and protocols exist. Persisted in

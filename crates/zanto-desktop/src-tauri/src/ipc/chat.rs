@@ -7,7 +7,7 @@ use base64::Engine;
 use tauri::{Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn, ImageAttachment};
-use genai::adapter::AdapterKind;
+use zanto_core::config::AdapterKind;
 use zanto_core::config::{Provider, Settings};
 use zanto_core::permissions::Op;
 use zanto_core::session::ContextPolicy;
