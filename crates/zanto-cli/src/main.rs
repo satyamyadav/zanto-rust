@@ -146,15 +146,16 @@ async fn main() {
     };
 
     let generation = settings.generation.clone();
+    let project_dir = settings.project_dir.clone().map(std::path::PathBuf::from);
     match args.question {
         Some(q) => {
             let mut session = resolve_session(&store, &workspace, args.session, args.new, args.title);
-            run_once(&store, &mut session, model, endpoint, &permissions, &policy, generation, &q).await;
+            run_once(&store, &mut session, model, endpoint, &permissions, &policy, generation, project_dir, &q).await;
             finalize_session(&store, &mut session);
         }
         None => {
             let mut session = resolve_session(&store, &workspace, args.session, args.new, args.title);
-            run_interactive(&store, &mut session, model, endpoint, &permissions, &policy, generation).await;
+            run_interactive(&store, &mut session, model, endpoint, &permissions, &policy, generation, project_dir).await;
             finalize_session(&store, &mut session);
         }
     }
@@ -215,10 +216,12 @@ async fn run_once(
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
     generation: zanto_core::config::GenerationParams,
+    project_dir: Option<std::path::PathBuf>,
     question: &str,
 ) {
     let mut config = ChatConfig::new(model, endpoint, Arc::clone(permissions));
     config.generation = generation;
+    config.project_dir = project_dir;
     match chat(config, store, session, question, policy).await {
         Ok(turn) => println!("{}", turn.text()),
         Err(e) => eprintln!("Error: {e}"),
@@ -233,6 +236,7 @@ async fn run_interactive(
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
     generation: zanto_core::config::GenerationParams,
+    project_dir: Option<std::path::PathBuf>,
 ) {
     use tokio::io::AsyncBufReadExt;
 
@@ -257,6 +261,7 @@ async fn run_interactive(
 
         let mut config = ChatConfig::new(model.clone(), endpoint.clone(), Arc::clone(permissions));
         config.generation = generation.clone();
+        config.project_dir = project_dir.clone();
 
         match chat(config, store, session, q, policy).await {
             Ok(turn) => println!("\n{}", turn.text()),
