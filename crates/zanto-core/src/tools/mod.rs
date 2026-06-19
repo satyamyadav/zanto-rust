@@ -4,11 +4,10 @@ pub mod fs;
 pub mod shell;
 pub mod web;
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use genai::chat::Tool as GenaiTool;
 use crate::artifacts::ArtifactStore;
-use crate::config::Settings;
 use crate::permissions::PermissionGuard;
 
 pub struct ToolService {
@@ -21,11 +20,15 @@ pub struct ToolService {
 
 impl ToolService {
     pub fn new(permissions: Arc<PermissionGuard>) -> Self {
-        // Artifact store is ungated (managed roots only); its project scope is
-        // rooted at the active project, loaded from settings here so the public
-        // signature stays unchanged.
-        let project_dir = Settings::load().project_dir.map(PathBuf::from);
-        let store = Arc::new(ArtifactStore::new(project_dir.as_deref()));
+        Self::with_project_dir(permissions, None)
+    }
+
+    /// Create a `ToolService` with an explicit project directory for artifact
+    /// scoping. Prefer this over `new` when a loaded `Settings` is available —
+    /// it avoids a redundant `Settings::load()` call (and its `ensure_project_config`
+    /// side-effect) inside the library.
+    pub fn with_project_dir(permissions: Arc<PermissionGuard>, project_dir: Option<&Path>) -> Self {
+        let store = Arc::new(ArtifactStore::new(project_dir));
         Self {
             fs: fs::FsTools::new(Arc::clone(&permissions)),
             docs: docs::DocTools::new(Arc::clone(&permissions)),

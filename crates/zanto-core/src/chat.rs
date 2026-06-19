@@ -147,6 +147,9 @@ pub struct ChatConfig {
     pub images: Vec<ImageAttachment>,
     /// Global generation parameters applied to this turn's request options.
     pub generation: crate::config::GenerationParams,
+    /// Optional project root for artifact scoping. When `None`, artifact tools
+    /// operate without a project scope. Set from the loaded settings' `project_dir`.
+    pub project_dir: Option<std::path::PathBuf>,
 }
 
 impl ChatConfig {
@@ -163,7 +166,8 @@ impl ChatConfig {
             sink: None,
             cancel: None,
             images: Vec::new(),
-            generation: crate::config::Settings::load().generation,
+            generation: crate::config::GenerationParams::default(),
+            project_dir: None,
         }
     }
 }
@@ -223,7 +227,10 @@ pub async fn chat(
     question: &str,
     policy: &ContextPolicy,
 ) -> Result<ChatTurn, Box<dyn std::error::Error + Send + Sync>> {
-    let tools = ToolService::new(Arc::clone(&config.permissions));
+    let tools = ToolService::with_project_dir(
+        Arc::clone(&config.permissions),
+        config.project_dir.as_deref(),
+    );
 
     // Ensure the session row exists before appending messages
     session.updated_at = crate::session::unix_now_pub();

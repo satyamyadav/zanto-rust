@@ -188,6 +188,8 @@ pub async fn send_message(
                 sink: None,
                 cancel: None,
                 images,
+                generation: settings.generation.clone(),
+                project_dir: settings.project_dir.as_deref().map(std::path::PathBuf::from),
             }
         }
         None => {
@@ -195,6 +197,8 @@ pub async fn send_message(
             c.skill = skill;
             c.context = context;
             c.images = images;
+            c.generation = settings.generation.clone();
+            c.project_dir = settings.project_dir.as_deref().map(std::path::PathBuf::from);
             c
         }
     };

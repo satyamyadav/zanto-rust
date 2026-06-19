@@ -145,15 +145,16 @@ async fn main() {
         Err(e) => { eprintln!("Error opening session DB: {e}"); return; }
     };
 
+    let generation = settings.generation.clone();
     match args.question {
         Some(q) => {
             let mut session = resolve_session(&store, &workspace, args.session, args.new, args.title);
-            run_once(&store, &mut session, model, endpoint, &permissions, &policy, &q).await;
+            run_once(&store, &mut session, model, endpoint, &permissions, &policy, generation, &q).await;
             finalize_session(&store, &mut session);
         }
         None => {
             let mut session = resolve_session(&store, &workspace, args.session, args.new, args.title);
-            run_interactive(&store, &mut session, model, endpoint, &permissions, &policy).await;
+            run_interactive(&store, &mut session, model, endpoint, &permissions, &policy, generation).await;
             finalize_session(&store, &mut session);
         }
     }
@@ -213,9 +214,11 @@ async fn run_once(
     endpoint: String,
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
+    generation: zanto_core::config::GenerationParams,
     question: &str,
 ) {
-    let config = ChatConfig::new(model, endpoint, Arc::clone(permissions));
+    let mut config = ChatConfig::new(model, endpoint, Arc::clone(permissions));
+    config.generation = generation;
     match chat(config, store, session, question, policy).await {
         Ok(turn) => println!("{}", turn.text()),
         Err(e) => eprintln!("Error: {e}"),
@@ -229,6 +232,7 @@ async fn run_interactive(
     endpoint: String,
     permissions: &Arc<PermissionGuard>,
     policy: &ContextPolicy,
+    generation: zanto_core::config::GenerationParams,
 ) {
     use tokio::io::AsyncBufReadExt;
 
@@ -251,7 +255,8 @@ async fn run_interactive(
         if q.is_empty() { continue; }
         if q == "exit" || q == "quit" { break; }
 
-        let config = ChatConfig::new(model.clone(), endpoint.clone(), Arc::clone(permissions));
+        let mut config = ChatConfig::new(model.clone(), endpoint.clone(), Arc::clone(permissions));
+        config.generation = generation.clone();
 
         match chat(config, store, session, q, policy).await {
             Ok(turn) => println!("\n{}", turn.text()),

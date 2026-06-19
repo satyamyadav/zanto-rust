@@ -184,6 +184,20 @@ pub struct GenerationParams {
 }
 
 impl GenerationParams {
+    /// Field-wise overlay: each value set in `other` overrides `self`; unset
+    /// fields in `other` keep `self`'s value. Used to layer project config over
+    /// user config.
+    pub fn overlay(mut self, other: GenerationParams) -> GenerationParams {
+        if other.temperature.is_some() { self.temperature = other.temperature; }
+        if other.max_tokens.is_some() { self.max_tokens = other.max_tokens; }
+        if other.top_p.is_some() { self.top_p = other.top_p; }
+        if other.reasoning_effort.is_some() { self.reasoning_effort = other.reasoning_effort; }
+        if other.seed.is_some() { self.seed = other.seed; }
+        if !other.stop_sequences.is_empty() { self.stop_sequences = other.stop_sequences; }
+        if other.extra_body.is_some() { self.extra_body = other.extra_body; }
+        self
+    }
+
     /// Apply the set fields onto an existing `ChatOptions` (capture flags etc.
     /// are preserved by the caller building the base options first).
     pub fn apply(&self, mut opts: genai::chat::ChatOptions) -> genai::chat::ChatOptions {
@@ -470,6 +484,7 @@ impl Settings {
             self.project_dir = other.project_dir;
         }
         self.context_sources.extend(other.context_sources);
+        self.generation = std::mem::take(&mut self.generation).overlay(other.generation);
         self
     }
 }
@@ -740,6 +755,17 @@ mod tests {
         assert_eq!(opts.max_tokens, Some(1024));
         assert_eq!(opts.top_p, None);
         assert_eq!(opts.stop_sequences, vec!["STOP".to_string()]);
+    }
+
+    #[test]
+    fn merge_overlays_generation_params() {
+        let mut user = Settings::default();
+        user.generation.temperature = Some(0.2);
+        let mut project = Settings::default();
+        project.generation.max_tokens = Some(500);
+        let merged = user.merge(project);
+        assert_eq!(merged.generation.temperature, Some(0.2)); // preserved from user
+        assert_eq!(merged.generation.max_tokens, Some(500));  // overridden by project
     }
 
     #[test]
