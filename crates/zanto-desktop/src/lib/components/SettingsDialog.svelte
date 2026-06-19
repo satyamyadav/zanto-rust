@@ -7,7 +7,7 @@
   import { mode, setMode } from "mode-watcher";
   import { density, setDensity, type Density } from "$lib/stores/theme.svelte";
   import { appStore, refreshConfig } from "$lib/stores/app.svelte";
-  import { ipc, type ProviderPatch, type SkillDto } from "$lib/ipc";
+  import { ipc, type ProviderPatch, type SkillDto, type GenerationParams } from "$lib/ipc";
   import EyeIcon from "@lucide/svelte/icons/eye";
   import EyeOffIcon from "@lucide/svelte/icons/eye-off";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
@@ -31,6 +31,14 @@
   // providers clears a half-typed key / revealed key / open confirm banner.
   let keyForProvider = $state("");
 
+  // Model combobox state
+  let modelList = $state<string[]>([]);
+  let modelsLoading = $state(false);
+  let modelsError = $state("");
+
+  // Generation params state
+  let gen = $state<GenerationParams>({});
+
   $effect(() => {
     if (open && appStore.config) {
       // Fall back to the first provider in the list so the UI is never blank.
@@ -43,6 +51,7 @@
       resetKeyState();
       activeSkill = appStore.config.selected_skill ?? NO_SKILL;
       contextTurns = appStore.config.max_context_turns ?? 0;
+      gen = { ...(appStore.config.generation ?? {}) };
       loadSkills();
     }
   });
@@ -69,7 +78,11 @@
   // Never carry one provider's key field, revealed state, or confirm banner
   // into another provider.
   $effect(() => {
-    if (activeProvider !== keyForProvider) resetKeyState();
+    if (activeProvider !== keyForProvider) {
+      resetKeyState();
+      modelList = [];
+      modelsError = "";
+    }
   });
 
   function resetKeyState() {
@@ -155,20 +168,50 @@
     }
   }
 
+  async function refreshModels() {
+    if (!activeProvider) return;
+    modelsLoading = true;
+    modelsError = "";
+    try {
+      modelList = await ipc.listModels(activeProvider);
+    } catch (e) {
+      modelList = [];
+      modelsError = "Couldn't load models — type the name manually.";
+    } finally {
+      modelsLoading = false;
+    }
+  }
+
+  async function saveGeneration() {
+    try {
+      const clean = Object.fromEntries(
+        Object.entries(gen).filter(([, v]) => v !== "" && v != null)
+      ) as GenerationParams;
+      await ipc.setConfig({ generation: clean });
+      await refreshConfig();
+      toast.success("Generation settings saved");
+    } catch (e) {
+      toast.error("Could not save generation settings", { description: `${e}` });
+    }
+  }
+
+  // Step 1: Drive provider select from registry
+  const registry = $derived(appStore.config?.provider_registry ?? []);
+  function providerLabel(id: string): string {
+    return registry.find((r) => r.id === id)?.label ?? id;
+  }
+  const activeProviderLabel = $derived(providerLabel(activeProvider));
+
+  // Step 2: Capability checks instead of literal "ollama" string
+  const activeInfo = $derived(registry.find((r) => r.id === activeProvider) ?? null);
+
   const densities: Density[] = ["compact", "normal", "relaxed"];
   const densityLabels: Record<Density, string> = {
     compact: "Compact",
     normal: "Normal",
     relaxed: "Relaxed",
   };
-  const providerLabels: Record<string, string> = {
-    anthropic: "Anthropic",
-    openai: "OpenAI",
-    gemini: "Gemini",
-    ollama: "Ollama",
-  };
 
-  const activeProviderLabel = $derived(providerLabels[activeProvider] ?? activeProvider);
   const allowedPaths = $derived(appStore.config?.allowed_paths ?? []);
   const activeSkillLabel = $derived(
     activeSkill === NO_SKILL ? "None" : activeSkill
@@ -197,8 +240,8 @@
               {activeProviderLabel || "Choose a provider"}
             </Select.Trigger>
             <Select.Content>
-              {#each (appStore.config?.providers ?? []) as p (p.provider)}
-                <Select.Item value={p.provider} label={providerLabels[p.provider] ?? p.provider} />
+              {#each registry as r (r.id)}
+                <Select.Item value={r.id} label={r.label} />
               {/each}
             </Select.Content>
           </Select.Root>
@@ -207,16 +250,28 @@
         {#if activeProvider}
           <div class="space-y-1.5">
             <label class="text-xs text-muted-foreground" for="cfg-prov-model">Model</label>
-            <Input
-              id="cfg-prov-model"
-              class="font-mono focus-visible:ring-2 focus-visible:ring-ring"
-              value={activeProviderPatch()?.model ?? ""}
-              oninput={(e) => setActiveModel((e.target as HTMLInputElement).value)}
-              placeholder="model name"
-            />
+            <div class="flex gap-2 items-center">
+              <Input
+                id="cfg-prov-model"
+                class="font-mono flex-1 focus-visible:ring-2 focus-visible:ring-ring"
+                list="cfg-model-options"
+                value={activeProviderPatch()?.model ?? ""}
+                oninput={(e) => setActiveModel((e.target as HTMLInputElement).value)}
+                placeholder="model name"
+              />
+              <Button size="sm" variant="outline" onclick={refreshModels} disabled={modelsLoading}>
+                {modelsLoading ? "Loading…" : "Refresh"}
+              </Button>
+            </div>
+            <datalist id="cfg-model-options">
+              {#each modelList as m (m)}<option value={m}></option>{/each}
+            </datalist>
+            {#if modelsError}
+              <p class="text-xs text-muted-foreground">{modelsError}</p>
+            {/if}
           </div>
 
-          {#if activeProvider === "ollama"}
+          {#if activeInfo && !activeInfo.needs_key}
             <div class="space-y-1.5">
               <label class="text-xs text-muted-foreground" for="cfg-prov-endpoint">Endpoint</label>
               <Input
@@ -224,7 +279,7 @@
                 class="font-mono focus-visible:ring-2 focus-visible:ring-ring"
                 value={activeProviderPatch()?.endpoint ?? ""}
                 oninput={(e) => setActiveEndpoint((e.target as HTMLInputElement).value)}
-                placeholder="http://localhost:11434/"
+                placeholder={activeInfo?.default_endpoint ?? "http://localhost:11434/"}
               />
             </div>
           {:else}
@@ -368,6 +423,42 @@
             <span class="font-medium">0 = off</span> (default: keep the last 20, no summary). Applies on your next message.
           </p>
         </div>
+      </section>
+
+      <!-- Generation -->
+      <section class="space-y-3">
+        <h3 class="font-display text-sm font-semibold tracking-tight">Generation</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="space-y-1.5 text-xs text-muted-foreground">Temperature
+            <Input type="number" step="0.1" min="0" bind:value={gen.temperature} class="font-mono" />
+          </label>
+          <label class="space-y-1.5 text-xs text-muted-foreground">Max tokens
+            <Input type="number" step="1" min="1" bind:value={gen.max_tokens} class="font-mono" />
+          </label>
+          <label class="space-y-1.5 text-xs text-muted-foreground">Top-p
+            <Input type="number" step="0.05" min="0" max="1" bind:value={gen.top_p} class="font-mono" />
+          </label>
+          <label class="space-y-1.5 text-xs text-muted-foreground">Seed
+            <Input type="number" step="1" bind:value={gen.seed} class="font-mono" />
+          </label>
+        </div>
+        <div class="space-y-1.5">
+          <span class="text-xs text-muted-foreground" id="cfg-reasoning-label">Reasoning effort</span>
+          <Select.Root type="single" bind:value={gen.reasoning_effort}>
+            <Select.Trigger class="w-full" aria-labelledby="cfg-reasoning-label">
+              {gen.reasoning_effort ?? "default"}
+            </Select.Trigger>
+            <Select.Content>
+              {#each ["none", "minimal", "low", "medium", "high", "xhigh"] as e (e)}
+                <Select.Item value={e} label={e} />
+              {/each}
+            </Select.Content>
+          </Select.Root>
+        </div>
+        <Button size="sm" onclick={saveGeneration}>Save generation</Button>
+        <p class="text-xs text-muted-foreground">
+          Empty fields use the provider default. Unsupported options are ignored per provider.
+        </p>
       </section>
 
       <!-- Skill -->
