@@ -7,6 +7,7 @@ use base64::Engine;
 use tauri::{Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn, ImageAttachment};
+use genai::adapter::AdapterKind;
 use zanto_core::config::{Provider, Settings};
 use zanto_core::permissions::Op;
 use zanto_core::session::ContextPolicy;
@@ -33,7 +34,7 @@ fn image_mime(path: &str) -> Option<&'static str> {
 
 /// Providers that accept image content parts. Ollama (local) is text-only here.
 fn provider_is_multimodal(p: Provider) -> bool {
-    matches!(p, Provider::Gemini | Provider::Anthropic | Provider::OpenAI)
+    matches!(p.0, AdapterKind::Gemini | AdapterKind::Anthropic | AdapterKind::OpenAI)
 }
 
 /// Injected into the system prompt whenever the shared artifact tools are active.

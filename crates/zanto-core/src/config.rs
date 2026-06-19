@@ -6,50 +6,143 @@ pub const PROJECT_CONFIG: &str = ".zanto/settings.json";
 /// Keyring service name under which API keys are stored.
 const KEYRING_SERVICE: &str = "zanto";
 
-/// An LLM provider. Each provider has its own model + auth scheme.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Provider {
-    Ollama,
-    Gemini,
-    Anthropic,
-    OpenAI,
-}
+use genai::adapter::AdapterKind;
+
+/// An LLM provider — a thin newtype over genai's `AdapterKind`, which is the
+/// single source of truth for which providers and protocols exist. Persisted in
+/// settings.json as the lowercase id (`AdapterKind::as_lower_str`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Provider(pub AdapterKind);
+
+/// Providers surfaced in the UI (curated to the set we test). Adding one here is
+/// the only edit needed to offer a new provider.
+pub const SUPPORTED: &[AdapterKind] = &[
+    AdapterKind::Anthropic,
+    AdapterKind::OpenAI,
+    AdapterKind::Gemini,
+    AdapterKind::Groq,
+    AdapterKind::Xai,
+    AdapterKind::DeepSeek,
+    AdapterKind::Together,
+    AdapterKind::Fireworks,
+    AdapterKind::Cohere,
+    AdapterKind::Ollama,
+];
 
 impl Provider {
-    /// Snake-case identifier; used as the keyring username and env-var basis.
+    /// Lowercase id; the keyring username and the persisted/UI identifier.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Provider::Ollama => "ollama",
-            Provider::Gemini => "gemini",
-            Provider::Anthropic => "anthropic",
-            Provider::OpenAI => "openai",
+        self.0.as_lower_str()
+    }
+
+    /// Env var consulted as an API-key fallback; `None` when no key is needed.
+    pub fn env_var(self) -> Option<&'static str> {
+        self.0.default_key_env_name()
+    }
+
+    /// Whether this provider requires an API key.
+    pub fn needs_key(self) -> bool {
+        self.env_var().is_some()
+    }
+
+    /// Human-friendly label for the UI.
+    pub fn label(self) -> &'static str {
+        match self.0 {
+            AdapterKind::Anthropic => "Anthropic",
+            AdapterKind::OpenAI => "OpenAI",
+            AdapterKind::Gemini => "Gemini",
+            AdapterKind::Groq => "Groq",
+            AdapterKind::Xai => "xAI",
+            AdapterKind::DeepSeek => "DeepSeek",
+            AdapterKind::Together => "Together AI",
+            AdapterKind::Fireworks => "Fireworks",
+            AdapterKind::Cohere => "Cohere",
+            AdapterKind::Ollama => "Ollama",
+            other => other.as_str(),
         }
     }
 
-    /// Environment variable consulted as a fallback for this provider's API key.
-    /// `None` for providers that need no key (Ollama).
-    fn env_var(self) -> Option<&'static str> {
-        match self {
-            Provider::Ollama => None,
-            Provider::Gemini => Some("GEMINI_API_KEY"),
-            Provider::Anthropic => Some("ANTHROPIC_API_KEY"),
-            Provider::OpenAI => Some("OPENAI_API_KEY"),
+    /// A sensible default model to seed a freshly-added provider config.
+    pub fn default_model(self) -> &'static str {
+        match self.0 {
+            AdapterKind::Anthropic => "claude-opus-4-5",
+            AdapterKind::OpenAI => "gpt-4o",
+            AdapterKind::Gemini => "gemini-2.0-flash",
+            AdapterKind::Groq => "llama-3.3-70b-versatile",
+            AdapterKind::Xai => "grok-2",
+            AdapterKind::DeepSeek => "deepseek-chat",
+            AdapterKind::Together => "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            AdapterKind::Fireworks => "accounts/fireworks/models/llama-v3p3-70b-instruct",
+            AdapterKind::Cohere => "command-r-plus",
+            AdapterKind::Ollama => "qwen2.5:14b",
+            _ => "",
+        }
+    }
+
+    /// Default endpoint override (only Ollama needs one).
+    pub fn default_endpoint(self) -> Option<&'static str> {
+        match self.0 {
+            AdapterKind::Ollama => Some("http://localhost:11434/"),
+            _ => None,
         }
     }
 }
 
-/// Infer the provider for a model name from its prefix. Defaults to Ollama.
-pub fn provider_of(model: &str) -> Provider {
-    if model.starts_with("gemini-") {
-        Provider::Gemini
-    } else if model.starts_with("claude-") {
-        Provider::Anthropic
-    } else if model.starts_with("gpt-") || model.starts_with("o1") {
-        Provider::OpenAI
-    } else {
-        Provider::Ollama
+/// Custom serde: persist/parse as the lowercase id, remapping the legacy
+/// `"open_ai"` form to `AdapterKind::OpenAI`.
+impl serde::Serialize for Provider {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
     }
+}
+
+impl<'de> serde::Deserialize<'de> for Provider {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        provider_from_id(&raw)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown provider: {raw}")))
+    }
+}
+
+/// Parse a stored/UI provider id into a `Provider`, applying legacy remaps.
+/// Returns `None` for ids genai does not recognize.
+pub fn provider_from_id(s: &str) -> Option<Provider> {
+    let id = if s == "open_ai" { "openai" } else { s };
+    AdapterKind::from_lower_str(id).map(Provider)
+}
+
+/// A registry entry describing a provider for the UI.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProviderInfo {
+    pub id: String,
+    pub label: String,
+    pub needs_key: bool,
+    pub default_endpoint: Option<String>,
+}
+
+/// The curated provider registry, in display order.
+pub fn provider_registry() -> Vec<ProviderInfo> {
+    SUPPORTED
+        .iter()
+        .map(|k| {
+            let p = Provider(*k);
+            ProviderInfo {
+                id: p.as_str().to_string(),
+                label: p.label().to_string(),
+                needs_key: p.needs_key(),
+                default_endpoint: p.default_endpoint().map(str::to_string),
+            }
+        })
+        .collect()
+}
+
+/// Infer the provider for a model name. Falls back to Ollama (local) when genai
+/// can't classify the name from its prefix.
+pub fn provider_of(model: &str) -> Provider {
+    AdapterKind::from_model(model)
+        .ok()
+        .map(Provider)
+        .unwrap_or(Provider(AdapterKind::Ollama))
 }
 
 /// Approximate context-window size (in tokens) for a model, by provider, used to
@@ -58,12 +151,13 @@ pub fn provider_of(model: &str) -> Provider {
 /// policy only needs a ballpark, and a Settings override exists for outliers
 /// (notably local Ollama models, whose windows vary widely).
 pub fn model_context_window(model: &str) -> usize {
-    match provider_of(model) {
-        Provider::Anthropic => 200_000,
-        Provider::Gemini => 1_000_000,
-        Provider::OpenAI => 128_000,
-        // Local models vary; assume a small window unless the user overrides it.
-        Provider::Ollama => 8_192,
+    match provider_of(model).0 {
+        AdapterKind::Anthropic => 200_000,
+        AdapterKind::Gemini => 1_000_000,
+        AdapterKind::OpenAI => 128_000,
+        AdapterKind::Ollama => 8_192,
+        // New providers: a conservative default until a real value is known.
+        _ => 32_000,
     }
 }
 
@@ -116,6 +210,41 @@ pub struct ProviderConfig {
     pub endpoint: Option<String>,
 }
 
+/// Deserialize the provider list, silently dropping entries whose id genai does
+/// not recognize (rather than failing the whole settings file).
+fn de_providers<'de, D>(d: D) -> Result<Vec<ProviderConfig>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct Raw {
+        provider: String,
+        model: String,
+        #[serde(default)]
+        endpoint: Option<String>,
+    }
+    let raw = Vec::<Raw>::deserialize(d)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|r| {
+            provider_from_id(&r.provider).map(|p| ProviderConfig {
+                provider: p,
+                model: r.model,
+                endpoint: r.endpoint,
+            })
+        })
+        .collect())
+}
+
+/// Deserialize the active provider, dropping it to `None` if unrecognized.
+fn de_active_provider<'de, D>(d: D) -> Result<Option<Provider>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(d)?;
+    Ok(opt.as_deref().and_then(provider_from_id))
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Settings {
     #[serde(default)]
@@ -136,10 +265,10 @@ pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window_tokens: Option<usize>,
     /// Per-provider model + endpoint configs.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_providers")]
     pub providers: Vec<ProviderConfig>,
     /// The selected provider; when set, its `ProviderConfig` is the effective active one.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "de_active_provider")]
     pub active_provider: Option<Provider>,
     /// Root directory of the active project (canonicalized on load).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,7 +328,7 @@ impl Settings {
         }
         match &self.model {
             Some(model) => (provider_of(model), model.clone(), self.endpoint.clone()),
-            None => (Provider::Ollama, String::new(), self.endpoint.clone()),
+            None => (Provider(AdapterKind::Ollama), String::new(), self.endpoint.clone()),
         }
     }
 
@@ -327,6 +456,54 @@ pub fn has_api_key(p: Provider) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use genai::adapter::AdapterKind;
+
+    #[test]
+    fn provider_serde_roundtrips_lower_str() {
+        for kind in SUPPORTED {
+            let p = Provider(*kind);
+            let json = serde_json::to_string(&p).unwrap();
+            assert_eq!(json, format!("\"{}\"", kind.as_lower_str()));
+            let back: Provider = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, p);
+        }
+    }
+
+    #[test]
+    fn provider_deserializes_legacy_open_ai() {
+        let p: Provider = serde_json::from_str("\"open_ai\"").unwrap();
+        assert_eq!(p, Provider(AdapterKind::OpenAI));
+    }
+
+    #[test]
+    fn settings_drops_unknown_provider_id() {
+        let json = r#"{
+            "providers": [
+                {"provider":"anthropic","model":"claude-opus-4-5"},
+                {"provider":"totally-bogus","model":"x"}
+            ],
+            "active_provider": "totally-bogus"
+        }"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.providers.len(), 1);
+        assert_eq!(s.providers[0].provider, Provider(AdapterKind::Anthropic));
+        assert!(s.active_provider.is_none());
+    }
+
+    #[test]
+    fn registry_has_curated_set_in_order() {
+        let reg = provider_registry();
+        let ids: Vec<&str> = reg.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, vec![
+            "anthropic","openai","gemini","groq","xai","deepseek","together","fireworks","cohere","ollama"
+        ]);
+        let ollama = reg.iter().find(|p| p.id == "ollama").unwrap();
+        assert!(!ollama.needs_key);
+        assert_eq!(ollama.default_endpoint.as_deref(), Some("http://localhost:11434/"));
+        let anthropic = reg.iter().find(|p| p.id == "anthropic").unwrap();
+        assert!(anthropic.needs_key);
+        assert!(anthropic.default_endpoint.is_none());
+    }
 
     #[test]
     fn model_context_window_by_provider() {
@@ -343,17 +520,17 @@ mod tests {
             model: Some("llama3".to_string()),
             providers: vec![
                 ProviderConfig {
-                    provider: Provider::Ollama,
+                    provider: Provider(AdapterKind::Ollama),
                     model: "llama3".to_string(),
                     endpoint: Some("http://localhost:11434".to_string()),
                 },
                 ProviderConfig {
-                    provider: Provider::Gemini,
+                    provider: Provider(AdapterKind::Gemini),
                     model: "gemini-2.0-flash".to_string(),
                     endpoint: None,
                 },
             ],
-            active_provider: Some(Provider::Gemini),
+            active_provider: Some(Provider(AdapterKind::Gemini)),
             project_dir: Some("/tmp/project".to_string()),
             context_sources: vec![ContextSource {
                 path: "notes.md".to_string(),
@@ -366,7 +543,7 @@ mod tests {
         let back: Settings = serde_json::from_str(&json).unwrap();
 
         assert_eq!(back.providers.len(), 2);
-        assert_eq!(back.active_provider, Some(Provider::Gemini));
+        assert_eq!(back.active_provider, Some(Provider(AdapterKind::Gemini)));
         assert_eq!(back.project_dir.as_deref(), Some("/tmp/project"));
         assert_eq!(
             back.context_sources,
@@ -375,7 +552,7 @@ mod tests {
                 enabled: true,
             }]
         );
-        // snake_case rename for the provider enum.
+        // lowercase id for the provider newtype.
         assert!(json.contains("\"gemini\""));
     }
 
@@ -413,16 +590,16 @@ mod tests {
             model: Some("llama3".to_string()),
             endpoint: Some("http://legacy".to_string()),
             providers: vec![ProviderConfig {
-                provider: Provider::Gemini,
+                provider: Provider(AdapterKind::Gemini),
                 model: "gemini-2.0-flash".to_string(),
                 endpoint: None,
             }],
-            active_provider: Some(Provider::Gemini),
+            active_provider: Some(Provider(AdapterKind::Gemini)),
             ..Default::default()
         };
 
         let (provider, model, endpoint) = settings.active();
-        assert_eq!(provider, Provider::Gemini);
+        assert_eq!(provider, Provider(AdapterKind::Gemini));
         assert_eq!(model, "gemini-2.0-flash");
         assert_eq!(endpoint, None);
     }
@@ -436,7 +613,7 @@ mod tests {
         };
 
         let (provider, model, endpoint) = settings.active();
-        assert_eq!(provider, Provider::Gemini);
+        assert_eq!(provider, Provider(AdapterKind::Gemini));
         assert_eq!(model, "gemini-2.0-flash");
         assert_eq!(endpoint.as_deref(), Some("http://legacy"));
     }
@@ -445,18 +622,18 @@ mod tests {
     fn active_defaults_to_ollama_without_model() {
         let settings = Settings::default();
         let (provider, model, _) = settings.active();
-        assert_eq!(provider, Provider::Ollama);
+        assert_eq!(provider, Provider(AdapterKind::Ollama));
         assert!(model.is_empty());
     }
 
     #[test]
     fn provider_of_prefix_map() {
-        assert_eq!(provider_of("gemini-2.0-flash"), Provider::Gemini);
-        assert_eq!(provider_of("claude-opus-4"), Provider::Anthropic);
-        assert_eq!(provider_of("gpt-4o"), Provider::OpenAI);
-        assert_eq!(provider_of("o1-mini"), Provider::OpenAI);
-        assert_eq!(provider_of("llama3"), Provider::Ollama);
-        assert_eq!(provider_of("qwen2.5"), Provider::Ollama);
+        assert_eq!(provider_of("gemini-2.0-flash"), Provider(AdapterKind::Gemini));
+        assert_eq!(provider_of("claude-opus-4"), Provider(AdapterKind::Anthropic));
+        assert_eq!(provider_of("gpt-4o"), Provider(AdapterKind::OpenAI));
+        assert_eq!(provider_of("o1-mini"), Provider(AdapterKind::OpenAI));
+        assert_eq!(provider_of("llama3"), Provider(AdapterKind::Ollama));
+        assert_eq!(provider_of("qwen2.5"), Provider(AdapterKind::Ollama));
     }
 
     #[test]
@@ -467,8 +644,8 @@ mod tests {
         let prev = std::env::var(var).ok();
         unsafe { std::env::set_var(var, "sk-test-123") };
 
-        assert_eq!(api_key(Provider::OpenAI).as_deref(), Some("sk-test-123"));
-        assert!(has_api_key(Provider::OpenAI));
+        assert_eq!(api_key(Provider(AdapterKind::OpenAI)).as_deref(), Some("sk-test-123"));
+        assert!(has_api_key(Provider(AdapterKind::OpenAI)));
 
         match prev {
             Some(v) => unsafe { std::env::set_var(var, v) },
@@ -478,7 +655,7 @@ mod tests {
 
     #[test]
     fn api_key_none_for_ollama() {
-        assert_eq!(api_key(Provider::Ollama), None);
-        assert!(!has_api_key(Provider::Ollama));
+        assert_eq!(api_key(Provider(AdapterKind::Ollama)), None);
+        assert!(!has_api_key(Provider(AdapterKind::Ollama)));
     }
 }

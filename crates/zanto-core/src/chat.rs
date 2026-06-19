@@ -12,6 +12,7 @@ use genai::resolver::{AuthData, AuthResolver, Endpoint, ServiceTargetResolver};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use crate::config::{self, Provider};
+use genai::adapter::AdapterKind;
 use crate::permissions::PermissionGuard;
 use crate::session::{ContextPolicy, Session, Store};
 use crate::tools::ToolService;
@@ -231,7 +232,7 @@ pub async fn chat(
     // Cloud providers resolve their own endpoint via genai; only override it for
     // local Ollama, which genai would otherwise point at localhost instead of the
     // configured host.
-    let override_endpoint = provider == Provider::Ollama;
+    let override_endpoint = provider == Provider(AdapterKind::Ollama);
     let target_resolver = ServiceTargetResolver::from_resolver_fn(
         move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
             if !override_endpoint {
@@ -245,7 +246,7 @@ pub async fn chat(
     // Resolve auth for cloud providers from the keychain/env (Ollama needs none).
     let auth_resolver = AuthResolver::from_resolver_fn(
         move |_model_iden: genai::ModelIden| -> Result<Option<AuthData>, genai::resolver::Error> {
-            if provider == Provider::Ollama {
+            if provider == Provider(AdapterKind::Ollama) {
                 return Ok(None);
             }
             Ok(config::api_key(provider).map(AuthData::from_single))

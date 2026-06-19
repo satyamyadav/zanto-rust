@@ -1,33 +1,23 @@
 //! Configuration IPC commands.
 
 use tauri::State;
+use genai::adapter::AdapterKind;
 use zanto_core::config::{self, ContextSource, Provider, ProviderConfig, Settings};
 use super::{ConfigDto, ConfigPatch, DesktopState, ProviderDto};
 
 /// Default provider list when none are configured.
 fn default_providers() -> Vec<ProviderConfig> {
     vec![
-        ProviderConfig { provider: Provider::Anthropic, model: "claude-opus-4-5".to_string(), endpoint: None },
-        ProviderConfig { provider: Provider::OpenAI,    model: "gpt-4o".to_string(),           endpoint: None },
-        ProviderConfig { provider: Provider::Gemini,    model: "gemini-2.0-flash".to_string(), endpoint: None },
-        ProviderConfig { provider: Provider::Ollama,    model: "qwen2.5:14b".to_string(),      endpoint: Some("http://localhost:11434/".to_string()) },
+        ProviderConfig { provider: Provider(AdapterKind::Anthropic), model: "claude-opus-4-5".to_string(), endpoint: None },
+        ProviderConfig { provider: Provider(AdapterKind::OpenAI),    model: "gpt-4o".to_string(),           endpoint: None },
+        ProviderConfig { provider: Provider(AdapterKind::Gemini),    model: "gemini-2.0-flash".to_string(), endpoint: None },
+        ProviderConfig { provider: Provider(AdapterKind::Ollama),    model: "qwen2.5:14b".to_string(),      endpoint: Some("http://localhost:11434/".to_string()) },
     ]
 }
 
-/// Map a provider name string to the enum; returns `Err` for unknown names.
-///
-/// NOTE: keep this in sync with `Provider::as_str()` in zanto-core. The match
-/// is intentionally exhaustive over the known variants so a CI search for
-/// `parse_provider` flags this function when the enum grows.
+/// Map a provider id string to a `Provider`; returns `Err` for unknown ids.
 fn parse_provider(s: &str) -> Result<Provider, String> {
-    // Match every arm explicitly — no wildcard — so a new Provider variant in
-    // zanto-core surfaces here at review time even if the Rust compiler doesn't
-    // force it (string match can't be exhaustiveness-checked).
-    if s == Provider::Anthropic.as_str() { return Ok(Provider::Anthropic); }
-    if s == Provider::OpenAI.as_str()    { return Ok(Provider::OpenAI); }
-    if s == Provider::Gemini.as_str()    { return Ok(Provider::Gemini); }
-    if s == Provider::Ollama.as_str()    { return Ok(Provider::Ollama); }
-    Err(format!("unknown provider: {s}"))
+    config::provider_from_id(s).ok_or_else(|| format!("unknown provider: {s}"))
 }
 
 #[tauri::command]
