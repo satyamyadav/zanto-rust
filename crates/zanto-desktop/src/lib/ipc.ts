@@ -65,6 +65,7 @@ export type ProviderDto = {
   label: string;
   needs_key: boolean;
   default_endpoint: string | null;
+  generation: GenerationParams;
 };
 
 export type ProviderInfo = {
@@ -81,6 +82,8 @@ export type GenerationParams = {
   reasoning_effort?: string;
   seed?: number;
   stop_sequences?: string[];
+  json_mode?: boolean;
+  tool_choice?: string;
   extra_body?: unknown;
 };
 
@@ -88,6 +91,7 @@ export type ProviderPatch = {
   provider: string;
   model: string;
   endpoint: string | null;
+  generation?: GenerationParams;
 };
 
 // A context source (input): a file/dir path fed to every turn, with an enable

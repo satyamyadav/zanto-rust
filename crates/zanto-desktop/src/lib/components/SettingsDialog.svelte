@@ -3,6 +3,7 @@
   import * as Select from "$lib/components/ui/select";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
+  import GenerationFields from "$lib/components/GenerationFields.svelte";
   import { toast } from "svelte-sonner";
   import { mode, setMode } from "mode-watcher";
   import { density, setDensity, type Density } from "$lib/stores/theme.svelte";
@@ -16,7 +17,6 @@
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
   const NO_SKILL = "__none__";
-  const NO_EFFORT = "__default__";
   let skills = $state<SkillDto[]>([]);
   let activeSkill = $state(NO_SKILL);
 
@@ -58,7 +58,9 @@
         provider: p.provider,
         model: p.model,
         endpoint: p.endpoint,
+        generation: { ...(p.generation ?? {}) },
       }));
+      ensureProviderPatch(activeProvider);
       resetKeyState();
       activeSkill = cfg.selected_skill ?? NO_SKILL;
       contextTurns = cfg.max_context_turns ?? 0;
@@ -111,6 +113,18 @@
     return providers.find((p) => p.provider === activeProvider);
   }
 
+  // Ensure a local patch entry exists for `id` so the model field and the
+  // per-provider override editor have something to bind to (providers selected
+  // from the registry may not yet be in the saved list).
+  function ensureProviderPatch(id: string) {
+    if (!id || providers.find((p) => p.provider === id)) return;
+    const info = appStore.config?.provider_registry?.find((r) => r.id === id);
+    providers = [
+      ...providers,
+      { provider: id, model: "", endpoint: info?.default_endpoint ?? null, generation: {} },
+    ];
+  }
+
   function setActiveModel(val: string) {
     providers = providers.map((p) =>
       p.provider === activeProvider ? { ...p, model: val } : p
@@ -125,7 +139,12 @@
 
   async function saveProviders() {
     try {
-      await ipc.setConfig({ providers, active_provider: activeProvider || undefined });
+      // Strip empty fields out of each provider's generation overrides.
+      const payload = providers.map((p) => ({
+        ...p,
+        generation: cleanGeneration(p.generation ?? {}),
+      }));
+      await ipc.setConfig({ providers: payload, active_provider: activeProvider || undefined });
       await refreshConfig();
       toast.success("Settings saved");
     } catch (e) {
@@ -194,12 +213,21 @@
     }
   }
 
+  // Drop empty/blank fields so a cleared input is omitted (not sent as "" / null,
+  // which the Rust Option<T> would reject) — and a legitimate 0 is kept.
+  function cleanGeneration(g: GenerationParams): GenerationParams {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(g ?? {})) {
+      if (v === "" || v == null) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      out[k] = v;
+    }
+    return out as GenerationParams;
+  }
+
   async function saveGeneration() {
     try {
-      const clean = Object.fromEntries(
-        Object.entries(gen).filter(([, v]) => v !== "" && v != null)
-      ) as GenerationParams;
-      await ipc.setConfig({ generation: clean });
+      await ipc.setConfig({ generation: cleanGeneration(gen) });
       await refreshConfig();
       toast.success("Generation settings saved");
     } catch (e) {
@@ -229,14 +257,10 @@
     activeSkill === NO_SKILL ? "None" : activeSkill
   );
 
-  // Maps between the sentinel and undefined for the reasoning-effort select.
-  const activeReasoningEffort = $derived(gen.reasoning_effort ?? NO_EFFORT);
-  const activeReasoningEffortLabel = $derived(
-    activeReasoningEffort === NO_EFFORT ? "Default" : activeReasoningEffort
-  );
-  function selectReasoningEffort(val: string) {
-    gen.reasoning_effort = val === NO_EFFORT ? undefined : val;
-  }
+  // The active provider's per-provider override object (created on demand by
+  // ensureProviderPatch). Bound into the per-provider GenerationFields.
+  const activeGeneration = $derived(activeProviderPatch()?.generation);
+  let showOverrides = $state(false);
 </script>
 
 <Dialog.Root bind:open>
@@ -253,7 +277,7 @@
 
         <div class="space-y-1.5">
           <span class="text-xs text-muted-foreground" id="cfg-provider-label">Active provider</span>
-          <Select.Root type="single" value={activeProvider} onValueChange={(v) => { if (v) activeProvider = v; }}>
+          <Select.Root type="single" value={activeProvider} onValueChange={(v) => { if (v) { activeProvider = v; ensureProviderPatch(v); } }}>
             <Select.Trigger
               class="w-full focus-visible:ring-2 focus-visible:ring-ring"
               aria-labelledby="cfg-provider-label"
@@ -357,6 +381,26 @@
               {/if}
             </div>
           {/if}
+
+          <!-- Per-provider generation overrides -->
+          {#if activeGeneration}
+            <div class="space-y-2 rounded-md border border-border p-2.5">
+              <button
+                type="button"
+                class="flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                onclick={() => (showOverrides = !showOverrides)}
+              >
+                <span class="font-mono">{showOverrides ? "▾" : "▸"}</span>
+                Generation overrides for {activeProviderLabel}
+              </button>
+              {#if showOverrides}
+                <GenerationFields params={activeGeneration} />
+                <p class="text-[10px] text-muted-foreground">
+                  Empty fields inherit the global defaults above. Saved with “Save changes”.
+                </p>
+              {/if}
+            </div>
+          {/if}
         {/if}
 
         <Button size="sm" onclick={saveProviders}>Save changes</Button>
@@ -446,41 +490,16 @@
         </div>
       </section>
 
-      <!-- Generation -->
+      <!-- Generation (global defaults) -->
       <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Generation</h3>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="space-y-1.5 text-xs text-muted-foreground">Temperature
-            <Input type="number" step="0.1" min="0" bind:value={gen.temperature} class="font-mono" />
-          </label>
-          <label class="space-y-1.5 text-xs text-muted-foreground">Max tokens
-            <Input type="number" step="1" min="1" bind:value={gen.max_tokens} class="font-mono" />
-          </label>
-          <label class="space-y-1.5 text-xs text-muted-foreground">Top-p
-            <Input type="number" step="0.05" min="0" max="1" bind:value={gen.top_p} class="font-mono" />
-          </label>
-          <label class="space-y-1.5 text-xs text-muted-foreground">Seed
-            <Input type="number" step="1" bind:value={gen.seed} class="font-mono" />
-          </label>
-        </div>
-        <div class="space-y-1.5">
-          <span class="text-xs text-muted-foreground" id="cfg-reasoning-label">Reasoning effort</span>
-          <Select.Root type="single" value={activeReasoningEffort} onValueChange={selectReasoningEffort}>
-            <Select.Trigger class="w-full" aria-labelledby="cfg-reasoning-label">
-              {activeReasoningEffortLabel}
-            </Select.Trigger>
-            <Select.Content>
-              <Select.Item value={NO_EFFORT} label="Default" />
-              {#each ["none", "minimal", "low", "medium", "high", "xhigh"] as e (e)}
-                <Select.Item value={e} label={e} />
-              {/each}
-            </Select.Content>
-          </Select.Root>
-        </div>
-        <Button size="sm" onclick={saveGeneration}>Save generation</Button>
+        <h3 class="font-display text-sm font-semibold tracking-tight">Generation (defaults)</h3>
         <p class="text-xs text-muted-foreground">
-          Empty fields use the provider default. Unsupported options are ignored per provider.
+          Applied to every turn. A provider's overrides (in Provider &amp; model) take
+          precedence. Empty fields use the provider default; unsupported options are
+          ignored per provider.
         </p>
+        <GenerationFields bind:params={gen} />
+        <Button size="sm" onclick={saveGeneration}>Save generation</Button>
       </section>
 
       <!-- Skill -->
