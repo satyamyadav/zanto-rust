@@ -6,6 +6,7 @@
   import { toast } from "svelte-sonner";
   import { mode, setMode } from "mode-watcher";
   import { density, setDensity, type Density } from "$lib/stores/theme.svelte";
+  import { untrack } from "svelte";
   import { appStore, refreshConfig } from "$lib/stores/app.svelte";
   import { ipc, type ProviderPatch, type SkillDto, type GenerationParams } from "$lib/ipc";
   import EyeIcon from "@lucide/svelte/icons/eye";
@@ -40,21 +41,30 @@
   // Generation params state
   let gen = $state<GenerationParams>({});
 
+  // Seed local form state from config when the dialog opens (or when config is
+  // replaced after a save). Only `open` and `appStore.config` are tracked as
+  // triggers; the body is untracked so writing `activeProvider` here (and the
+  // `activeProvider` read inside resetKeyState) does NOT make this effect depend
+  // on it — otherwise picking a provider would re-run this and clobber the
+  // selection back to the config default.
   $effect(() => {
-    if (open && appStore.config) {
+    const isOpen = open;
+    const cfg = appStore.config;
+    if (!isOpen || !cfg) return;
+    untrack(() => {
       // Fall back to the first provider in the list so the UI is never blank.
-      activeProvider = appStore.config.active_provider ?? appStore.config.providers[0]?.provider ?? "";
-      providers = appStore.config.providers.map((p) => ({
+      activeProvider = cfg.active_provider ?? cfg.providers[0]?.provider ?? "";
+      providers = cfg.providers.map((p) => ({
         provider: p.provider,
         model: p.model,
         endpoint: p.endpoint,
       }));
       resetKeyState();
-      activeSkill = appStore.config.selected_skill ?? NO_SKILL;
-      contextTurns = appStore.config.max_context_turns ?? 0;
-      gen = { ...(appStore.config.generation ?? {}) };
+      activeSkill = cfg.selected_skill ?? NO_SKILL;
+      contextTurns = cfg.max_context_turns ?? 0;
+      gen = { ...(cfg.generation ?? {}) };
       loadSkills();
-    }
+    });
   });
 
   async function saveContext() {
@@ -242,7 +252,7 @@
 
         <div class="space-y-1.5">
           <span class="text-xs text-muted-foreground" id="cfg-provider-label">Active provider</span>
-          <Select.Root type="single" bind:value={activeProvider}>
+          <Select.Root type="single" value={activeProvider} onValueChange={(v) => { if (v) activeProvider = v; }}>
             <Select.Trigger
               class="w-full focus-visible:ring-2 focus-visible:ring-ring"
               aria-labelledby="cfg-provider-label"
