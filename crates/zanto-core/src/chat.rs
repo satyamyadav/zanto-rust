@@ -236,20 +236,22 @@ pub async fn chat(
     session.updated_at = crate::session::unix_now_pub();
     store.save_session(session)?;
 
-    // genai's resolver needs a 'static endpoint; leak the (rarely-changing) value.
-    let endpoint_str: &'static str = Box::leak(config.endpoint.clone().into_boxed_str());
     let provider = config::provider_of(&config.model);
     // Cloud providers resolve their own endpoint via genai; only override it for
     // local Ollama, which genai would otherwise point at localhost instead of the
-    // configured host.
-    let override_endpoint = provider == Provider(AdapterKind::Ollama);
+    // configured host. Build the override Endpoint once (it is `Arc<str>`-backed,
+    // so cloning it into each resolver call is cheap) — no `'static` leak needed.
+    let endpoint_override = (provider == Provider(AdapterKind::Ollama))
+        .then(|| Endpoint::from_owned(config.endpoint.clone()));
     let target_resolver = ServiceTargetResolver::from_resolver_fn(
         move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
-            if !override_endpoint {
-                return Ok(service_target);
+            match &endpoint_override {
+                None => Ok(service_target),
+                Some(ep) => {
+                    let ServiceTarget { endpoint: _, auth, model } = service_target;
+                    Ok(ServiceTarget { endpoint: ep.clone(), auth, model })
+                }
             }
-            let ServiceTarget { endpoint: _, auth, model } = service_target;
-            Ok(ServiceTarget { endpoint: Endpoint::from_static(endpoint_str), auth, model })
         },
     );
 
@@ -509,7 +511,7 @@ async fn route_tool_calls(
             println!("[TOOL CALL mutating] {} ({:?})", call.fn_name, call.fn_arguments);
             emit_tool_call(config, display, call).await;
             let output = tools.dispatch(&call.fn_name, call.fn_arguments.clone()).await?;
-            println!("[TOOL OUTPUT] {}", &output[..output.len().min(120)]);
+            println!("[TOOL OUTPUT] {}", log_preview(&output, 120));
             emit_tool_result(config, display, &call.call_id, &output, true).await;
             push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
         } else {
@@ -747,12 +749,22 @@ async fn flush_parallel(
 
     for (call, result) in batch.iter().zip(results) {
         let output = result?;
-        println!("[TOOL OUTPUT] {} → {}", call.fn_name, &output[..output.len().min(120)]);
+        println!("[TOOL OUTPUT] {} → {}", call.fn_name, log_preview(&output, 120));
         emit_tool_result(config, display, &call.call_id, &output, true).await;
         push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
     }
 
     Ok(())
+}
+
+/// A char-boundary-safe prefix of up to `max_chars` characters, for log
+/// previews. Slicing by byte index (`&s[..n]`) panics when `n` lands inside a
+/// multi-byte UTF-8 codepoint (emoji, CJK, accents); this never does.
+fn log_preview(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
 }
 
 /// Scan `text` for JSON objects with `name` + `arguments` keys that look like
@@ -772,18 +784,35 @@ fn extract_raw_tool_calls(text: &str) -> Vec<ToolCall> {
         let mut depth = 0i32;
         let mut j = i;
         let mut found_end = false;
+        // Track string/escape state so braces inside JSON string values (e.g.
+        // {"cmd":"echo }"}) don't prematurely close the object. The delimiters
+        // (" \ { }) are all ASCII, so scanning bytes is UTF-8 safe.
+        let mut in_string = false;
+        let mut escaped = false;
 
         while j < bytes.len() {
-            match bytes[j] {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        found_end = true;
-                        break;
-                    }
+            let c = bytes[j];
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == b'\\' {
+                    escaped = true;
+                } else if c == b'"' {
+                    in_string = false;
                 }
-                _ => {}
+            } else {
+                match c {
+                    b'"' => in_string = true,
+                    b'{' => depth += 1,
+                    b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            found_end = true;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
             }
             j += 1;
         }
@@ -813,6 +842,38 @@ fn extract_raw_tool_calls(text: &str) -> Vec<ToolCall> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_preview_is_char_boundary_safe() {
+        // ASCII shorter than the cap: returned whole.
+        assert_eq!(log_preview("hello", 120), "hello");
+        // Longer ASCII: exactly `max_chars` bytes/chars.
+        assert_eq!(log_preview(&"a".repeat(200), 120).chars().count(), 120);
+        // Multi-byte text where byte 120 lands mid-codepoint: must not panic and
+        // must return a valid prefix of at most `max_chars` chars.
+        let s = "日本語コード".repeat(50); // each CJK char is 3 bytes
+        let p = log_preview(&s, 120);
+        assert!(p.chars().count() <= 120);
+        assert!(s.starts_with(p));
+    }
+
+    #[test]
+    fn extract_raw_tool_calls_handles_brace_inside_string() {
+        let text = r#"noise {"name":"run_command","arguments":{"cmd":"echo }"}} tail"#;
+        let calls = extract_raw_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].fn_name, "run_command");
+        assert_eq!(calls[0].fn_arguments["cmd"], "echo }");
+    }
+
+    #[test]
+    fn extract_raw_tool_calls_handles_escaped_quote_in_string() {
+        // An escaped quote must not end the string early.
+        let text = r#"{"name":"say","arguments":{"text":"a \" b }"}}"#;
+        let calls = extract_raw_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].fn_arguments["text"], r#"a " b }"#);
+    }
 
     #[test]
     fn build_system_prompt_orders_sections() {
