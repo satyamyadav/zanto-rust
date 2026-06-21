@@ -7005,7 +7005,7 @@ dependencies = [
 
 [[package]]
 name = "zanto-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "assert_cmd",
  "async-trait",
@@ -7018,7 +7018,7 @@ dependencies = [
 
 [[package]]
 name = "zanto-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7047,7 +7047,7 @@ dependencies = [
 
 [[package]]
 name = "zanto-desktop"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

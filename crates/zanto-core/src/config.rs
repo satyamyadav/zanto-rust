@@ -262,7 +262,7 @@ impl GenerationParams {
             opts = opts.with_stop_sequences(self.stop_sequences.clone());
         }
         if self.json_mode == Some(true) {
-            opts = opts.with_json_mode(true);
+            opts = opts.with_response_format(genai::chat::ChatResponseFormat::JsonMode);
         }
         if let Some(tc) = self.tool_choice.as_deref() {
             use genai::chat::ToolChoice;
