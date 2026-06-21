@@ -196,15 +196,21 @@ impl GenerationParams {
     /// Field-wise overlay: each value set in `other` overrides `self`; unset
     /// fields in `other` keep `self`'s value. Used to layer project config over
     /// user config.
-    pub fn overlay(mut self, other: GenerationParams) -> GenerationParams {
-        if other.temperature.is_some() { self.temperature = other.temperature; }
-        if other.max_tokens.is_some() { self.max_tokens = other.max_tokens; }
-        if other.top_p.is_some() { self.top_p = other.top_p; }
-        if other.reasoning_effort.is_some() { self.reasoning_effort = other.reasoning_effort; }
-        if other.seed.is_some() { self.seed = other.seed; }
-        if !other.stop_sequences.is_empty() { self.stop_sequences = other.stop_sequences; }
-        if other.extra_body.is_some() { self.extra_body = other.extra_body; }
-        self
+    pub fn overlay(self, other: GenerationParams) -> GenerationParams {
+        GenerationParams {
+            temperature: other.temperature.or(self.temperature),
+            max_tokens: other.max_tokens.or(self.max_tokens),
+            top_p: other.top_p.or(self.top_p),
+            reasoning_effort: other.reasoning_effort.or(self.reasoning_effort),
+            seed: other.seed.or(self.seed),
+            // Vec/Value have no `or`; an empty/absent `other` keeps `self`.
+            stop_sequences: if other.stop_sequences.is_empty() {
+                self.stop_sequences
+            } else {
+                other.stop_sequences
+            },
+            extra_body: other.extra_body.or(self.extra_body),
+        }
     }
 
     /// Apply the set fields onto an existing `ChatOptions` (capture flags etc.
@@ -467,6 +473,13 @@ impl Settings {
         self
     }
 
+    /// The active project directory as a `PathBuf`, if set. Centralizes the
+    /// `Option<String>` → `PathBuf` conversion used by the CLI and desktop when
+    /// building a `ChatConfig`.
+    pub fn project_dir_path(&self) -> Option<PathBuf> {
+        self.project_dir.as_deref().map(PathBuf::from)
+    }
+
     fn merge(mut self, other: Self) -> Self {
         self.allowed_paths.extend(other.allowed_paths);
         if other.allow_read_outside {
@@ -495,7 +508,7 @@ impl Settings {
             self.project_dir = other.project_dir;
         }
         self.context_sources.extend(other.context_sources);
-        self.generation = std::mem::take(&mut self.generation).overlay(other.generation);
+        self.generation = self.generation.overlay(other.generation);
         self
     }
 }

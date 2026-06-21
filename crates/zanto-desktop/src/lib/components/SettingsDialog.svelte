@@ -186,6 +186,7 @@
     try {
       modelList = await ipc.listModels(activeProvider);
     } catch (e) {
+      console.error("listModels failed", e);
       modelList = [];
       modelsError = "Couldn't load models — type the name manually.";
     } finally {

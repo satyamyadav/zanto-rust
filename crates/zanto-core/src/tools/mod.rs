@@ -19,6 +19,11 @@ pub struct ToolService {
 }
 
 impl ToolService {
+    /// Create a `ToolService` with **no** project scope for artifact tools
+    /// (`Scope::Project` artifact ops will fail with no project root). Prefer
+    /// [`ToolService::with_project_dir`] in any path that has a loaded `Settings`
+    /// — pass `settings.project_dir_path().as_deref()` so project-scoped
+    /// artifacts work. Kept for tests and the no-config case.
     pub fn new(permissions: Arc<PermissionGuard>) -> Self {
         Self::with_project_dir(permissions, None)
     }

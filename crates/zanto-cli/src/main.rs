@@ -146,7 +146,7 @@ async fn main() {
     };
 
     let generation = settings.generation.clone();
-    let project_dir = settings.project_dir.clone().map(std::path::PathBuf::from);
+    let project_dir = settings.project_dir_path();
     match args.question {
         Some(q) => {
             let mut session = resolve_session(&store, &workspace, args.session, args.new, args.title);
