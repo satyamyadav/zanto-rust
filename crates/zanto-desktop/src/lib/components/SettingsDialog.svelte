@@ -229,12 +229,12 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-[80vw]">
+  <Dialog.Content class="sm:max-w-[80vw] max-h-[80vh] flex flex-col">
     <Dialog.Header>
       <Dialog.Title class="font-display">Settings</Dialog.Title>
     </Dialog.Header>
 
-    <div class="space-y-6 py-1">
+    <div class="min-h-0 flex-1 space-y-6 overflow-y-auto py-1 pr-1">
 
       <!-- Provider & model -->
       <section class="space-y-3">
