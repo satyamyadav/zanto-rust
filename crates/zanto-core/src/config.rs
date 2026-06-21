@@ -540,7 +540,24 @@ pub fn api_key(p: Provider) -> Option<String> {
 /// Store the API key for a provider in the OS keychain. Returns `Err` gracefully
 /// (no panic) when no secret service is available.
 pub fn set_api_key(p: Provider, key: &str) -> Result<(), String> {
-    key_entry(p)?.set_password(key).map_err(|e| e.to_string())
+    key_entry(p)
+        .and_then(|entry| entry.set_password(key).map_err(|e| e.to_string()))
+        .map_err(|e| keychain_unavailable_hint(p, &e))
+}
+
+/// Wrap a raw keychain error with actionable guidance: on Linux without a
+/// running Secret Service (e.g. "The name is not activatable"), there is no OS
+/// keychain to write to. The app still reads the provider's env var as a
+/// fallback, so point the user there instead of leaving them with a bare DBus
+/// error.
+fn keychain_unavailable_hint(p: Provider, err: &str) -> String {
+    match p.env_var() {
+        Some(var) => format!(
+            "OS keychain unavailable ({err}). Set the {var} environment variable \
+             instead — the app reads it automatically."
+        ),
+        None => format!("OS keychain unavailable ({err})."),
+    }
 }
 
 /// Remove the API key for a provider from the OS keychain.
