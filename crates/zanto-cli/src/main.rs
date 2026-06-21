@@ -145,7 +145,7 @@ async fn main() {
         Err(e) => { eprintln!("Error opening session DB: {e}"); return; }
     };
 
-    let generation = settings.generation.clone();
+    let generation = settings.effective_generation();
     let project_dir = settings.project_dir_path();
     match args.question {
         Some(q) => {

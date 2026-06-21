@@ -187,6 +187,12 @@ pub struct GenerationParams {
     pub seed: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stop_sequences: Vec<String>,
+    /// Force JSON output (genai `with_json_mode`). Applied only when `Some(true)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json_mode: Option<bool>,
+    /// Tool-call preference: one of `auto|none|required`. Unparseable = ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<String>,
     /// Advanced escape hatch: merged into the provider request body.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_body: Option<serde_json::Value>,
@@ -209,6 +215,8 @@ impl GenerationParams {
             } else {
                 other.stop_sequences
             },
+            json_mode: other.json_mode.or(self.json_mode),
+            tool_choice: other.tool_choice.or(self.tool_choice),
             extra_body: other.extra_body.or(self.extra_body),
         }
     }
@@ -237,7 +245,14 @@ impl GenerationParams {
                 "medium" => Some(ReasoningEffort::Medium),
                 "high" => Some(ReasoningEffort::High),
                 "xhigh" => Some(ReasoningEffort::XHigh),
-                _ => None,
+                "max" => Some(ReasoningEffort::Max),
+                // A bare integer (or "budget:N") is a token budget.
+                other => other
+                    .strip_prefix("budget:")
+                    .unwrap_or(other)
+                    .parse::<u32>()
+                    .ok()
+                    .map(ReasoningEffort::Budget),
             };
             if let Some(e) = parsed {
                 opts = opts.with_reasoning_effort(e);
@@ -245,6 +260,21 @@ impl GenerationParams {
         }
         if !self.stop_sequences.is_empty() {
             opts = opts.with_stop_sequences(self.stop_sequences.clone());
+        }
+        if self.json_mode == Some(true) {
+            opts = opts.with_json_mode(true);
+        }
+        if let Some(tc) = self.tool_choice.as_deref() {
+            use genai::chat::ToolChoice;
+            let parsed = match tc {
+                "auto" => Some(ToolChoice::Auto),
+                "none" => Some(ToolChoice::None),
+                "required" => Some(ToolChoice::Required),
+                _ => None,
+            };
+            if let Some(c) = parsed {
+                opts = opts.with_tool_choice(c);
+            }
         }
         if let Some(body) = &self.extra_body {
             opts = opts.with_extra_body(body.clone());
@@ -300,6 +330,10 @@ pub struct ProviderConfig {
     /// Endpoint override (Ollama needs it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
+    /// Per-provider generation overrides layered over `Settings.generation`.
+    /// All-unset by default → the global defaults apply unchanged.
+    #[serde(default)]
+    pub generation: GenerationParams,
 }
 
 /// Deserialize the provider list, silently dropping entries whose id genai does
@@ -316,6 +350,8 @@ where
         model: String,
         #[serde(default)]
         endpoint: Option<String>,
+        #[serde(default)]
+        generation: GenerationParams,
     }
     let raw = Vec::<Raw>::deserialize(d)?;
     Ok(raw
@@ -325,6 +361,7 @@ where
                 provider: p,
                 model: r.model,
                 endpoint: r.endpoint,
+                generation: r.generation,
             })
         })
         .collect())
@@ -478,6 +515,18 @@ impl Settings {
     /// building a `ChatConfig`.
     pub fn project_dir_path(&self) -> Option<PathBuf> {
         self.project_dir.as_deref().map(PathBuf::from)
+    }
+
+    /// Effective generation params for the active provider: the global
+    /// `generation` defaults overlaid with the active provider's per-provider
+    /// overrides. Falls back to the global defaults when no matching provider
+    /// config is found.
+    pub fn effective_generation(&self) -> GenerationParams {
+        let (active, _, _) = self.active();
+        match self.providers.iter().find(|p| p.provider == active) {
+            Some(pc) => self.generation.clone().overlay(pc.generation.clone()),
+            None => self.generation.clone(),
+        }
     }
 
     fn merge(mut self, other: Self) -> Self {
@@ -659,11 +708,13 @@ mod tests {
                     provider: Provider(AdapterKind::Ollama),
                     model: "llama3".to_string(),
                     endpoint: Some("http://localhost:11434".to_string()),
+                    generation: GenerationParams::default(),
                 },
                 ProviderConfig {
                     provider: Provider(AdapterKind::Gemini),
                     model: "gemini-2.0-flash".to_string(),
                     endpoint: None,
+                    generation: GenerationParams::default(),
                 },
             ],
             active_provider: Some(Provider(AdapterKind::Gemini)),
@@ -729,6 +780,7 @@ mod tests {
                 provider: Provider(AdapterKind::Gemini),
                 model: "gemini-2.0-flash".to_string(),
                 endpoint: None,
+                generation: GenerationParams::default(),
             }],
             active_provider: Some(Provider(AdapterKind::Gemini)),
             ..Default::default()
@@ -818,6 +870,45 @@ mod tests {
         assert_eq!(opts.max_tokens, Some(1024));
         assert_eq!(opts.top_p, None);
         assert_eq!(opts.stop_sequences, vec!["STOP".to_string()]);
+    }
+
+    #[test]
+    fn effective_generation_overlays_provider_over_global() {
+        use genai::adapter::AdapterKind;
+        let mut s = Settings::default();
+        s.generation.temperature = Some(0.7);
+        s.generation.max_tokens = Some(1000);
+        s.providers = vec![ProviderConfig {
+            provider: Provider(AdapterKind::OpenAI),
+            model: "gpt-4o".into(),
+            endpoint: None,
+            generation: GenerationParams { temperature: Some(0.1), ..Default::default() },
+        }];
+        s.active_provider = Some(Provider(AdapterKind::OpenAI));
+        let eff = s.effective_generation();
+        assert_eq!(eff.temperature, Some(0.1)); // provider override wins
+        assert_eq!(eff.max_tokens, Some(1000)); // inherited from global
+    }
+
+    #[test]
+    fn apply_maps_reasoning_max_budget_jsonmode_toolchoice() {
+        use genai::chat::{ChatOptions, ReasoningEffort, ToolChoice};
+        let max = GenerationParams { reasoning_effort: Some("max".into()), ..Default::default() }
+            .apply(ChatOptions::default());
+        assert!(matches!(max.reasoning_effort, Some(ReasoningEffort::Max)));
+
+        let budget = GenerationParams { reasoning_effort: Some("2048".into()), ..Default::default() }
+            .apply(ChatOptions::default());
+        assert!(matches!(budget.reasoning_effort, Some(ReasoningEffort::Budget(2048))));
+
+        let opts = GenerationParams {
+            json_mode: Some(true),
+            tool_choice: Some("required".into()),
+            ..Default::default()
+        }
+        .apply(ChatOptions::default());
+        assert_eq!(opts.tool_choice, Some(ToolChoice::Required));
+        // json_mode sets the response format; just assert no panic + tool_choice took.
     }
 
     #[test]

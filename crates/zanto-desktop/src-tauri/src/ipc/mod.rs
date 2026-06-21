@@ -89,6 +89,7 @@ pub struct ProviderDto {
     pub label: String,
     pub needs_key: bool,
     pub default_endpoint: Option<String>,
+    pub generation: GenerationParams,
 }
 
 #[derive(Serialize)]
@@ -115,6 +116,8 @@ pub struct ProviderPatch {
     pub provider: String,
     pub model: String,
     pub endpoint: Option<String>,
+    #[serde(default)]
+    pub generation: GenerationParams,
 }
 
 #[derive(Deserialize, Default)]

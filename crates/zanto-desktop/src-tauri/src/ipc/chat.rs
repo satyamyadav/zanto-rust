@@ -188,7 +188,7 @@ pub async fn send_message(
                 sink: None,
                 cancel: None,
                 images,
-                generation: settings.generation.clone(),
+                generation: settings.effective_generation(),
                 project_dir: settings.project_dir_path(),
             }
         }
@@ -197,7 +197,7 @@ pub async fn send_message(
             c.skill = skill;
             c.context = context;
             c.images = images;
-            c.generation = settings.generation.clone();
+            c.generation = settings.effective_generation();
             c.project_dir = settings.project_dir_path();
             c
         }

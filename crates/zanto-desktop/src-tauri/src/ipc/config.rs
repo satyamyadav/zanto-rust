@@ -14,6 +14,7 @@ fn default_providers() -> Vec<ProviderConfig> {
                 provider: p,
                 model: p.default_model().to_string(),
                 endpoint: p.default_endpoint().map(str::to_string),
+                generation: config::GenerationParams::default(),
             }
         })
         .collect()
@@ -46,6 +47,7 @@ pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
                 model: pc.model,
                 endpoint: pc.endpoint,
                 has_key,
+                generation: pc.generation,
             }
         })
         .collect();
@@ -78,7 +80,7 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
         let mut new_providers: Vec<ProviderConfig> = Vec::new();
         for pp in provider_patches {
             let p = parse_provider(&pp.provider)?;
-            new_providers.push(ProviderConfig { provider: p, model: pp.model, endpoint: pp.endpoint });
+            new_providers.push(ProviderConfig { provider: p, model: pp.model, endpoint: pp.endpoint, generation: pp.generation });
         }
         settings.providers = new_providers;
     }
