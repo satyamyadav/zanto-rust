@@ -15,7 +15,9 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dev:mock": "vite dev --mode mock",
+    "test:ui": "playwright test"
   },
   "license": "MIT",
   "dependencies": {
@@ -52,7 +54,8 @@
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4.0.0",
     "typescript": "~5.6.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "@playwright/test": "^1.48.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
