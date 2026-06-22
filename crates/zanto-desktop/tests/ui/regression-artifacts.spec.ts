@@ -22,3 +22,39 @@ test("R-2: artifact-rendering tool-call card is hidden when it renders as a bloc
   // must NOT appear anywhere in the page.
   await expect(page.getByText("render_artifact")).toHaveCount(0);
 });
+
+test("R-7: a pinned chart re-renders from the stored record", async ({ page }) => {
+  await page.goto("/");
+
+  // 1. Render a chart inline.
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("show me a chart");
+  await composer.press("Enter");
+  await expect(page.locator(".apexcharts-canvas")).toBeVisible();
+
+  // 2. Pin the chart: the Pin button (aria-label="Pin to Artifacts") is shown on
+  //    hover inside the group wrapper. Hover over the canvas first, then click.
+  const inlineChart = page.locator(".apexcharts-canvas").first();
+  await inlineChart.hover();
+  const pinBtn = page.getByRole("button", { name: "Pin to Artifacts" });
+  await pinBtn.click();
+
+  // 3. Open the Artifacts browser via the sidebar "Artifacts" button (exact match
+  //    avoids hitting the "Pin to Artifacts" button which also contains "Artifacts").
+  await page.getByRole("button", { name: "Artifacts", exact: true }).click();
+
+  // 4. Switch to the "Pinned views" tab inside the Artifacts browser.
+  const backendTablist = page.getByRole("tablist", { name: "Artifact backend" });
+  await backendTablist.getByRole("tab", { name: "Pinned views" }).click();
+
+  // 5. Click the first pinned item in the list to open its preview.
+  //    The mock pin_artifact_cmd pushes the item; list_pinned_artifacts returns it.
+  const pinnedList = page.locator(".overflow-auto.rounded-md.border").first();
+  await pinnedList.getByRole("button").first().click();
+
+  // 6. Assert the chart re-renders in the preview panel — scoped to the preview
+  //    container (the right flex-1 pane in the artifact browser) so we're asserting
+  //    the RE-RENDERED pinned chart, not the original inline one in the chat.
+  const previewPane = page.locator(".flex-1.overflow-auto.p-3").last();
+  await expect(previewPane.locator(".apexcharts-canvas")).toBeVisible();
+});
