@@ -45,7 +45,7 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
       updated_at: 1700000200,
       message_count: 60,
       archived: false,
-    } as any,
+    } satisfies SessionMeta,
   ],
   list_archived_sessions: async (): Promise<SessionMeta[]> => listSessionsFx.response,
   new_session: async (): Promise<string> => newSessionFx.response,

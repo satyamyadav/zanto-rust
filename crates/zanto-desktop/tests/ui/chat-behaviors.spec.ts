@@ -350,8 +350,13 @@ test("C-11: scrolling to the top loads older messages and preserves position", a
   // blocks maybeLoadOlder. A short viewport forces overflow so the handler can fire.
   await page.setViewportSize({ width: 1280, height: 250 });
 
-  // Initial page: "msg #59" (newest) must be visible; "msg #0" (oldest) must NOT.
+  // Wait for layout to settle after the viewport resize before probing the DOM.
+  // This ensures the message list has reflowed and the scroll container has its
+  // correct geometry before we look it up — preventing the scroller heuristic
+  // from racing layout and accidentally selecting the sidebar scroller.
   await expect(page.getByText("msg #59")).toBeVisible();
+
+  // Initial page: "msg #59" (newest) must be visible; "msg #0" (oldest) must NOT.
   await expect(page.getByText("msg #0")).toHaveCount(0);
 
   // Record a message from the initial page so we can confirm it remains in the
@@ -360,12 +365,12 @@ test("C-11: scrolling to the top loads older messages and preserves position", a
   await expect(anchorMsg).toBeVisible();
 
   // Find the message-list scroll container centre so we can wheel-scroll over it.
-  // The MessageList scroller is the .overflow-auto div with scrollable content;
-  // the sidebar session list is the other .overflow-auto (clientHeight may be 0
-  // before the resize, so we pick by scrollHeight > clientHeight > 0).
+  // The MessageList scroller is the `absolute inset-0 overflow-auto` div — a
+  // distinctive class combination that uniquely identifies the message list scroller
+  // in the DOM (see MessageList.svelte line 73). This is more precise than the
+  // generic scrollHeight > clientHeight heuristic and avoids selecting the sidebar.
   const scrollerCenter = await page.evaluate(() => {
-    const scrollers = Array.from(document.querySelectorAll<HTMLElement>(".overflow-auto"));
-    const s = scrollers.find(el => el.scrollHeight > el.clientHeight && el.clientHeight > 0);
+    const s = document.querySelector<HTMLElement>(".absolute.inset-0.overflow-auto");
     if (!s) return null;
     const r = s.getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
