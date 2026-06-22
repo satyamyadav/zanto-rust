@@ -2,7 +2,7 @@ import type {
   Config, AppManifest, ArtifactDef, SessionMeta, ChatTurn,
 } from "$lib/ipc";
 import { emit } from "./event";
-import { pickScenario } from "./scenarios";
+import { defaultScenario, pickScenario } from "./scenarios";
 
 import getConfigFx from "../../../contract/fixtures/get_config.json";
 import listAppsFx from "../../../contract/fixtures/list_apps.json";
@@ -14,8 +14,18 @@ import loadSessionFx from "../../../contract/fixtures/load_session.json";
 
 let interrupted = false;
 let interruptResolve: (() => void) | null = null;
+let errorArmed = true;
 let pinned: any[] = listPinnedFx.response.slice();
 let nextPinId = pinned.length + 1;
+
+// Deterministic 60-entry history used by load_session_page (C-11 scrollback tests).
+const longSession = Array.from({ length: 60 }, (_, i) => ({
+  role: i % 2 === 0 ? "user" : "assistant",
+  text: `msg #${i}`,
+  blocks: null,
+  segments: null,
+  stopped: null,
+}));
 
 // Each handler is keyed by the exact `invoke` command name used in ipc.ts.
 // Typed return values turn the fixture JSON into a compile-time contract.
@@ -33,6 +43,13 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
     interrupted = false;
     interruptResolve = null;
     const sc = pickScenario(args?.text ?? "");
+    // One-shot error: first attempt throws; retry falls through to defaultScenario.
+    if (sc.throws) {
+      if (errorArmed) { errorArmed = false; throw new Error("mock: simulated turn failure"); }
+      // recovered attempt: replay the default scenario
+      for (const ev of defaultScenario.events) { emit(ev.event, ev.payload); await Promise.resolve(); }
+      return defaultScenario.response;
+    }
     for (const ev of sc.events) {
       if (interrupted) break;
       emit(ev.event, ev.payload);
@@ -54,7 +71,14 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
     interruptResolve = null;
   },
   load_session: async (): Promise<any> => loadSessionFx.response,
-  load_session_page: async (): Promise<any> => loadSessionFx.response,
+  load_session_page: async (a: { offset?: number; limit?: number }): Promise<any> => {
+    const offset = a?.offset ?? 0;
+    const limit = a?.limit ?? 20;
+    // Newest-last list; offset=0 yields the most recent `limit` entries, larger offsets yield older ones.
+    const end = Math.max(0, longSession.length - offset);
+    const start = Math.max(0, end - limit);
+    return longSession.slice(start, end);
+  },
   list_pinned_artifacts: async (): Promise<any> => pinned,
   read_pinned_artifact: async (a: { id: number }): Promise<any> =>
     pinned.find((p) => p.id === a.id) ?? pinned[0],
@@ -71,6 +95,7 @@ export function resetBackend(): void {
   interrupted = false;
   interruptResolve?.();
   interruptResolve = null;
+  errorArmed = true;
   pinned = listPinnedFx.response.slice();
   nextPinId = pinned.length + 1;
   // re-seed mutable state here as commands with side effects are added.

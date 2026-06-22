@@ -3,7 +3,7 @@ import type { ChatTurn } from "$lib/ipc";
 export type ScenarioEvent = { event: string; payload: unknown };
 // `blocking`: if true, send_message parks after emitting events and waits for
 // interrupt_turn — simulating a long-running turn that the user stops early.
-export type Scenario = { trigger: string; events: ScenarioEvent[]; response: ChatTurn; blocking?: boolean };
+export type Scenario = { trigger: string; events: ScenarioEvent[]; response: ChatTurn; blocking?: boolean; throws?: boolean };
 
 const chartBlock = {
   kind: "component",
@@ -58,6 +58,34 @@ export const scenarios: Scenario[] = [
   { trigger: "silent stop", blocking: true, events: [
       { event: "chat_chunk", payload: { text: "" } },
     ], response: { blocks: [] } },
+  // throws: one-shot error (first attempt throws, retry recovers via defaultScenario).
+  { trigger: "trigger error", throws: true, events: [], response: { blocks: [] } },
+  // partial stop: emits one chunk then parks until interrupted.
+  { trigger: "partial stop", blocking: true, events: [
+      { event: "chat_chunk", payload: { text: "Partial answer so far" } },
+    ], response: { blocks: [] } },
+  // think: reasoning + tool call/result + final chunk.
+  { trigger: "think", events: [
+      { event: "chat_reasoning", payload: { text: "Considering options" } },
+      { event: "chat_tool_call", payload: { id: "t1", name: "read_file", args: { path: "/x" } } },
+      { event: "chat_tool_result", payload: { id: "t1", output: "ok", ok: true } },
+      { event: "chat_chunk", payload: { text: "Done." } },
+      { event: "chat_done", payload: null },
+    ], response: { blocks: [{ kind: "markdown", text: "Done." }] } },
+  // workflow: two tool calls in sequence + final chunk.
+  { trigger: "workflow", events: [
+      { event: "chat_tool_call", payload: { id: "w1", name: "list_directory", args: { path: "/" } } },
+      { event: "chat_tool_result", payload: { id: "w1", output: "a\nb", ok: true } },
+      { event: "chat_tool_call", payload: { id: "w2", name: "read_file", args: { path: "/a" } } },
+      { event: "chat_tool_result", payload: { id: "w2", output: "hello", ok: true } },
+      { event: "chat_chunk", payload: { text: "Done." } },
+      { event: "chat_done", payload: null },
+    ], response: { blocks: [{ kind: "markdown", text: "Done." }] } },
+  // link: a URL in the text for link-promotion tests.
+  { trigger: "link", events: [
+      { event: "chat_chunk", payload: { text: "See https://example.com for details." } },
+      { event: "chat_done", payload: null },
+    ], response: { blocks: [{ kind: "markdown", text: "See https://example.com for details." }] } },
 ];
 
 /** Pick the first scenario whose trigger is a case-insensitive substring of the message, else default. */
