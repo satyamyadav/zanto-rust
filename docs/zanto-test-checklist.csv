@@ -7,13 +7,13 @@ Window,W-3,Notification on turn done,"Start a long turn, switch to another app",
 Window,W-4,Notification on approval,Trigger a gated action while window unfocused,'zanto needs your input' notification fires,pass,,,,manual-only: tauri window/OS
 Design,D-1,Light/dark + density,Settings -> Appearance,Theme + density change; violet accent,pass,,,,
 Design,D-2,Typography,Look at headings / tool names / code,Display font headings; monospace for tools/paths/JSON,pass,,,,
-Chat,C-1,Streaming,Send any message,Tokens stream in live,pass,,,,
-Chat,C-2,Stop mid-turn,"Send a long question, click Stop while streaming",Stops; partial kept; 'Stopped' marker shown,pass,,"FIXED 2026-06-18: a stopped turn now always persists metadata (stopped:true) even with zero segments, so the marker survives reload (was dropped as an empty message). RETEST. ORIG: Stop marker was added but coming back to old session it disappeared",Qwen2.5:7b,
-Chat,C-3,Queue while busy,Type + Enter while a turn is running,Pending bubble; auto-sent FIFO after turn ends,pass,,,,
-Chat,C-4,Thinking block,Ask something that uses a tool,'Working... running <tool>' header; collapses to 'Thought for N steps'; expandable,pass,,"FIXED 2026-06-18: thinking is one hoisted block per run; tool calls render inline; artifact-rendering tool calls now hidden (render like markdown); reasoning/tool_call/block/stopped all persist+restore in metadata (verified in code). RETEST reopening an old session in pnpm dev. ORIG: thinkling and tool call should not be merged in stead thinking is one block for complete run and tool call should be inline at the place it was used, like in between text responses or artifacts, same for artifacts also. Also thinking block and the tool calls are not perstent in session, so opening back old session not showing it. ",,
-Chat,C-5,Workflow grouping,Ask something needing several tool calls,Multiple tools grouped as 'Workflow (N steps)',pass,,related to c-4 (workflow grouping unchanged; retest),,
-Chat,C-6,Copy,"Hover a reply / a code block, click copy",Copies message / code; 'Copied' feedback,pass,,,,
-Chat,C-7,Paste expander,Paste a very large block into composer,Collapses to a pasted-N-lines chip; full text still sent,partial,,"it is working perfect in the comoser but it should also be a sub view in chat user message bubble, with expanded and editable view ( this can be a v2 or p2 feature) current one is working fine.",,
+Chat,C-1,Streaming,Send any message,Tokens stream in live,pass,,,,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-2,Stop mid-turn,"Send a long question, click Stop while streaming",Stops; partial kept; 'Stopped' marker shown,pass,,"FIXED 2026-06-18: a stopped turn now always persists metadata (stopped:true) even with zero segments, so the marker survives reload (was dropped as an empty message). RETEST. ORIG: Stop marker was added but coming back to old session it disappeared",Qwen2.5:7b,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-3,Queue while busy,Type + Enter while a turn is running,Pending bubble; auto-sent FIFO after turn ends,pass,,,,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-4,Thinking block,Ask something that uses a tool,'Working... running <tool>' header; collapses to 'Thought for N steps'; expandable,pass,,"FIXED 2026-06-18: thinking is one hoisted block per run; tool calls render inline; artifact-rendering tool calls now hidden (render like markdown); reasoning/tool_call/block/stopped all persist+restore in metadata (verified in code). RETEST reopening an old session in pnpm dev. ORIG: thinkling and tool call should not be merged in stead thinking is one block for complete run and tool call should be inline at the place it was used, like in between text responses or artifacts, same for artifacts also. Also thinking block and the tool calls are not perstent in session, so opening back old session not showing it. ",,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-5,Workflow grouping,Ask something needing several tool calls,Multiple tools grouped as 'Workflow (N steps)',pass,,related to c-4 (workflow grouping unchanged; retest),,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-6,Copy,"Hover a reply / a code block, click copy",Copies message / code; 'Copied' feedback,pass,,,,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-7,Paste expander,Paste a very large block into composer,Collapses to a pasted-N-lines chip; full text still sent,partial,,"it is working perfect in the comoser but it should also be a sub view in chat user message bubble, with expanded and editable view ( this can be a v2 or p2 feature) current one is working fine.",,auto: tests/ui/chat-behaviors.spec.ts
 Chat,C-8,@-tag,Type @ in composer,File picker autocomplete; inserts @path,pass,,"Chat - quick actions
 what is in @/home/lazy/Documents/orbit-test/src/utils.py
 Thought for 1 step1 step
@@ -37,10 +37,10 @@ read_filedoneargs{
   ""path"": ""/home/lazy/Documents/orbit-test/foo.txt""
 }Copyoutput
 It seems that there is no file named�foo.txt�in the path�/home/lazy/Documents/orbit-test/. Would you like to create this file or explore another file?
-Copy",,
-Chat,C-9,Slash menu,Type / at line start,"Slash menu (/new, /clear)",fixed,,"FIXED 2026-06-18: /clear is always selectable (no longer gated on clearable content, which caused the deadlock); clears the composer (no-op when empty). ORIG: new is working fine but the /clear command is in deadlock, if there is content it is not triggered, if thre is no content what will it clear ?",,
-Chat,C-10,Error + retry,"Set a bad endpoint in Settings, send a message",Inline error card with Retry; retry re-runs cleanly,pass,,,,
-Chat,C-11,Infinite scroll,"Open a long session, scroll to top","Older messages load, scroll position preserved",pass,,,,
+Copy",,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-9,Slash menu,Type / at line start,"Slash menu (/new, /clear)",fixed,,"FIXED 2026-06-18: /clear is always selectable (no longer gated on clearable content, which caused the deadlock); clears the composer (no-op when empty). ORIG: new is working fine but the /clear command is in deadlock, if there is content it is not triggered, if thre is no content what will it clear ?",,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-10,Error + retry,"Set a bad endpoint in Settings, send a message",Inline error card with Retry; retry re-runs cleanly,pass,,,,auto: tests/ui/chat-behaviors.spec.ts
+Chat,C-11,Infinite scroll,"Open a long session, scroll to top","Older messages load, scroll position preserved",pass,,,,auto: tests/ui/chat-behaviors.spec.ts
 Chat,C-12,Link handling,"Get a reply with a URL, click it",Preview popup (Open in browser / Copy / View in panel); app never navigates,fixed-retest,,"FIXED 2026-06-18 (B0-2): the iframe (blank in WebKitGTK + booted a nested app context) is replaced with an open-in-browser card (host + Open in browser + Copy). RETEST. ORIG: everything is working, except the panel is white page and nothing loaded in the panel. Looks like iframe will not work, it should be a web view or the webkit window [Debug] [vite] connecting... (client, line 789)
 [Debug] [vite] connected. (client, line 912)
 [Error] Unhandled Promise Rejection: TypeError: undefined is not an object (evaluating 'cnf.title.text')
@@ -90,7 +90,7 @@ Chat,C-12,Link handling,"Get a reply with a URL, click it",Preview popup (Open i
 [Error] Failed to load resource: Data URL decoding failed (data:image/png;base64,iVB…g==, line 0)
 [Error] Unhandled Promise Rejection: TypeError: undefined is not an object (evaluating 'cnf.title.text')
 	(anonymous function) (Chart.svelte:83)
-[Error] Failed to load resource: Data URL decoding failed (data:image/png;base64,iVB…g==, line 0) ",,
+[Error] Failed to load resource: Data URL decoding failed (data:image/png;base64,iVB…g==, line 0) ",,auto: tests/ui/chat-behaviors.spec.ts
 Sessions,SS-1,New / switch / rename / delete,Use Sidebar session actions (keyboard too),All work; actions reachable by keyboard,pass,,,,
 Sessions,SS-2,Archive,Archive a session; open Archived section; unarchive,Moves out of active list; restorable,pass,,,,
 Sessions,SS-3,Reopen restores artifacts,Reopen a session that had a chart/table,"Blocks restored, not just text",pass,,"charts are not rendered, show me an example of artifacts you can render inline
