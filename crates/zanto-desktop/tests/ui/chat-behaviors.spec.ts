@@ -122,6 +122,52 @@ test("C-3: a message typed while busy is queued and dispatched after the turn en
   await expect(page.getByText("Hi there.")).toBeVisible();
 });
 
+// C-4: A tool-using turn shows a thinking block that collapses to "Thought for N steps".
+// The "think" scenario emits: chat_reasoning("Considering options") + chat_tool_call +
+// chat_tool_result + chat_chunk("Done.") + chat_done.
+// stepCount = 1 (one tool call), so the summary label is "Thought for 1 step".
+// The block starts collapsed (open = false by default); click the button to expand
+// and reveal the reasoning text "Considering options".
+test("C-4: a tool-using turn shows a thinking block that collapses to 'Thought for 1 step' and is expandable", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("think about this");
+  await composer.press("Enter");
+
+  // Wait for the turn to complete.
+  await expect(page.getByText("Done.")).toBeVisible();
+
+  // The collapsed thinking label must be visible.
+  const thinkingBtn = page.getByRole("button", { name: "Thought for 1 step" });
+  await expect(thinkingBtn).toBeVisible();
+
+  // Expand it — reasoning content should now be visible.
+  await thinkingBtn.click();
+  await expect(page.getByText("Considering options")).toBeVisible();
+});
+
+// C-5: Multiple tool calls in a single turn are grouped as a Workflow.
+// The "workflow" scenario emits: two tool_call+tool_result pairs + chat_chunk("Done.") + chat_done.
+// ≥2 consecutive tool_call segments → WorkflowGroup; label: "Workflow (2 steps)".
+// The pill shows "2/2 done" once both results arrive.
+test("C-5: multiple tool calls are grouped as a Workflow", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("workflow run");
+  await composer.press("Enter");
+
+  // Wait for the turn to complete.
+  await expect(page.getByText("Done.")).toBeVisible();
+
+  // The workflow header must show the step count.
+  await expect(page.getByText("Workflow (2 steps)")).toBeVisible();
+
+  // The completion pill must confirm both steps finished.
+  await expect(page.getByText("2/2 done")).toBeVisible();
+});
+
 // C-9: Slash menu lists /new and /clear; selecting /new starts a fresh session.
 // Typing `/` at line start (empty composer) opens the listbox.
 // The menu items are role="option" buttons inside a role="listbox".
