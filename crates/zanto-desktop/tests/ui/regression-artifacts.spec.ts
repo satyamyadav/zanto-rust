@@ -47,14 +47,17 @@ test("R-7: a pinned chart re-renders from the stored record", async ({ page }) =
   const backendTablist = page.getByRole("tablist", { name: "Artifact backend" });
   await backendTablist.getByRole("tab", { name: "Pinned views" }).click();
 
-  // 5. Click the first pinned item in the list to open its preview.
-  //    The mock pin_artifact_cmd pushes the item; list_pinned_artifacts returns it.
+  // 5. The seed starts empty (list_pinned_artifacts.json has response:[]).
+  //    The ONLY pinned item in the list must be the one we just pinned via
+  //    pin_artifact_cmd — proving the command was actually exercised.
   const pinnedList = page.locator(".overflow-auto.rounded-md.border").first();
-  await pinnedList.getByRole("button").first().click();
+  const pinnedButtons = pinnedList.getByRole("button");
+  await expect(pinnedButtons).toHaveCount(1);
 
-  // 6. Assert the chart re-renders in the preview panel — scoped to the preview
-  //    container (the right flex-1 pane in the artifact browser) so we're asserting
-  //    the RE-RENDERED pinned chart, not the original inline one in the chat.
+  // 6. Open it and assert the chart re-renders in the preview panel — scoped to
+  //    the preview container so we're asserting the RE-RENDERED pinned chart,
+  //    not the original inline one in the chat.
+  await pinnedButtons.first().click();
   const previewPane = page.locator(".flex-1.overflow-auto.p-3").last();
   await expect(previewPane.locator(".apexcharts-canvas")).toBeVisible();
 });

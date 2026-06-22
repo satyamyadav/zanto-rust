@@ -1,1 +1,1 @@
-{ "request": {}, "response": [ { "id": 1, "component_id": "chart", "title": "Weekly Values", "target": "inline", "created_at": 1718900000, "data": { "type": "bar", "labels": ["Mon","Tue"], "datasets": [{ "data": [120,200], "label": "Weekly Values" }] } } ] }
+{ "request": {}, "response": [] }
