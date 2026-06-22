@@ -1,19 +1,19 @@
-Area,ID,Feature / Workflow,How to test,Expected,Status,Severity,Notes,Model used
-Setup,S1,Launch app,cd crates/zanto-desktop && pnpm dev,"Window opens, lands in Chat",pass,,,
-Setup,S2,Pick provider + key,"Settings -> set provider (Gemini/Claude/OpenAI) + API key, or use Ollama",Key saved (keychain); next turn uses chosen model,pass,,,
-Window,W-1,Window state persistence,"Resize/move window, quit, relaunch",Reopens at same size + position,pass,,,
-Window,W-2,Single instance,Launch the app a second time,"Existing window is focused, no 2nd window",pass,,,
-Window,W-3,Notification on turn done,"Start a long turn, switch to another app",Native notification 'Reply ready' when done; none when focused,pass,,,
-Window,W-4,Notification on approval,Trigger a gated action while window unfocused,'zanto needs your input' notification fires,pass,,,
-Design,D-1,Light/dark + density,Settings -> Appearance,Theme + density change; violet accent,pass,,,
-Design,D-2,Typography,Look at headings / tool names / code,Display font headings; monospace for tools/paths/JSON,pass,,,
-Chat,C-1,Streaming,Send any message,Tokens stream in live,pass,,,
-Chat,C-2,Stop mid-turn,"Send a long question, click Stop while streaming",Stops; partial kept; 'Stopped' marker shown,pass,,"FIXED 2026-06-18: a stopped turn now always persists metadata (stopped:true) even with zero segments, so the marker survives reload (was dropped as an empty message). RETEST. ORIG: Stop marker was added but coming back to old session it disappeared",Qwen2.5:7b
-Chat,C-3,Queue while busy,Type + Enter while a turn is running,Pending bubble; auto-sent FIFO after turn ends,pass,,,
-Chat,C-4,Thinking block,Ask something that uses a tool,'Working... running <tool>' header; collapses to 'Thought for N steps'; expandable,pass,,"FIXED 2026-06-18: thinking is one hoisted block per run; tool calls render inline; artifact-rendering tool calls now hidden (render like markdown); reasoning/tool_call/block/stopped all persist+restore in metadata (verified in code). RETEST reopening an old session in pnpm dev. ORIG: thinkling and tool call should not be merged in stead thinking is one block for complete run and tool call should be inline at the place it was used, like in between text responses or artifacts, same for artifacts also. Also thinking block and the tool calls are not perstent in session, so opening back old session not showing it. ",
-Chat,C-5,Workflow grouping,Ask something needing several tool calls,Multiple tools grouped as 'Workflow (N steps)',pass,,related to c-4 (workflow grouping unchanged; retest),
-Chat,C-6,Copy,"Hover a reply / a code block, click copy",Copies message / code; 'Copied' feedback,pass,,,
-Chat,C-7,Paste expander,Paste a very large block into composer,Collapses to a pasted-N-lines chip; full text still sent,partial,,"it is working perfect in the comoser but it should also be a sub view in chat user message bubble, with expanded and editable view ( this can be a v2 or p2 feature) current one is working fine.",
+Area,ID,Feature / Workflow,How to test,Expected,Status,Severity,Notes,Model used,Automation
+Setup,S1,Launch app,cd crates/zanto-desktop && pnpm dev,"Window opens, lands in Chat",pass,,,,manual-only: real app/keychain
+Setup,S2,Pick provider + key,"Settings -> set provider (Gemini/Claude/OpenAI) + API key, or use Ollama",Key saved (keychain); next turn uses chosen model,pass,,,,manual-only: real app/keychain
+Window,W-1,Window state persistence,"Resize/move window, quit, relaunch",Reopens at same size + position,pass,,,,manual-only: tauri window/OS
+Window,W-2,Single instance,Launch the app a second time,"Existing window is focused, no 2nd window",pass,,,,manual-only: tauri window/OS
+Window,W-3,Notification on turn done,"Start a long turn, switch to another app",Native notification 'Reply ready' when done; none when focused,pass,,,,manual-only: tauri window/OS
+Window,W-4,Notification on approval,Trigger a gated action while window unfocused,'zanto needs your input' notification fires,pass,,,,manual-only: tauri window/OS
+Design,D-1,Light/dark + density,Settings -> Appearance,Theme + density change; violet accent,pass,,,,
+Design,D-2,Typography,Look at headings / tool names / code,Display font headings; monospace for tools/paths/JSON,pass,,,,
+Chat,C-1,Streaming,Send any message,Tokens stream in live,pass,,,,
+Chat,C-2,Stop mid-turn,"Send a long question, click Stop while streaming",Stops; partial kept; 'Stopped' marker shown,pass,,"FIXED 2026-06-18: a stopped turn now always persists metadata (stopped:true) even with zero segments, so the marker survives reload (was dropped as an empty message). RETEST. ORIG: Stop marker was added but coming back to old session it disappeared",Qwen2.5:7b,
+Chat,C-3,Queue while busy,Type + Enter while a turn is running,Pending bubble; auto-sent FIFO after turn ends,pass,,,,
+Chat,C-4,Thinking block,Ask something that uses a tool,'Working... running <tool>' header; collapses to 'Thought for N steps'; expandable,pass,,"FIXED 2026-06-18: thinking is one hoisted block per run; tool calls render inline; artifact-rendering tool calls now hidden (render like markdown); reasoning/tool_call/block/stopped all persist+restore in metadata (verified in code). RETEST reopening an old session in pnpm dev. ORIG: thinkling and tool call should not be merged in stead thinking is one block for complete run and tool call should be inline at the place it was used, like in between text responses or artifacts, same for artifacts also. Also thinking block and the tool calls are not perstent in session, so opening back old session not showing it. ",,
+Chat,C-5,Workflow grouping,Ask something needing several tool calls,Multiple tools grouped as 'Workflow (N steps)',pass,,related to c-4 (workflow grouping unchanged; retest),,
+Chat,C-6,Copy,"Hover a reply / a code block, click copy",Copies message / code; 'Copied' feedback,pass,,,,
+Chat,C-7,Paste expander,Paste a very large block into composer,Collapses to a pasted-N-lines chip; full text still sent,partial,,"it is working perfect in the comoser but it should also be a sub view in chat user message bubble, with expanded and editable view ( this can be a v2 or p2 feature) current one is working fine.",,
 Chat,C-8,@-tag,Type @ in composer,File picker autocomplete; inserts @path,pass,,"Chat - quick actions
 what is in @/home/lazy/Documents/orbit-test/src/utils.py
 Thought for 1 step1 step
@@ -37,10 +37,10 @@ read_filedoneargs{
   ""path"": ""/home/lazy/Documents/orbit-test/foo.txt""
 }Copyoutput
 It seems that there is no file named�foo.txt�in the path�/home/lazy/Documents/orbit-test/. Would you like to create this file or explore another file?
-Copy",
-Chat,C-9,Slash menu,Type / at line start,"Slash menu (/new, /clear)",fixed,,"FIXED 2026-06-18: /clear is always selectable (no longer gated on clearable content, which caused the deadlock); clears the composer (no-op when empty). ORIG: new is working fine but the /clear command is in deadlock, if there is content it is not triggered, if thre is no content what will it clear ?",
-Chat,C-10,Error + retry,"Set a bad endpoint in Settings, send a message",Inline error card with Retry; retry re-runs cleanly,pass,,,
-Chat,C-11,Infinite scroll,"Open a long session, scroll to top","Older messages load, scroll position preserved",pass,,,
+Copy",,
+Chat,C-9,Slash menu,Type / at line start,"Slash menu (/new, /clear)",fixed,,"FIXED 2026-06-18: /clear is always selectable (no longer gated on clearable content, which caused the deadlock); clears the composer (no-op when empty). ORIG: new is working fine but the /clear command is in deadlock, if there is content it is not triggered, if thre is no content what will it clear ?",,
+Chat,C-10,Error + retry,"Set a bad endpoint in Settings, send a message",Inline error card with Retry; retry re-runs cleanly,pass,,,,
+Chat,C-11,Infinite scroll,"Open a long session, scroll to top","Older messages load, scroll position preserved",pass,,,,
 Chat,C-12,Link handling,"Get a reply with a URL, click it",Preview popup (Open in browser / Copy / View in panel); app never navigates,fixed-retest,,"FIXED 2026-06-18 (B0-2): the iframe (blank in WebKitGTK + booted a nested app context) is replaced with an open-in-browser card (host + Open in browser + Copy). RETEST. ORIG: everything is working, except the panel is white page and nothing loaded in the panel. Looks like iframe will not work, it should be a web view or the webkit window [Debug] [vite] connecting... (client, line 789)
 [Debug] [vite] connected. (client, line 912)
 [Error] Unhandled Promise Rejection: TypeError: undefined is not an object (evaluating 'cnf.title.text')
@@ -90,9 +90,9 @@ Chat,C-12,Link handling,"Get a reply with a URL, click it",Preview popup (Open i
 [Error] Failed to load resource: Data URL decoding failed (data:image/png;base64,iVB…g==, line 0)
 [Error] Unhandled Promise Rejection: TypeError: undefined is not an object (evaluating 'cnf.title.text')
 	(anonymous function) (Chart.svelte:83)
-[Error] Failed to load resource: Data URL decoding failed (data:image/png;base64,iVB…g==, line 0) ",
-Sessions,SS-1,New / switch / rename / delete,Use Sidebar session actions (keyboard too),All work; actions reachable by keyboard,pass,,,
-Sessions,SS-2,Archive,Archive a session; open Archived section; unarchive,Moves out of active list; restorable,pass,,,
+[Error] Failed to load resource: Data URL decoding failed (data:image/png;base64,iVB…g==, line 0) ",,
+Sessions,SS-1,New / switch / rename / delete,Use Sidebar session actions (keyboard too),All work; actions reachable by keyboard,pass,,,,
+Sessions,SS-2,Archive,Archive a session; open Archived section; unarchive,Moves out of active list; restorable,pass,,,,
 Sessions,SS-3,Reopen restores artifacts,Reopen a session that had a chart/table,"Blocks restored, not just text",pass,,"charts are not rendered, show me an example of artifacts you can render inline
 The following table has been rendered inline:
 Name
@@ -123,12 +123,12 @@ Sample ChartCopy
 more different ones
 The following line chart has been rendered inline:
 ![](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAABCAYAAABSc3JubAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAazJREFUSEvjt19
-Copy",
-Sessions,SS-4,App switch,Switch Chat <-> Finance,Sessions scoped per app; active bar = violet,pass,,"FIXED 2026-06-18: 'Switching…' spinner shown during app switch (was a silent dim); session list already has infinite scroll (loadMoreSessions) + a generation race-guard against stale appends on rapid switches. RETEST. ORIG: no loading state so it lags, no infine scroll for the threads so it taks time to swithc and frequent swirches break it ",
-Workspace,WS-1,Set project dir,Sidebar -> Workspace -> Set project,Project shown; outputs note (<project>/.zanto/artifacts),pass,,,
-Workspace,WS-2,Context sources,"Workspace -> add a file/dir, toggle enable, remove",List + enable toggle + composer 'N sources' chip,pass,,,
-Workspace,WS-3,Context actually used,"Add a notes file as source, ask something needing it; toggle off",Answers from it when on; ignores when off,pass,,,
-Artifacts,A-1,Render table,Ask 'show ... as a table',Table renders inline,pass,,,
+Copy",,
+Sessions,SS-4,App switch,Switch Chat <-> Finance,Sessions scoped per app; active bar = violet,pass,,"FIXED 2026-06-18: 'Switching…' spinner shown during app switch (was a silent dim); session list already has infinite scroll (loadMoreSessions) + a generation race-guard against stale appends on rapid switches. RETEST. ORIG: no loading state so it lags, no infine scroll for the threads so it taks time to swithc and frequent swirches break it ",,
+Workspace,WS-1,Set project dir,Sidebar -> Workspace -> Set project,Project shown; outputs note (<project>/.zanto/artifacts),pass,,,,
+Workspace,WS-2,Context sources,"Workspace -> add a file/dir, toggle enable, remove",List + enable toggle + composer 'N sources' chip,pass,,,,
+Workspace,WS-3,Context actually used,"Add a notes file as source, ask something needing it; toggle off",Answers from it when on; ignores when off,pass,,,,
+Artifacts,A-1,Render table,Ask 'show ... as a table',Table renders inline,pass,,,,
 Artifacts,A-2,Render chart,"Ask 'bar chart of Mon-Sun values 120,200,150,80,70,110,130'",Chart.js chart inline; 'open in panel' -> canvas,fixed-retest,,"FIXED 2026-06-18 (B0-1): titleless charts crashed ApexCharts (cnf.title.text) so only titled ones rendered; now always pass a title object + guard render/update. RETEST. ORIG: Some charts are not rendered.
 <div class=""w-full"" style=""min-height: 271px;""><div id=""apexcharts4x3fmcbq"" class=""apexcharts-canvas apexcharts4x3fmcbq"" style=""width: 910px; height: 256px;""><svg xmlns=""http://www.w3.org/2000/svg"" class=""apexcharts-svg"" xmlns:data=""ApexChartsNS"" transform=""translate(0, 0)"" width=""910"" height=""256"" style=""background: none;""><foreignObject x=""0"" y=""0"" width=""910"" height=""256""></foreignObject></svg><div class=""apexcharts-legend""></div><div class=""apexcharts-sr-status"" role=""status"" aria-live=""polite"" aria-atomic=""true""></div></div></div>
 
@@ -232,70 +232,70 @@ Now, I will render the bar chart using this corrected data.
 Thought for 1 step
 1 step
 The bar chart for the weekly values has been rendered successfully. Here it is:
-![](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAaYAAAOQCAYAAAAfSC+IAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyRpVFh0WE1MOmNvbS5hZG9iZS5ayIAAAAdElEQVR4nO3U6xubW7vHn3eXe3fz//z/7v3L3u/fvn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9",
-Artifacts,A-3,Markdown / page,Ask for a markdown doc or a multi-section page,Rendered markdown / page artifact,pass,,,
-Artifacts,A-4,Browser tabs,Sidebar -> Artifacts,Documents + Pinned views tabs,pass,,"VERIFIED in code 2026-06-18: ArtifactBrowser renders in the side canvas panel (not a modal), opened from a labeled 'Artifacts' button in the sidebar. RETEST overflow at the live panel width. ORIG: everything works but it is a narrow modal, everything overflows out of it, trigger button place and icon is also a little un discoverable. Using side panel would be good as it also is adding switching the views",
-Artifacts,A-5,Pin a view,"Pin a chart/table, reopen from Pinned views",Re-renders from the DB record,pass,,"FIXED 2026-06-18: Pin button now visible at rest (opacity-60, full on hover/focus) on rendered view artifacts; once charts render (A-2) a pinnable view actually appears. RETEST. ORIG: can not find this option",
-Artifacts,A-6,Save / Reveal,In Artifacts -> a document -> Save a copy / Reveal,Save dialog writes file; Reveal opens file manager,pass,,,
-Documents,DOC-1,Drag-drop a file,Drag a PDF/CSV/DOCX/XLSX onto the window,Attaches as a chip,pass,,,
-Documents,DOC-2,Read document,"With a doc attached, ask 'summarize it'",Agent calls read_document; answers from content,pass,,,
-Documents,DOC-3,Attach button,"Click paperclip, pick files",File dialog opens; files attach (FLAG if dialog fails),pass,,,
-Documents,DOC-4,Vision,"(Gemini/Claude) attach an image, ask 'what is in this image?'",Model describes the image; Ollama -> degrade note,,,,
-Finance,F-1,Onboarding / empty state,Mount Finance with no data,Empty-state CTAs / onboarding,,,,
-Finance,F-2,Add + summarize,Add transactions via chat; 'this month summary',Persisted; KPIs + chart,fixed-retest,,HARDENED 2026-06-18: add_transaction now coerces string amounts (e.g. '$12.50') to numbers (was silently stored as 0); merchant no longer required; monthly_summary/query_transactions render inline without a tool-call card. RETEST add-via-chat + 'this month summary'.,
-Finance,F-3,Widgets / resources,Edit dashboard widgets; open resources panel,Add/remove/reorder widgets; browse resource files,,,,
-HITL,H-1,Permission approval,Ask to write/read a file outside granted folders,Approval overlay above composer (once/session/forever/deny),pass,,,
-HITL,H-2,Agent ask form,Trigger a clarifying question from the agent,Multi-field form above composer; answers return to agent,pass,,multi step and complete keyboard support will be good  to have,
-Core,CO-1,Skills,"Create <project>/.zanto/skills/x.md, select in Settings, ask",Selected skill steers the reply,fixed-retest,,"FIXED 2026-06-18: skill selection now persisted to Settings (selected_skill) and seeded into state on startup, so it survives an app restart (was runtime-only). RETEST: select skill, restart, confirm still active.",
-Core,CO-2,Summarization,"Set max_context_turns, have a long conversation",Older turns summarized into context,,,,
-Core,CO-3,Web tool,Ask the agent to fetch a public URL,fetch_url returns extracted text,pass,,,
-Workflow,FLOW-1,Doc Q&A -> visualize -> keep,Drop a spreadsheet -> summarize -> chart the totals -> pin -> reopen,End-to-end works across read_document + chart + pin,,,,
-Workflow,FLOW-2,Generate + download report,'Write a markdown report on X and save it' -> Save a copy -> Reveal,Saved to Artifacts; exported to disk,,,,
-Workflow,FLOW-3,Vision,Attach a screenshot -> 'describe + list problems',Useful vision answer (multimodal model),,,,
-Workflow,FLOW-4,Filesystem assistant,"'list ~/Downloads as a table, delete the .tmp files'",list_directory -> table -> approval on delete,,,,
-Workflow,FLOW-5,Interrupt + queue,Long question -> Stop; then queue 2 follow-ups while busy,Stop works; queued msgs run in order,,,,
-Workflow,FLOW-6,Workspace context,Set project + add a notes source -> ask using it,Answer uses the source; off = ignored,,,,
-Workflow,FLOW-7,Finance zero-to-dashboard,Onboard -> add transactions -> summary -> build widget,Full finance loop works,,,,
-Workflow,FLOW-8,Skill-steered review,Author reviewer.md skill -> select -> ask it to review code,Reply in the skill's voice,,,,
-Regression,R-1,Chart one-shot tool,"Ask 'bar chart of Mon-Sun values 120,200,150,80,70,110,130'",ApexCharts chart renders inline in ONE step; no base64 image / markdown-table fallback,,,2026-06-18 new,
-Regression,R-2,Artifact tool cards hidden,Ask for a chart and (separately) a table,Block renders inline; NO render_artifact/chart tool-call card shown above it,,,2026-06-18 new,
-Regression,R-3,Empty-stop marker persists,"Send a long msg, click Stop instantly before any text appears, then reopen the session",'Stopped' marker shows live AND survives reopen (was dropped before),,,2026-06-18 new,
-Regression,R-4,Skill persists across restart,"Select a skill in Settings, fully quit & relaunch the app",Skill still selected; reply still skill-steered,,,2026-06-18 new,
-Regression,R-5,Finance string amount,"In Finance, add a transaction phrased so the amount reads as text, e.g. 'I spent $12.50 at a cafe'",Stored as a number; 'this month summary' total includes it (not 0),,,2026-06-18 new,
-Regression,R-6,Finance summary inline,Ask 'this month's summary' in Finance,monthly_summary renders inline; no tool-call card,,,2026-06-18 new,
-Regression,R-7,Chart pin round-trip,"Render a chart, click the Pin affordance (visible at rest), reopen from Artifacts -> Pinned views",Chart re-renders from the DB record via ApexCharts,,,2026-06-18 new,
-Regression,R-8,/clear deterministic,"Type /clear with text present, and again on an empty composer",Clears composer when there's content; silent no-op when empty; never a deadlock,,,2026-06-18 new,
-Regression,R-9,App-switch spinner,Switch Chat <-> Finance,'Switching…' spinner shows briefly; threads don't attach to the wrong app on rapid switches,,,2026-06-18 new,
-Finance setup,FS-0,Read me first,The Finance v0.2-v0.5 rows below need seed data + accounts. Do FS-1 and FS-2 FIRST. The app uses your real system date as 'this month'; the sample file is dated for June 2026 to match.,Setup rows done before the FV/FB/FI/FA/FG rows,,,run FS-1 + FS-2 first,
-Finance setup,FS-1,Seed data via import,"Finance -> Import tab -> path (or Browse to) docs/sample-statement.csv -> map Date->Date, Description->Merchant, Debit->Debit, Credit->Credit, Category->Category, account = Checking -> Import (approve the file-read permission if prompted)","33 rows imported: 4 salary credits as income, 29 debits as expenses; seeds Mar-Jun data (recurring Netflix, dining, etc.) for the budget/trends/recurring/forecast tests",,,covers FI-1/FI-2; do this first,
-Finance setup,FS-2,Create accounts,"Edit -> Accounts -> add Checking (opening 0), Savings (opening 2500), Card (opening -800) -> Save",Accounts saved; Accounts tab + net-worth headline populate,,,needed for FA-* + FG-1/FG-2,
-Finance setup,FS-3,Set a budget + goals,"Edit -> Monthly budgets: dining 200, groceries 250 -> Save. Edit -> Goals: 'Emergency' savings on Savings target 10000; 'Pay off card' debt on Card target 1000 -> Save",Budget bars + Goals tab populate from the seeded data,,,enables FB-1/FB-2 + FG-1/FG-2/FG-4,
-Finance v0.2,FV-1,Correct balance (income vs expense),"In Finance, add income 2000 then an expense 12.50",Balance = 1987.50; Income(mo)=2000; Spent(mo)=12.50; Net(mo)=1987.50 (not 2012.50),,,v0.2 new,
-Finance v0.2,FV-2,Edit a transaction,Transactions tab -> edit a row's category/amount/type -> Save,Row updates; dashboard KPIs recompute,,,v0.2 new,
-Finance v0.2,FV-3,Delete a transaction,Transactions tab -> delete a row (confirm),Row removed; balance/series update,,,v0.2 new,
-Finance v0.2,FV-4,Uncategorized review,Add a txn with an off-list category -> dashboard shows 'N uncategorized — review' -> click,Banner opens Transactions filtered to uncategorized; recategorize fixes it,,,v0.2 new,
-Finance v0.2,FV-5,Category rules,Edit mode -> Category rules -> add 'cafe -> dining' -> add a txn at 'Blue Cafe' with no category,Txn lands in 'dining' via the rule,,,v0.2 new,
-Finance v0.2,FV-6,Import dedupe,Ask to import the same statement line twice (source=import),Second add returns duplicate_skipped; no double-count,,,v0.2 new,
-Finance v0.2,FV-7,Legacy transactions,Reopen with pre-v0.2 transactions (no type field),Treated as expenses; balance/summary still correct,,,v0.2 new,
-Finance v0.2,FV-8,Currency formatting,"Set profile currency (e.g. GBP), view KPIs / transactions",Amounts formatted with the currency symbol; invalid code falls back to plain number,,,v0.2 new,
-Finance v0.2,FV-9,Income/Net KPIs,Default dashboard after adding income + expense,Balance / This month / Income / Net KPI cards all present and correct,,,v0.2 new,
-Finance v0.3,FB-1,Set budgets,Dashboard -> Edit -> Monthly budgets -> set dining 200 -> Save,Budget persists; 'Budget vs actual' bars appear on dashboard,,,v0.3 new,
-Finance v0.3,FB-2,Overspend banner,"With dining budget 200, record dining expenses totalling 240",Dashboard shows 'Over budget in dining by 40'; dining bar is red,,,v0.3 new,
-Finance v0.3,FB-3,Native overspend nudge,Cross a category over budget (e.g. reload dashboard after FB-2),OS notification 'Over budget' fires once per category per month (deduped),,,v0.3 new,
-Finance v0.3,FB-4,Subscriptions detection,Record the same merchant+amount monthly for 3+ months -> Subscriptions tab,Charge listed as ~monthly; one-offs excluded; total /mo shown,,,v0.3 new,
-Finance v0.3,FB-5,Trends + MoM,Open Trends tab; check the MoM chip on the dashboard,Per-category 6-month line chart; MoM chip shows up/down vs last month (down=green),,,v0.3 new,
-Finance v0.3,FB-6,Insight widgets,Edit -> add Budget / Subscriptions / Trends widgets -> Save,New widget kinds render on the dashboard; reorder/remove work,,,v0.3 new,
-Finance v0.4,FI-1,Statement import,Finance -> Import tab -> pick a CSV path -> Parse,Columns auto-mapped; preview shows; account selectable,,,v0.4 new,
-Finance v0.4,FI-2,Debit/credit mapping,Map Debit+Credit columns (or a signed Amount) -> Import N rows,"Debits stored as expense, credits as income; signed amount: negative=expense",,,v0.4 new,
-Finance v0.4,FI-3,Import dedupe,Import the same statement file twice,Second run inserts 0 (skipped=N); no double-count,,,v0.4 new,
-Finance v0.4,FI-4,Import errors,Import with no amount column mapped,Rows reported as errors (row + reason); nothing silently lost,,,v0.4 new,
-Finance v0.4,FA-1,Manage accounts,Edit -> Accounts -> add Checking (opening 1000) + Card -> Save,Accounts persist; per-account cards show on Accounts tab,,,v0.4 new,
-Finance v0.4,FA-2,Net worth,With Checking 1000 + a 50 Card expense,Net worth = sum of account balances (950); headline + KPI correct,,,v0.4 new,
-Finance v0.4,FA-3,Transfer,Accounts -> Transfer 200 Checking -> Card,"Checking -200, Card +200; neither shows as income/expense; net worth unchanged",,,v0.4 new,
-Finance v0.4,FA-4,Account column,Transactions tab -> edit a row's account,Account column shows; edit persists; balances recompute,,,v0.4 new,
-Finance v0.4,FA-5,Net-worth + accounts widgets,Default dashboard / add accounts widget,Net worth KPI present; Accounts widget lists per-account balances,,,v0.4 new,
-Finance v0.5,FG-1,Savings goal,"Edit -> Goals -> add 'Emergency' savings on Savings, target 10000 -> Save (Savings balance ~2500)",Goals tab shows ~25% progress; completes at target,,,v0.5 new,
-Finance v0.5,FG-2,Debt goal,Add a debt goal on a card account (balance negative),Shows 'amount left to pay off'; completes at 0 owed,,,v0.5 new,
-Finance v0.5,FG-3,Forecast,Dashboard -> Forecast card (with a few months of history),Projected end-of-month net worth + expected in/out shown; reflects run-rate,,,v0.5 new,
-Finance v0.5,FG-4,Pace nudge,Budget dining 200; spend ~160 partway through the month,Amber 'on track to exceed' chip + one native nudge per month/category,,,v0.5 new,
-Finance v0.5,FG-5,Goals/forecast widgets,Edit -> add Goals / Forecast widgets; projected net worth KPI,New widget kinds render; projected net worth KPI available,,,v0.5 new,
+![](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAaYAAAOQCAYAAAAfSC+IAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAyRpVFh0WE1MOmNvbS5hZG9iZS5ayIAAAAdElEQVR4nO3U6xubW7vHn3eXe3fz//z/7v3L3u/fvn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9/fn9",,
+Artifacts,A-3,Markdown / page,Ask for a markdown doc or a multi-section page,Rendered markdown / page artifact,pass,,,,
+Artifacts,A-4,Browser tabs,Sidebar -> Artifacts,Documents + Pinned views tabs,pass,,"VERIFIED in code 2026-06-18: ArtifactBrowser renders in the side canvas panel (not a modal), opened from a labeled 'Artifacts' button in the sidebar. RETEST overflow at the live panel width. ORIG: everything works but it is a narrow modal, everything overflows out of it, trigger button place and icon is also a little un discoverable. Using side panel would be good as it also is adding switching the views",,
+Artifacts,A-5,Pin a view,"Pin a chart/table, reopen from Pinned views",Re-renders from the DB record,pass,,"FIXED 2026-06-18: Pin button now visible at rest (opacity-60, full on hover/focus) on rendered view artifacts; once charts render (A-2) a pinnable view actually appears. RETEST. ORIG: can not find this option",,
+Artifacts,A-6,Save / Reveal,In Artifacts -> a document -> Save a copy / Reveal,Save dialog writes file; Reveal opens file manager,pass,,,,
+Documents,DOC-1,Drag-drop a file,Drag a PDF/CSV/DOCX/XLSX onto the window,Attaches as a chip,pass,,,,
+Documents,DOC-2,Read document,"With a doc attached, ask 'summarize it'",Agent calls read_document; answers from content,pass,,,,
+Documents,DOC-3,Attach button,"Click paperclip, pick files",File dialog opens; files attach (FLAG if dialog fails),pass,,,,
+Documents,DOC-4,Vision,"(Gemini/Claude) attach an image, ask 'what is in this image?'",Model describes the image; Ollama -> degrade note,,,,,manual-only: live multimodal model
+Finance,F-1,Onboarding / empty state,Mount Finance with no data,Empty-state CTAs / onboarding,,,,,
+Finance,F-2,Add + summarize,Add transactions via chat; 'this month summary',Persisted; KPIs + chart,fixed-retest,,HARDENED 2026-06-18: add_transaction now coerces string amounts (e.g. '$12.50') to numbers (was silently stored as 0); merchant no longer required; monthly_summary/query_transactions render inline without a tool-call card. RETEST add-via-chat + 'this month summary'.,,
+Finance,F-3,Widgets / resources,Edit dashboard widgets; open resources panel,Add/remove/reorder widgets; browse resource files,,,,,
+HITL,H-1,Permission approval,Ask to write/read a file outside granted folders,Approval overlay above composer (once/session/forever/deny),pass,,,,
+HITL,H-2,Agent ask form,Trigger a clarifying question from the agent,Multi-field form above composer; answers return to agent,pass,,multi step and complete keyboard support will be good  to have,,
+Core,CO-1,Skills,"Create <project>/.zanto/skills/x.md, select in Settings, ask",Selected skill steers the reply,fixed-retest,,"FIXED 2026-06-18: skill selection now persisted to Settings (selected_skill) and seeded into state on startup, so it survives an app restart (was runtime-only). RETEST: select skill, restart, confirm still active.",,manual-only: live model steering
+Core,CO-2,Summarization,"Set max_context_turns, have a long conversation",Older turns summarized into context,,,,,
+Core,CO-3,Web tool,Ask the agent to fetch a public URL,fetch_url returns extracted text,pass,,,,manual-only: live network
+Workflow,FLOW-1,Doc Q&A -> visualize -> keep,Drop a spreadsheet -> summarize -> chart the totals -> pin -> reopen,End-to-end works across read_document + chart + pin,,,,,manual-only: end-to-end live model+tools
+Workflow,FLOW-2,Generate + download report,'Write a markdown report on X and save it' -> Save a copy -> Reveal,Saved to Artifacts; exported to disk,,,,,manual-only: end-to-end live model+tools
+Workflow,FLOW-3,Vision,Attach a screenshot -> 'describe + list problems',Useful vision answer (multimodal model),,,,,manual-only: end-to-end live model+tools
+Workflow,FLOW-4,Filesystem assistant,"'list ~/Downloads as a table, delete the .tmp files'",list_directory -> table -> approval on delete,,,,,manual-only: end-to-end live model+tools
+Workflow,FLOW-5,Interrupt + queue,Long question -> Stop; then queue 2 follow-ups while busy,Stop works; queued msgs run in order,,,,,manual-only: end-to-end live model+tools
+Workflow,FLOW-6,Workspace context,Set project + add a notes source -> ask using it,Answer uses the source; off = ignored,,,,,manual-only: end-to-end live model+tools
+Workflow,FLOW-7,Finance zero-to-dashboard,Onboard -> add transactions -> summary -> build widget,Full finance loop works,,,,,manual-only: end-to-end live model+tools
+Workflow,FLOW-8,Skill-steered review,Author reviewer.md skill -> select -> ask it to review code,Reply in the skill's voice,,,,,manual-only: end-to-end live model+tools
+Regression,R-1,Chart one-shot tool,"Ask 'bar chart of Mon-Sun values 120,200,150,80,70,110,130'",ApexCharts chart renders inline in ONE step; no base64 image / markdown-table fallback,,,2026-06-18 new,,auto: tests/ui/regression-artifacts.spec.ts
+Regression,R-2,Artifact tool cards hidden,Ask for a chart and (separately) a table,Block renders inline; NO render_artifact/chart tool-call card shown above it,,,2026-06-18 new,,auto: tests/ui/regression-artifacts.spec.ts
+Regression,R-3,Empty-stop marker persists,"Send a long msg, click Stop instantly before any text appears, then reopen the session",'Stopped' marker shows live AND survives reopen (was dropped before),,,2026-06-18 new,,auto: tests/ui/regression-chat.spec.ts
+Regression,R-4,Skill persists across restart,"Select a skill in Settings, fully quit & relaunch the app",Skill still selected; reply still skill-steered,,,2026-06-18 new,,auto: core config.rs (selected_skill_persists_round_trip)
+Regression,R-5,Finance string amount,"In Finance, add a transaction phrased so the amount reads as text, e.g. 'I spent $12.50 at a cafe'",Stored as a number; 'this month summary' total includes it (not 0),,,2026-06-18 new,,auto: finance import.rs (coerce_amount_parses_currency_strings)
+Regression,R-6,Finance summary inline,Ask 'this month's summary' in Finance,monthly_summary renders inline; no tool-call card,,,2026-06-18 new,,auto: tests/ui/regression-finance.spec.ts
+Regression,R-7,Chart pin round-trip,"Render a chart, click the Pin affordance (visible at rest), reopen from Artifacts -> Pinned views",Chart re-renders from the DB record via ApexCharts,,,2026-06-18 new,,auto: tests/ui/regression-artifacts.spec.ts
+Regression,R-8,/clear deterministic,"Type /clear with text present, and again on an empty composer",Clears composer when there's content; silent no-op when empty; never a deadlock,,,2026-06-18 new,,auto: tests/ui/regression-chat.spec.ts
+Regression,R-9,App-switch spinner,Switch Chat <-> Finance,'Switching…' spinner shows briefly; threads don't attach to the wrong app on rapid switches,,,2026-06-18 new,,auto: tests/ui/regression-app-switch.spec.ts
+Finance setup,FS-0,Read me first,The Finance v0.2-v0.5 rows below need seed data + accounts. Do FS-1 and FS-2 FIRST. The app uses your real system date as 'this month'; the sample file is dated for June 2026 to match.,Setup rows done before the FV/FB/FI/FA/FG rows,,,run FS-1 + FS-2 first,,
+Finance setup,FS-1,Seed data via import,"Finance -> Import tab -> path (or Browse to) docs/sample-statement.csv -> map Date->Date, Description->Merchant, Debit->Debit, Credit->Credit, Category->Category, account = Checking -> Import (approve the file-read permission if prompted)","33 rows imported: 4 salary credits as income, 29 debits as expenses; seeds Mar-Jun data (recurring Netflix, dining, etc.) for the budget/trends/recurring/forecast tests",,,covers FI-1/FI-2; do this first,,
+Finance setup,FS-2,Create accounts,"Edit -> Accounts -> add Checking (opening 0), Savings (opening 2500), Card (opening -800) -> Save",Accounts saved; Accounts tab + net-worth headline populate,,,needed for FA-* + FG-1/FG-2,,
+Finance setup,FS-3,Set a budget + goals,"Edit -> Monthly budgets: dining 200, groceries 250 -> Save. Edit -> Goals: 'Emergency' savings on Savings target 10000; 'Pay off card' debt on Card target 1000 -> Save",Budget bars + Goals tab populate from the seeded data,,,enables FB-1/FB-2 + FG-1/FG-2/FG-4,,
+Finance v0.2,FV-1,Correct balance (income vs expense),"In Finance, add income 2000 then an expense 12.50",Balance = 1987.50; Income(mo)=2000; Spent(mo)=12.50; Net(mo)=1987.50 (not 2012.50),,,v0.2 new,,
+Finance v0.2,FV-2,Edit a transaction,Transactions tab -> edit a row's category/amount/type -> Save,Row updates; dashboard KPIs recompute,,,v0.2 new,,
+Finance v0.2,FV-3,Delete a transaction,Transactions tab -> delete a row (confirm),Row removed; balance/series update,,,v0.2 new,,
+Finance v0.2,FV-4,Uncategorized review,Add a txn with an off-list category -> dashboard shows 'N uncategorized — review' -> click,Banner opens Transactions filtered to uncategorized; recategorize fixes it,,,v0.2 new,,
+Finance v0.2,FV-5,Category rules,Edit mode -> Category rules -> add 'cafe -> dining' -> add a txn at 'Blue Cafe' with no category,Txn lands in 'dining' via the rule,,,v0.2 new,,
+Finance v0.2,FV-6,Import dedupe,Ask to import the same statement line twice (source=import),Second add returns duplicate_skipped; no double-count,,,v0.2 new,,
+Finance v0.2,FV-7,Legacy transactions,Reopen with pre-v0.2 transactions (no type field),Treated as expenses; balance/summary still correct,,,v0.2 new,,
+Finance v0.2,FV-8,Currency formatting,"Set profile currency (e.g. GBP), view KPIs / transactions",Amounts formatted with the currency symbol; invalid code falls back to plain number,,,v0.2 new,,
+Finance v0.2,FV-9,Income/Net KPIs,Default dashboard after adding income + expense,Balance / This month / Income / Net KPI cards all present and correct,,,v0.2 new,,
+Finance v0.3,FB-1,Set budgets,Dashboard -> Edit -> Monthly budgets -> set dining 200 -> Save,Budget persists; 'Budget vs actual' bars appear on dashboard,,,v0.3 new,,
+Finance v0.3,FB-2,Overspend banner,"With dining budget 200, record dining expenses totalling 240",Dashboard shows 'Over budget in dining by 40'; dining bar is red,,,v0.3 new,,
+Finance v0.3,FB-3,Native overspend nudge,Cross a category over budget (e.g. reload dashboard after FB-2),OS notification 'Over budget' fires once per category per month (deduped),,,v0.3 new,,manual-only: OS notification
+Finance v0.3,FB-4,Subscriptions detection,Record the same merchant+amount monthly for 3+ months -> Subscriptions tab,Charge listed as ~monthly; one-offs excluded; total /mo shown,,,v0.3 new,,
+Finance v0.3,FB-5,Trends + MoM,Open Trends tab; check the MoM chip on the dashboard,Per-category 6-month line chart; MoM chip shows up/down vs last month (down=green),,,v0.3 new,,
+Finance v0.3,FB-6,Insight widgets,Edit -> add Budget / Subscriptions / Trends widgets -> Save,New widget kinds render on the dashboard; reorder/remove work,,,v0.3 new,,
+Finance v0.4,FI-1,Statement import,Finance -> Import tab -> pick a CSV path -> Parse,Columns auto-mapped; preview shows; account selectable,,,v0.4 new,,
+Finance v0.4,FI-2,Debit/credit mapping,Map Debit+Credit columns (or a signed Amount) -> Import N rows,"Debits stored as expense, credits as income; signed amount: negative=expense",,,v0.4 new,,
+Finance v0.4,FI-3,Import dedupe,Import the same statement file twice,Second run inserts 0 (skipped=N); no double-count,,,v0.4 new,,
+Finance v0.4,FI-4,Import errors,Import with no amount column mapped,Rows reported as errors (row + reason); nothing silently lost,,,v0.4 new,,
+Finance v0.4,FA-1,Manage accounts,Edit -> Accounts -> add Checking (opening 1000) + Card -> Save,Accounts persist; per-account cards show on Accounts tab,,,v0.4 new,,
+Finance v0.4,FA-2,Net worth,With Checking 1000 + a 50 Card expense,Net worth = sum of account balances (950); headline + KPI correct,,,v0.4 new,,
+Finance v0.4,FA-3,Transfer,Accounts -> Transfer 200 Checking -> Card,"Checking -200, Card +200; neither shows as income/expense; net worth unchanged",,,v0.4 new,,
+Finance v0.4,FA-4,Account column,Transactions tab -> edit a row's account,Account column shows; edit persists; balances recompute,,,v0.4 new,,
+Finance v0.4,FA-5,Net-worth + accounts widgets,Default dashboard / add accounts widget,Net worth KPI present; Accounts widget lists per-account balances,,,v0.4 new,,
+Finance v0.5,FG-1,Savings goal,"Edit -> Goals -> add 'Emergency' savings on Savings, target 10000 -> Save (Savings balance ~2500)",Goals tab shows ~25% progress; completes at target,,,v0.5 new,,
+Finance v0.5,FG-2,Debt goal,Add a debt goal on a card account (balance negative),Shows 'amount left to pay off'; completes at 0 owed,,,v0.5 new,,
+Finance v0.5,FG-3,Forecast,Dashboard -> Forecast card (with a few months of history),Projected end-of-month net worth + expected in/out shown; reflects run-rate,,,v0.5 new,,
+Finance v0.5,FG-4,Pace nudge,Budget dining 200; spend ~160 partway through the month,Amber 'on track to exceed' chip + one native nudge per month/category,,,v0.5 new,,manual-only: OS notification
+Finance v0.5,FG-5,Goals/forecast widgets,Edit -> add Goals / Forecast widgets; projected net worth KPI,New widget kinds render; projected net worth KPI available,,,v0.5 new,,
