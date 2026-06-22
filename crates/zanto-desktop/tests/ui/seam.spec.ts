@@ -19,7 +19,7 @@ test("tauri api is imported only from the ipc seam and mocks", () => {
     const rel = file.slice(ROOT.length + 1);
     if (ALLOWED.some((a) => rel === a || rel.startsWith(a))) continue;
     const src = readFileSync(file, "utf8");
-    if (/from\s+["']@tauri-apps\/(api|plugin-os)/.test(src)) offenders.push(rel);
+    if (/from\s+["']@tauri-apps\//.test(src)) offenders.push(rel);
   }
   expect(offenders, `stray @tauri-apps imports: ${offenders.join(", ")}`).toEqual([]);
 });

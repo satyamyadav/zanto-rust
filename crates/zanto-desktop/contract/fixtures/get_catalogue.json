@@ -1,1 +1,17 @@
-{ "request": {}, "response": [] }
+{ "request": {}, "response": [
+  {
+    "id": "chart",
+    "description": "Render a bar, line, pie, or doughnut chart.",
+    "when_to_use": "When the user asks to visualise numeric data as a chart.",
+    "storage": "view",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "datasets": { "type": "array" }
+      },
+      "required": ["type", "labels", "datasets"]
+    }
+  }
+] }

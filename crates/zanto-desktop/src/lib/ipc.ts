@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { platform as osPlatform } from "@tauri-apps/plugin-os";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 // OS platform string (e.g. "macos", "windows", "linux") so the UI can show the
 // right shortcut glyphs (⌘ vs Ctrl).
@@ -271,6 +272,9 @@ export const ipc = {
   // Skills (user-selected markdown preprompts)
   listSkills: () => invoke<SkillDto[]>("list_skills"),
   setActiveSkill: (name: string | null) => invoke<void>("set_active_skill", { name }),
+
+  // Open a url in the system browser via the bundled opener plugin (the single seam for plugin-opener).
+  openExternal: (url: string): Promise<void> => openUrl(url),
 
   // HITL interaction channel (approvals + agent forms)
   respond: (requestId: string, value: unknown) => invoke<void>("respond", { requestId, value }),

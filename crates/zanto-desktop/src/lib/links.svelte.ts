@@ -2,7 +2,7 @@
 // the Tauri webview never navigates the app, and route them into the right-hand
 // canvas panel as an embedded webview. http(s) links open in the panel; other
 // schemes are refused.
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { ipc } from "$lib/ipc";
 import { toast } from "svelte-sonner";
 import { sessionStore } from "$lib/stores/session.svelte";
 
@@ -30,7 +30,7 @@ export function openLinkInPanel(url: string) {
 /** Open a url in the system browser via the bundled opener plugin. */
 export async function openExternal(url: string): Promise<void> {
   if (!isHttp(url)) return;
-  await openUrl(url);
+  await ipc.openExternal(url);
 }
 
 /** Copy a url to the clipboard, toasting the outcome. */

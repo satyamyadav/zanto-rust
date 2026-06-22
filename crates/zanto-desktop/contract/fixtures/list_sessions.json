@@ -1,1 +1,12 @@
-{ "request": {}, "response": [] }
+{ "request": {}, "response": [
+  {
+    "id": "ses_0000000000000001",
+    "title": "Test session",
+    "workspace": "/home/user/project",
+    "app_id": null,
+    "created_at": 1700000000,
+    "updated_at": 1700000060,
+    "message_count": 2,
+    "archived": false
+  }
+] }

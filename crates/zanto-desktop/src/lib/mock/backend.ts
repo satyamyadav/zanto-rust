@@ -38,5 +38,6 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
 };
 
 export function resetBackend(): void {
+  interrupted = false;
   // re-seed mutable state here as commands with side effects are added.
 }

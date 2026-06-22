@@ -4,7 +4,6 @@ import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 const r = (p) => fileURLToPath(new URL(p, import.meta.url));
@@ -18,6 +17,7 @@ export default defineConfig(async ({ mode }) => {
         "@tauri-apps/api/event": r("src/lib/mock/event.ts"),
         "@tauri-apps/api/webviewWindow": r("src/lib/mock/webviewWindow.ts"),
         "@tauri-apps/plugin-os": r("src/lib/mock/os.ts"),
+        "@tauri-apps/plugin-opener": r("src/lib/mock/opener.ts"),
       }
     : {};
   return {
