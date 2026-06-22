@@ -1,0 +1,9 @@
+{
+  "request": { "text": "hello", "imagePaths": [] },
+  "response": { "blocks": [{ "kind": "markdown", "text": "Hi there." }] },
+  "events": [
+    { "event": "chat_chunk", "payload": { "text": "Hi " } },
+    { "event": "chat_chunk", "payload": { "text": "there." } },
+    { "event": "chat_done", "payload": null }
+  ]
+}
