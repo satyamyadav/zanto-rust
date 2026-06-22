@@ -13,6 +13,7 @@ import listPinnedFx from "../../../contract/fixtures/list_pinned_artifacts.json"
 import loadSessionFx from "../../../contract/fixtures/load_session.json";
 
 let interrupted = false;
+let interruptResolve: (() => void) | null = null;
 let pinned: any[] = listPinnedFx.response.slice();
 let nextPinId = pinned.length + 1;
 
@@ -30,16 +31,28 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   unmount_app: async () => undefined,
   send_message: async (args: { text?: string }): Promise<ChatTurn> => {
     interrupted = false;
+    interruptResolve = null;
     const sc = pickScenario(args?.text ?? "");
     for (const ev of sc.events) {
       if (interrupted) break;
       emit(ev.event, ev.payload);
       await Promise.resolve(); // yield a microtask so the UI updates between deltas
     }
+    // Blocking scenarios (e.g. "silent stop") park here until interrupt_turn is
+    // called — simulating a long-running turn the user stops early. Without this,
+    // send_message would return immediately and sessionStore.busy would drop before
+    // the Stop button renders.
+    if (!interrupted && sc.blocking) {
+      await new Promise<void>((resolve) => { interruptResolve = resolve; });
+    }
     if (interrupted) { emit("chat_stopped", null); emit("chat_done", null); }
     return sc.response;
   },
-  interrupt_turn: async () => { interrupted = true; },
+  interrupt_turn: async () => {
+    interrupted = true;
+    interruptResolve?.();
+    interruptResolve = null;
+  },
   load_session: async (): Promise<any> => loadSessionFx.response,
   load_session_page: async (): Promise<any> => loadSessionFx.response,
   list_pinned_artifacts: async (): Promise<any> => pinned,
@@ -56,6 +69,8 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
 
 export function resetBackend(): void {
   interrupted = false;
+  interruptResolve?.();
+  interruptResolve = null;
   pinned = listPinnedFx.response.slice();
   nextPinId = pinned.length + 1;
   // re-seed mutable state here as commands with side effects are added.

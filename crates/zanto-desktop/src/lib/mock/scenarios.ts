@@ -1,7 +1,9 @@
 import type { ChatTurn } from "$lib/ipc";
 
 export type ScenarioEvent = { event: string; payload: unknown };
-export type Scenario = { trigger: string; events: ScenarioEvent[]; response: ChatTurn };
+// `blocking`: if true, send_message parks after emitting events and waits for
+// interrupt_turn — simulating a long-running turn that the user stops early.
+export type Scenario = { trigger: string; events: ScenarioEvent[]; response: ChatTurn; blocking?: boolean };
 
 const chartBlock = {
   kind: "component",
@@ -44,7 +46,11 @@ export const scenarios: Scenario[] = [
       { event: "chat_block", payload: { block: summaryBlock } },
       { event: "chat_done", payload: null },
     ], response: { blocks: [summaryBlock as any] } },
-  { trigger: "silent stop", events: [], response: { blocks: [] } },
+  // Emits one chunk so streamIdx is set (enabling the Stopped marker), then parks
+  // until interrupt_turn is called — simulating a turn stopped mid-stream.
+  { trigger: "silent stop", blocking: true, events: [
+      { event: "chat_chunk", payload: { text: "" } },
+    ], response: { blocks: [] } },
 ];
 
 /** Pick the first scenario whose trigger is a case-insensitive substring of the message, else default. */
