@@ -1,6 +1,4 @@
-{
-  "request": {},
-  "response": [
-    { "id": "chat", "name": "Chat", "description": "General chat", "stores": [], "components": [], "start_actions": [] }
-  ]
-}
+{ "request": {}, "response": [
+  { "id": "chat", "name": "Chat", "description": "General chat", "stores": [], "components": [], "start_actions": [] },
+  { "id": "finance", "name": "Finance", "description": "Personal finance", "stores": ["transactions"], "components": [], "start_actions": [] }
+] }

@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use base64::Engine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::State;
 use zanto_core::artifacts::{ArtifactKind, ArtifactRef, ArtifactStore, Scope};
@@ -22,7 +22,7 @@ use super::DesktopState;
 /// A pinned view+data artifact persisted in the `pinned_artifacts` DataStore (4b).
 /// The browser (4d) re-renders it by building a `{kind:"component", component_id,
 /// data, target}` block from these fields.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct PinnedArtifact {
     pub id: i64,
     pub component_id: String,

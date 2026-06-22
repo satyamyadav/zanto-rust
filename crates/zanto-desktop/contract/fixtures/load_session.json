@@ -1,0 +1,7 @@
+{
+  "request": { "id": "sess-test-0001" },
+  "response": [
+    { "role": "user", "text": "write me a long essay", "blocks": null, "segments": null, "stopped": null },
+    { "role": "assistant", "text": "", "blocks": null, "segments": [], "stopped": true }
+  ]
+}

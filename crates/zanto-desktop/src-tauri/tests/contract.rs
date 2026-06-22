@@ -62,3 +62,30 @@ fn send_message_response_matches_dto() {
     let _dto: ChatTurn = serde_json::from_value(fx["response"].clone())
         .expect("send_message response deserializes into ChatTurn");
 }
+
+#[test]
+fn list_pinned_artifacts_response_matches_dto() {
+    let fx = fixture("list_pinned_artifacts");
+    let _v: Vec<zanto_desktop_lib::ipc::artifacts::PinnedArtifact> =
+        serde_json::from_value(fx["response"].clone()).expect("list_pinned_artifacts → Vec<PinnedArtifact>");
+}
+
+#[test]
+fn read_pinned_artifact_response_matches_dto() {
+    let fx = fixture("read_pinned_artifact");
+    let _v: zanto_desktop_lib::ipc::artifacts::PinnedArtifact =
+        serde_json::from_value(fx["response"].clone()).expect("read_pinned_artifact → PinnedArtifact");
+}
+
+#[test]
+fn pin_artifact_cmd_response_matches_dto() {
+    let fx = fixture("pin_artifact_cmd");
+    let _v: i64 = serde_json::from_value(fx["response"].clone()).expect("pin_artifact_cmd → i64");
+}
+
+#[test]
+fn load_session_response_matches_dto() {
+    let fx = fixture("load_session");
+    let _v: Vec<zanto_desktop_lib::ipc::RenderMsg> =
+        serde_json::from_value(fx["response"].clone()).expect("load_session → Vec<RenderMsg>");
+}
