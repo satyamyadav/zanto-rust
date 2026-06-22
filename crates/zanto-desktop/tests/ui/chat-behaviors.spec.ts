@@ -256,6 +256,41 @@ test("C-8: typing @ opens a file autocomplete and inserts the path", async ({ pa
   await expect(composer).toHaveValue(/\@\/home\/user\/project\/README\.md/);
 });
 
+// C-10: A failed turn shows an inline error card with a Retry button; clicking Retry recovers.
+// The mock "trigger error" scenario has `throws: true`. The first attempt throws
+// "mock: simulated turn failure"; the store catches it and pushes an error segment
+// { kind: "error", message: "Error: mock: simulated turn failure", retryText: "trigger error" }.
+// ErrorSegment renders: an <AlertCircle> icon + the message text + a <Retry> button.
+// The mock's one-shot `errorArmed` flag resets after the throw, so clicking Retry
+// (which calls retry() → send("trigger error") again) falls through to defaultScenario
+// and streams "Hi there.".
+test("C-10: a failed turn shows an error card with Retry that recovers", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("trigger error");
+  await composer.press("Enter");
+
+  // The error segment must appear with the real error message text.
+  // Scope to the span inside ErrorSegment (the toast also shows the same text, causing
+  // a strict mode violation with a bare getByText — use the exact class to disambiguate).
+  const errorCard = page.locator("span.whitespace-pre-wrap.break-words", {
+    hasText: "Error: mock: simulated turn failure",
+  });
+  await expect(errorCard).toBeVisible();
+
+  // The Retry button lives inside the ErrorSegment card.
+  const retryBtn = page.getByRole("button", { name: "Retry" });
+  await expect(retryBtn).toBeVisible();
+
+  // Click Retry — errorArmed is now false, so the second attempt recovers via
+  // defaultScenario, which streams "Hi there.".
+  await retryBtn.click();
+
+  // Normal reply must appear; the error card must be gone.
+  await expect(page.getByText("Hi there.")).toBeVisible();
+  await expect(errorCard).not.toBeVisible();
+});
+
 // C-9: Slash menu lists /new and /clear; selecting /new starts a fresh session.
 // Typing `/` at line start (empty composer) opens the listbox.
 // The menu items are role="option" buttons inside a role="listbox".
@@ -290,4 +325,52 @@ test("C-9: slash menu offers /new and /clear, and /new starts a fresh session", 
   await expect(page.getByText("Start a conversation")).toBeVisible();
   // The previous reply must be gone.
   await expect(page.getByText("Hi there.")).toHaveCount(0);
+});
+
+// C-12: Clicking a link in a reply opens the link preview panel; the app does not navigate.
+// The "link" scenario emits: chat_chunk("See https://example.com for details.") + chat_done.
+// The rendered markdown produces an <a href="https://example.com"> link. The `interceptLinks`
+// Svelte action (links.svelte.ts) captures the click, calls e.preventDefault() to block
+// navigation, and calls openLinkInPanel(url) which sets sessionStore.promotedLink.
+// Canvas.svelte renders the promoted-link card when promotedLink is non-null:
+//   - hostname/url label (font-mono text)
+//   - "Open in browser" button → ipc.openExternal (mock no-op)
+//   - "Copy link" button → navigator.clipboard.writeText
+//   - "Close" button (title="Close") to dismiss
+// page.url() must remain unchanged throughout (the webview never navigated).
+test("C-12: clicking a link in a reply opens the link preview panel; the app does not navigate", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/");
+  const urlBefore = page.url();
+
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("link please");
+  await composer.press("Enter");
+
+  // Wait for the reply link to appear.
+  const link = page.getByRole("link", { name: /example\.com/ });
+  await expect(link).toBeVisible();
+
+  // Click the link — interceptLinks captures it and promotes it to the canvas panel.
+  await link.click();
+
+  // The canvas panel must show the promoted-link card.
+  // Canvas.svelte renders the hostname in a truncated font-mono span (exact text).
+  // Use exact: true to avoid matching the link text or the full URL paragraph.
+  await expect(page.getByText("example.com", { exact: true })).toBeVisible();
+
+  // The "Open in browser" and "Copy link" action buttons must be present.
+  await expect(page.getByRole("button", { name: "Open in browser" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy link" })).toBeVisible();
+
+  // The app must NOT have navigated — page.url() is unchanged.
+  expect(page.url()).toBe(urlBefore);
+
+  // Optionally exercise "Open in browser" — it routes through ipc.openExternal (mock no-op).
+  // Assert no error and no navigation after clicking it.
+  await page.getByRole("button", { name: "Open in browser" }).click();
+  expect(page.url()).toBe(urlBefore);
 });
