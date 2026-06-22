@@ -1,0 +1,6 @@
+{
+  "request": {},
+  "response": [
+    { "id": "chat", "name": "Chat", "description": "General chat", "stores": [], "components": [], "start_actions": [] }
+  ]
+}

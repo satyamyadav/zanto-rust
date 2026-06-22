@@ -1,0 +1,27 @@
+{
+  "request": {},
+  "response": {
+    "model": "claude-opus-4-8",
+    "endpoint": "https://api.anthropic.com",
+    "allowed_paths": ["/home/test"],
+    "project_dir": null,
+    "context_sources": [],
+    "selected_skill": null,
+    "max_context_turns": null,
+    "providers": [
+      {
+        "provider": "anthropic",
+        "model": "claude-opus-4-8",
+        "endpoint": null,
+        "has_key": true,
+        "label": "Anthropic",
+        "needs_key": true,
+        "default_endpoint": null,
+        "generation": {}
+      }
+    ],
+    "active_provider": "anthropic",
+    "provider_registry": [],
+    "generation": {}
+  }
+}
