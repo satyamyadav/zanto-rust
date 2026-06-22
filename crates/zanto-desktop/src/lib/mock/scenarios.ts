@@ -16,8 +16,15 @@ const chartBlock = {
 const summaryBlock = {
   kind: "component",
   component_id: "monthly_summary",
-  // Shape to match monthly_summary.svelte — discover the real fields and adjust.
-  data: { income: 2000, spent: 12.5, net: 1987.5, by_category: { dining: 12.5 } },
+  // Shape matches monthly_summary.svelte: month string, income, total (not spent),
+  // net, and by_category as an array of { category, total } objects.
+  data: {
+    month: "June 2026",
+    income: 2000,
+    total: 12.5,
+    net: 1987.5,
+    by_category: [{ category: "Dining", total: 12.5 }],
+  },
   target: "inline",
 };
 
