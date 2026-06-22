@@ -3,3 +3,6 @@
 .backup
 .~*
 .claude/worktrees
+
+# Subagent-driven-development scratch (ledgers, briefs, review diffs)
+.superpowers/
