@@ -26,6 +26,10 @@ First public release. An early, **unsigned** build for macOS, Windows, and Linux
 - **Sessions.** SQLite-backed, crash-safe, resumable, with automatic context
   summarization for long conversations; context sources and markdown skills.
 
+### Notes
+
+- The **Finance app (v0.2–v0.5 features)** — recurring detection, multi-account import, CSV export, budget tracking — is newer and less-exercised than the core chat/tools/sessions stack. It works but expect rough edges.
+
 ### Known limitations
 
 - Builds are **not signed or notarized** — macOS Gatekeeper and Windows

@@ -6,5 +6,3 @@ members = [
 ]
 resolver = "2"
 
-[env]
-RUST_BACKTRACE=1

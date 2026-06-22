@@ -232,7 +232,12 @@ mod tests {
         let mapping = json!({ "date": "Date", "merchant": "Description", "debit": "Debit", "credit": "Credit" });
         let expense = import_row_to_args(
             &headers,
-            &["2026-06-01".into(), "Cafe".into(), "12.50".into(), "".into()],
+            &[
+                "2026-06-01".into(),
+                "Cafe".into(),
+                "12.50".into(),
+                "".into(),
+            ],
             &mapping,
             "Checking",
         )
@@ -242,7 +247,12 @@ mod tests {
         assert_eq!(expense["account"], json!("Checking"));
         let income = import_row_to_args(
             &headers,
-            &["2026-06-02".into(), "Payroll".into(), "".into(), "2000".into()],
+            &[
+                "2026-06-02".into(),
+                "Payroll".into(),
+                "".into(),
+                "2000".into(),
+            ],
             &mapping,
             "Checking",
         )

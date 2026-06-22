@@ -223,8 +223,7 @@ impl Session {
                 // Only prepend the summary when older turns were actually dropped
                 // and we have a summary to inject.
                 if count_turns(&self.messages) > *keep_last
-                    && let Some(summary) =
-                        self.summary.as_deref().filter(|s| !s.trim().is_empty())
+                    && let Some(summary) = self.summary.as_deref().filter(|s| !s.trim().is_empty())
                 {
                     let note = format!("Summary of earlier conversation:\n{summary}");
                     let mut out = Vec::with_capacity(trimmed.len() + 1);
@@ -242,8 +241,7 @@ impl Session {
                     auto_split_index(&self.messages, auto_budget(*window_tokens, *headroom_frac));
                 let tail = self.messages[split..].to_vec();
                 if split > 0
-                    && let Some(summary) =
-                        self.summary.as_deref().filter(|s| !s.trim().is_empty())
+                    && let Some(summary) = self.summary.as_deref().filter(|s| !s.trim().is_empty())
                 {
                     let note = format!("Summary of earlier conversation:\n{summary}");
                     let mut out = Vec::with_capacity(tail.len() + 1);

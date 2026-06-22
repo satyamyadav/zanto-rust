@@ -187,9 +187,7 @@ impl ChatConfig {
 
 /// True when this config's cancel flag has been set (the turn should stop).
 fn cancelled(c: &ChatConfig) -> bool {
-    c.cancel
-        .as_ref()
-        .is_some_and(|f| f.load(Ordering::SeqCst))
+    c.cancel.as_ref().is_some_and(|f| f.load(Ordering::SeqCst))
 }
 
 // ---- System prompt ----

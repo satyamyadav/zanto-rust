@@ -94,7 +94,8 @@ fn date_ordinal(date: &str) -> Option<i64> {
 /// last_date/monthly_total, sorted by monthly_total desc.
 pub(super) fn detect_recurring(records: &[Record], _now_month: &str) -> Vec<Value> {
     // (merchant_lower, amount rounded to whole unit) → [(ordinal, amount, date)]
-    #[allow(clippy::type_complexity)] // reason: local variable, extracting a type alias would be over-engineering
+    #[allow(clippy::type_complexity)]
+    // reason: local variable, extracting a type alias would be over-engineering
     let mut groups: HashMap<(String, i64), Vec<(i64, f64, String)>> = HashMap::new();
     let mut display: HashMap<String, String> = HashMap::new();
     for r in records {
