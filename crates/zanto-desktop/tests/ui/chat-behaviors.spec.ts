@@ -209,10 +209,17 @@ test("C-7: a large paste collapses to a chip but the full text is still sent", a
   // Send — composeMessage() includes the paste text in the user message.
   await composer.press("Enter");
 
-  // The user bubble must contain text from the full paste (e.g. the first line).
-  await expect(page.getByText("line 0")).toBeVisible();
-  // The last line must also be present, confirming the full text was sent.
-  await expect(page.getByText("line 59")).toBeVisible();
+  // Scope the full-text assertions to the sent USER MESSAGE BUBBLE (bg-primary).
+  // This rules out any match against the composer chip or its aria/metadata text.
+  // The bubble renders the full composed text as a text segment (via TextSegment →
+  // Block → markdown), so both boundary lines must appear inside it.
+  const userBubble = page
+    .locator("div.bg-primary")
+    .filter({ hasText: "line 0" });
+  await expect(userBubble).toBeVisible();
+  // The same bubble must also contain "line 59" (the last line), proving the full
+  // 60-line paste was spliced into the sent message — not just the chip summary.
+  await expect(userBubble).toContainText("line 59");
 });
 
 // C-8: Typing @ opens a file autocomplete (backed by browse_dir) and selecting an
