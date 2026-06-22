@@ -80,10 +80,14 @@ test("C-2: stopping mid-turn keeps the partial reply and shows the Stopped marke
 
 // C-3: A message typed while busy is queued and dispatched FIFO after the turn ends.
 // While the "partial stop" turn is blocking, submitting a second message queues it.
-// MessageList renders queued messages as dashed-border chips with the message text.
+// MessageList renders queued messages as dashed-border chips (border-dashed class)
+// with the message text inside a <span class="whitespace-pre-wrap">.
 // After Stop frees the first turn, send()'s finally dispatches the queued message
 // using the default scenario (it doesn't contain "partial stop"), producing a
-// user bubble and a "Hi there." reply.
+// real user bubble (bg-primary, solid border) and a "Hi there." reply.
+//
+// Phase 1 (while busy): the chip locator (div.border-dashed) is visible.
+// Phase 2 (after Stop): the chip locator is GONE and "Hi there." confirms dispatch.
 test("C-3: a message typed while busy is queued and dispatched after the turn ends", async ({
   page,
 }) => {
@@ -99,19 +103,22 @@ test("C-3: a message typed while busy is queued and dispatched after the turn en
   await composer.fill("queued follow-up");
   await composer.press("Enter");
 
-  // The queued message appears as a dashed-border chip in MessageList.
-  // Its text is rendered directly inside the chip span.
-  await expect(page.getByText("queued follow-up")).toBeVisible();
+  // Phase 1: the message MUST appear as a dashed-border chip, not a real bubble.
+  // The chip container has `border-dashed` (see MessageList.svelte line ~122);
+  // normal user bubbles use `bg-primary` with no dashed border.
+  const queuedChip = page
+    .locator("div.border-dashed")
+    .filter({ hasText: "queued follow-up" });
+  await expect(queuedChip).toBeVisible();
 
   // Free the first turn by clicking Stop.
   const stopBtn = page.getByRole("button", { name: "Stop" });
   await expect(stopBtn).toBeVisible();
   await stopBtn.click();
 
-  // After the turn ends, send()'s finally dispatches the queued message.
-  // The user bubble "queued follow-up" should now appear in the convo proper
-  // and the default scenario reply ("Hi there.") should follow.
-  await expect(page.getByText("queued follow-up")).toBeVisible();
+  // Phase 2: after the turn ends the chip MUST disappear (message was dispatched)
+  // and the default reply "Hi there." must appear (proving the queued turn ran).
+  await expect(queuedChip).not.toBeVisible();
   await expect(page.getByText("Hi there.")).toBeVisible();
 });
 
