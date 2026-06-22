@@ -3,14 +3,14 @@
 //! `dataSchema`; `render_artifact` validates data against it in Rust so the model
 //! gets errors to retry (the shell re-checks with AJV before mounting).
 
-use std::sync::Arc;
+use crate::app::App;
+use crate::interaction::TauriInteractor;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
 use zanto_core::chat::{AppDispatcher, AppResult, GenaiTool, Target};
 use zanto_core::data::DataStore;
-use crate::app::App;
-use crate::interaction::TauriInteractor;
 
 const CATALOGUE_JSON: &str = include_str!("../catalogue.json");
 
@@ -63,7 +63,9 @@ impl Catalogue {
 
     /// Validate `data` against the artifact's dataSchema. `Err` carries readable messages.
     pub fn validate(&self, id: &str, data: &Value) -> Result<(), Vec<String>> {
-        let def = self.get(id).ok_or_else(|| vec![format!("unknown artifact: {id}")])?;
+        let def = self
+            .get(id)
+            .ok_or_else(|| vec![format!("unknown artifact: {id}")])?;
         let compiled = jsonschema::JSONSchema::compile(&def.data_schema)
             .map_err(|e| vec![format!("bad schema for {id}: {e}")])?;
         if let Err(errors) = compiled.validate(data) {
@@ -95,7 +97,10 @@ fn cap_array(v: Value, max: usize) -> Value {
 /// Series count and per-series point count are capped (A4).
 pub fn chart_data_from_args(args: &Value) -> Value {
     let chart_type = args.get("type").and_then(|v| v.as_str()).unwrap_or("bar");
-    let labels = cap_array(args.get("labels").cloned().unwrap_or_else(|| json!([])), CHART_MAX_POINTS);
+    let labels = cap_array(
+        args.get("labels").cloned().unwrap_or_else(|| json!([])),
+        CHART_MAX_POINTS,
+    );
     let datasets_raw = match args.get("datasets") {
         Some(ds) if ds.as_array().map(|a| !a.is_empty()).unwrap_or(false) => ds.clone(),
         _ => json!([{ "data": args.get("values").cloned().unwrap_or_else(|| json!([])) }]),
@@ -224,7 +229,12 @@ impl SharedDispatcher {
         data: Arc<DataStore>,
         interactor: TauriInteractor,
     ) -> Self {
-        Self { catalogue, app, data, interactor }
+        Self {
+            catalogue,
+            app,
+            data,
+            interactor,
+        }
     }
 }
 
@@ -237,7 +247,10 @@ impl AppDispatcher for SharedDispatcher {
                 let fields = args.get("fields").cloned().unwrap_or(json!([]));
                 let answers = self
                     .interactor
-                    .request("form", json!({ "title": title, "steps": [{ "fields": fields }] }))
+                    .request(
+                        "form",
+                        json!({ "title": title, "steps": [{ "fields": fields }] }),
+                    )
                     .await;
                 Some(Ok(AppResult::Data(answers)))
             }
@@ -251,7 +264,11 @@ impl AppDispatcher for SharedDispatcher {
                 Some(Ok(AppResult::Data(result)))
             }
             "render_artifact" => {
-                let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let data = args.get("data").cloned().unwrap_or(Value::Null);
                 let target = match args.get("target").and_then(|v| v.as_str()) {
                     Some("canvas") => Target::Canvas,
@@ -262,7 +279,11 @@ impl AppDispatcher for SharedDispatcher {
                         "error": format!("unknown artifact id '{id}'. render_artifact only displays artifacts from the catalogue — it does not create them, and store_artifact does not display anything. Call list_artifacts for valid ids (e.g. \"chart\", \"table\", \"metric\"), then render with that id."),
                     })))),
                     Some(def) => match self.catalogue.validate(&id, &data) {
-                        Ok(()) => Some(Ok(AppResult::Block { component_id: id, data, target })),
+                        Ok(()) => Some(Ok(AppResult::Block {
+                            component_id: id,
+                            data,
+                            target,
+                        })),
                         Err(details) => Some(Ok(AppResult::Data(json!({
                             "error": "data did not match the artifact's dataSchema. Fix `data` to match the `dataSchema` below, then call render_artifact again.",
                             "details": details,
@@ -272,13 +293,20 @@ impl AppDispatcher for SharedDispatcher {
                 }
             }
             "pin_artifact" => {
-                let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let id = args
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 let data = args.get("data").cloned().unwrap_or(Value::Null);
                 let target = match args.get("target").and_then(|v| v.as_str()) {
                     Some("canvas") => "canvas",
                     _ => "inline",
                 };
-                let title = args.get("title").and_then(|v| v.as_str()).map(str::to_string);
+                let title = args
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
                 let def = match self.catalogue.get(&id) {
                     None => {
                         return Some(Ok(AppResult::Data(json!({
@@ -370,7 +398,9 @@ mod tests {
         let data = chart_data_from_args(&args);
         assert_eq!(data["datasets"][0]["data"], json!([120, 200]));
         assert_eq!(data["title"], json!("Weekly"));
-        Catalogue::load().validate("chart", &data).expect("normalized chart must validate");
+        Catalogue::load()
+            .validate("chart", &data)
+            .expect("normalized chart must validate");
     }
 
     #[test]
@@ -378,7 +408,9 @@ mod tests {
         let args = json!({ "type": "line", "labels": ["a", "b"], "datasets": [{ "label": "x", "data": [3, 4] }] });
         let data = chart_data_from_args(&args);
         assert_eq!(data["datasets"][0]["label"], json!("x"));
-        Catalogue::load().validate("chart", &data).expect("explicit datasets chart must validate");
+        Catalogue::load()
+            .validate("chart", &data)
+            .expect("explicit datasets chart must validate");
     }
 
     #[test]
@@ -393,6 +425,9 @@ mod tests {
         let data = chart_data_from_args(&args);
         assert_eq!(data["labels"].as_array().unwrap().len(), CHART_MAX_POINTS);
         assert_eq!(data["datasets"].as_array().unwrap().len(), CHART_MAX_SERIES);
-        assert_eq!(data["datasets"][0]["data"].as_array().unwrap().len(), CHART_MAX_POINTS);
+        assert_eq!(
+            data["datasets"][0]["data"].as_array().unwrap().len(),
+            CHART_MAX_POINTS
+        );
     }
 }

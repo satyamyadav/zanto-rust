@@ -1,10 +1,10 @@
 //! Skill IPC commands — discover markdown skills and pick the active one.
 
-use std::path::Path;
+use super::DesktopState;
 use serde::Serialize;
+use std::path::Path;
 use tauri::State;
 use zanto_core::config::Settings;
-use super::DesktopState;
 
 /// Max preview length (chars) returned for a skill body, so the picker can show
 /// a hint without shipping the whole file.
@@ -25,14 +25,20 @@ pub fn list_skills() -> Vec<SkillDto> {
         .into_iter()
         .map(|s| {
             let preview: String = s.body.trim().chars().take(PREVIEW_CHARS).collect();
-            SkillDto { name: s.name, preview }
+            SkillDto {
+                name: s.name,
+                preview,
+            }
         })
         .collect()
 }
 
 /// Set (or clear, with `None`) the user-selected skill appended on each turn.
 #[tauri::command]
-pub fn set_active_skill(state: State<'_, DesktopState>, name: Option<String>) -> Result<(), String> {
+pub fn set_active_skill(
+    state: State<'_, DesktopState>,
+    name: Option<String>,
+) -> Result<(), String> {
     *state.selected_skill.lock().unwrap() = name.clone();
     // Persist the choice so it survives a restart (the runtime Mutex above is the
     // live value used per turn; this writes it through to Settings).

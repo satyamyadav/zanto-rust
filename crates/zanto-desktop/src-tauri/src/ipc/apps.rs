@@ -1,13 +1,13 @@
 //! App-registry IPC commands.
 
-use std::sync::Mutex;
-use std::time::Instant;
-use serde_json::Value;
-use tauri::State;
-use tauri_plugin_notification::NotificationExt;
+use super::DesktopState;
 use crate::app::AppManifest;
 use crate::catalogue::ArtifactDef;
-use super::DesktopState;
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Instant;
+use tauri::State;
+use tauri_plugin_notification::NotificationExt;
 
 /// `notify` is an unauthenticated native-notification primitive (review A3): bound
 /// it so a buggy or abusive caller can't spam the OS center or push huge strings.
@@ -74,7 +74,10 @@ pub fn query_app(
     query: String,
     args: Value,
 ) -> Result<Value, String> {
-    let app = state.registry.get(&id).ok_or_else(|| format!("unknown app: {id}"))?;
+    let app = state
+        .registry
+        .get(&id)
+        .ok_or_else(|| format!("unknown app: {id}"))?;
     app.query(&state.data, &query, args)
 }
 
@@ -85,6 +88,9 @@ pub fn run_app_action(
     action: String,
     args: Value,
 ) -> Result<Value, String> {
-    let app = state.registry.get(&id).ok_or_else(|| format!("unknown app: {id}"))?;
+    let app = state
+        .registry
+        .get(&id)
+        .ok_or_else(|| format!("unknown app: {id}"))?;
     app.action(&state.data, &action, args)
 }

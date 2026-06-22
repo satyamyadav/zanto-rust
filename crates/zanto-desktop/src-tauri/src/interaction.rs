@@ -3,11 +3,11 @@
 //! as an overlay above the composer and replies. Generalizes the old approver:
 //! `Approver::confirm` is an approval interaction; the shared `ask` tool is a form.
 
+use async_trait::async_trait;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
-use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use tokio::sync::oneshot;
@@ -49,7 +49,12 @@ impl TauriInteractor {
         payload["id"] = json!(id);
         payload["kind"] = json!(kind);
 
-        if self.inner.app.emit("interaction_request", &payload).is_err() {
+        if self
+            .inner
+            .app
+            .emit("interaction_request", &payload)
+            .is_err()
+        {
             self.inner.pending.lock().unwrap().remove(&id);
             return Value::Null;
         }
@@ -97,7 +102,10 @@ impl TauriInteractor {
 impl Approver for TauriInteractor {
     async fn confirm(&self, path: &str, op: &str, resolved: &str) -> ApprovalResponse {
         let v = self
-            .request("approval", json!({ "op": op, "path": path, "resolved": resolved }))
+            .request(
+                "approval",
+                json!({ "op": op, "path": path, "resolved": resolved }),
+            )
             .await;
         match v.as_str() {
             Some("once") => ApprovalResponse::AllowOnce,
@@ -110,7 +118,11 @@ impl Approver for TauriInteractor {
 
 /// Resolve a pending interaction from the UI (approval string or form answers).
 #[tauri::command]
-pub fn respond(state: tauri::State<'_, crate::ipc::DesktopState>, request_id: String, value: Value) {
+pub fn respond(
+    state: tauri::State<'_, crate::ipc::DesktopState>,
+    request_id: String,
+    value: Value,
+) {
     state.interactor.resolve(&request_id, value);
 }
 
@@ -165,9 +177,10 @@ impl ChatSink for TauriSink {
     }
 
     async fn on_tool_result(&self, id: &str, output: &str, ok: bool) {
-        let _ = self
-            .app
-            .emit("chat_tool_result", json!({ "id": id, "output": output, "ok": ok }));
+        let _ = self.app.emit(
+            "chat_tool_result",
+            json!({ "id": id, "output": output, "ok": ok }),
+        );
     }
 
     async fn on_block(&self, block: &ChatBlock) {

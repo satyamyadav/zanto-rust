@@ -5,23 +5,23 @@ pub mod apps;
 pub mod artifacts;
 pub mod chat;
 pub mod config;
-pub mod finance;
 pub mod files;
+pub mod finance;
 pub mod session;
 pub mod skills;
 
+use crate::app::AppRegistry;
+use crate::catalogue::Catalogue;
+use crate::interaction::TauriInteractor;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use zanto_core::config::ContextSource;
 pub use zanto_core::config::{GenerationParams, ProviderInfo};
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{Session, Store};
-use crate::app::AppRegistry;
-use crate::catalogue::Catalogue;
-use crate::interaction::TauriInteractor;
 
 pub struct DesktopState {
     pub store: Store,
@@ -75,8 +75,17 @@ impl RenderMsg {
             .and_then(|m| m.get("segments"))
             .filter(|s| s.is_array())
             .cloned();
-        let stopped = meta.as_ref().and_then(|m| m.get("stopped")).and_then(|s| s.as_bool());
-        RenderMsg { role, text, blocks: meta, segments, stopped }
+        let stopped = meta
+            .as_ref()
+            .and_then(|m| m.get("stopped"))
+            .and_then(|s| s.as_bool());
+        RenderMsg {
+            role,
+            text,
+            blocks: meta,
+            segments,
+            stopped,
+        }
     }
 }
 
@@ -129,4 +138,3 @@ pub struct ConfigPatch {
     pub active_provider: Option<String>,
     pub generation: Option<GenerationParams>,
 }
-

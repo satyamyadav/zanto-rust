@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-use rmcp::{ErrorData, schemars::JsonSchema};
-use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
-use serde::{Deserialize, Serialize};
 use crate::permissions::Op;
+use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
+use rmcp::{ErrorData, schemars::JsonSchema};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
@@ -34,7 +34,10 @@ impl ToolBase for SearchFiles {
 
 impl AsyncTool<super::FsTools> for SearchFiles {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        let resolved = svc.permissions.check(&args.path, Op::Read).await
+        let resolved = svc
+            .permissions
+            .check(&args.path, Op::Read)
+            .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         let glob = globset::Glob::new(&args.pattern)
@@ -50,7 +53,11 @@ impl AsyncTool<super::FsTools> for SearchFiles {
             .collect();
 
         Ok(if matches.is_empty() {
-            format!("no files matching '{}' found under '{}'", args.pattern, resolved.display())
+            format!(
+                "no files matching '{}' found under '{}'",
+                args.pattern,
+                resolved.display()
+            )
         } else {
             matches.join("\n")
         })

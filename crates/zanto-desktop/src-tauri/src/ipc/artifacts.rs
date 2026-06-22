@@ -16,8 +16,8 @@ use zanto_core::artifacts::{ArtifactKind, ArtifactRef, ArtifactStore, Scope};
 use zanto_core::config::Settings;
 use zanto_core::data::{Dir, Query, Sort};
 
-use crate::catalogue::PINNED_STORE;
 use super::DesktopState;
+use crate::catalogue::PINNED_STORE;
 
 /// A pinned view+data artifact persisted in the `pinned_artifacts` DataStore (4b).
 /// The browser (4d) re-renders it by building a `{kind:"component", component_id,
@@ -38,10 +38,24 @@ fn pinned_from_record(rec: zanto_core::data::Record) -> PinnedArtifact {
     let obj = &rec.data;
     PinnedArtifact {
         id: rec.id,
-        component_id: obj.get("component_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        title: obj.get("title").and_then(|v| v.as_str()).map(str::to_string),
-        target: obj.get("target").and_then(|v| v.as_str()).unwrap_or("inline").to_string(),
-        created_at: obj.get("created_at").and_then(|v| v.as_u64()).unwrap_or(rec.created_at),
+        component_id: obj
+            .get("component_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        title: obj
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        target: obj
+            .get("target")
+            .and_then(|v| v.as_str())
+            .unwrap_or("inline")
+            .to_string(),
+        created_at: obj
+            .get("created_at")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(rec.created_at),
         data: obj.get("data").cloned().unwrap_or(Value::Null),
     }
 }
@@ -49,14 +63,25 @@ fn pinned_from_record(rec: zanto_core::data::Record) -> PinnedArtifact {
 /// List pinned view+data artifacts, newest first. Empty when nothing pinned yet
 /// (the store may not exist until the first `pin_artifact`).
 #[tauri::command]
-pub fn list_pinned_artifacts(state: State<'_, DesktopState>) -> Result<Vec<PinnedArtifact>, String> {
+pub fn list_pinned_artifacts(
+    state: State<'_, DesktopState>,
+) -> Result<Vec<PinnedArtifact>, String> {
     // Ensure the store exists so a never-pinned workspace returns [] not an error.
-    state.data.create_store(PINNED_STORE).map_err(|e| e.to_string())?;
+    state
+        .data
+        .create_store(PINNED_STORE)
+        .map_err(|e| e.to_string())?;
     let q = Query {
-        sort: Some(Sort { field: "created_at".into(), dir: Dir::Desc }),
+        sort: Some(Sort {
+            field: "created_at".into(),
+            dir: Dir::Desc,
+        }),
         ..Default::default()
     };
-    let rows = state.data.query(PINNED_STORE, &q).map_err(|e| e.to_string())?;
+    let rows = state
+        .data
+        .query(PINNED_STORE, &q)
+        .map_err(|e| e.to_string())?;
     Ok(rows.into_iter().map(pinned_from_record).collect())
 }
 
@@ -71,7 +96,10 @@ pub fn pin_artifact_cmd(
     data: Value,
     title: Option<String>,
 ) -> Result<i64, String> {
-    state.data.create_store(PINNED_STORE).map_err(|e| e.to_string())?;
+    state
+        .data
+        .create_store(PINNED_STORE)
+        .map_err(|e| e.to_string())?;
     let record = json!({
         "component_id": component_id,
         "data": data,
@@ -79,14 +107,26 @@ pub fn pin_artifact_cmd(
         "title": title,
         "created_at": zanto_core::session::unix_now_pub(),
     });
-    state.data.insert(PINNED_STORE, &record).map_err(|e| e.to_string())
+    state
+        .data
+        .insert(PINNED_STORE, &record)
+        .map_err(|e| e.to_string())
 }
 
 /// Read one pinned artifact by its record id.
 #[tauri::command]
-pub fn read_pinned_artifact(state: State<'_, DesktopState>, id: i64) -> Result<PinnedArtifact, String> {
-    state.data.create_store(PINNED_STORE).map_err(|e| e.to_string())?;
-    let rows = state.data.query(PINNED_STORE, &Query::default()).map_err(|e| e.to_string())?;
+pub fn read_pinned_artifact(
+    state: State<'_, DesktopState>,
+    id: i64,
+) -> Result<PinnedArtifact, String> {
+    state
+        .data
+        .create_store(PINNED_STORE)
+        .map_err(|e| e.to_string())?;
+    let rows = state
+        .data
+        .query(PINNED_STORE, &Query::default())
+        .map_err(|e| e.to_string())?;
     rows.into_iter()
         .find(|r| r.id == id)
         .map(pinned_from_record)

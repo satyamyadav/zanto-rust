@@ -6,18 +6,17 @@
 use std::fs;
 use std::path::Path;
 
+use zanto_core::chat::ChatTurn;
+use zanto_core::session::SessionMeta;
 use zanto_desktop_lib::app::AppManifest;
 use zanto_desktop_lib::catalogue::ArtifactDef;
 use zanto_desktop_lib::ipc::ConfigDto;
-use zanto_core::chat::ChatTurn;
-use zanto_core::session::SessionMeta;
 
 fn fixture(name: &str) -> serde_json::Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../contract/fixtures")
         .join(format!("{name}.json"));
-    let raw = fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let raw = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     serde_json::from_str(&raw).expect("fixture is valid JSON")
 }
 
@@ -67,14 +66,16 @@ fn send_message_response_matches_dto() {
 fn list_pinned_artifacts_response_matches_dto() {
     let fx = fixture("list_pinned_artifacts");
     let _v: Vec<zanto_desktop_lib::ipc::artifacts::PinnedArtifact> =
-        serde_json::from_value(fx["response"].clone()).expect("list_pinned_artifacts → Vec<PinnedArtifact>");
+        serde_json::from_value(fx["response"].clone())
+            .expect("list_pinned_artifacts → Vec<PinnedArtifact>");
 }
 
 #[test]
 fn read_pinned_artifact_response_matches_dto() {
     let fx = fixture("read_pinned_artifact");
     let _v: zanto_desktop_lib::ipc::artifacts::PinnedArtifact =
-        serde_json::from_value(fx["response"].clone()).expect("read_pinned_artifact → PinnedArtifact");
+        serde_json::from_value(fx["response"].clone())
+            .expect("read_pinned_artifact → PinnedArtifact");
 }
 
 #[test]

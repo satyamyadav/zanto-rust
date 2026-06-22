@@ -1,9 +1,12 @@
 //! `send_message` — runs a chat turn in the active app's context.
 
+use super::DesktopState;
+use crate::catalogue::{shared_tools, SharedDispatcher};
+use crate::interaction::TauriSink;
+use base64::Engine;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use base64::Engine;
 use tauri::{Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use zanto_core::chat::{chat, ChatConfig, ChatTurn, ImageAttachment};
@@ -11,9 +14,6 @@ use zanto_core::config::AdapterKind;
 use zanto_core::config::{Provider, Settings};
 use zanto_core::permissions::Op;
 use zanto_core::session::ContextPolicy;
-use crate::catalogue::{shared_tools, SharedDispatcher};
-use crate::interaction::TauriSink;
-use super::DesktopState;
 
 /// Guess an image MIME type from a file extension. Returns `None` for extensions
 /// we don't treat as images, so the caller can skip non-images defensively.
@@ -34,7 +34,10 @@ fn image_mime(path: &str) -> Option<&'static str> {
 
 /// Providers that accept image content parts. Ollama (local) is text-only here.
 fn provider_is_multimodal(p: Provider) -> bool {
-    matches!(p.0, AdapterKind::Gemini | AdapterKind::Anthropic | AdapterKind::OpenAI)
+    matches!(
+        p.0,
+        AdapterKind::Gemini | AdapterKind::Anthropic | AdapterKind::OpenAI
+    )
 }
 
 /// Injected into the system prompt whenever the shared artifact tools are active.
@@ -108,7 +111,10 @@ pub async fn send_message(
                 match read {
                     Ok((mime, bytes)) => {
                         let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                        images.push(ImageAttachment { mime: mime.to_string(), b64 });
+                        images.push(ImageAttachment {
+                            mime: mime.to_string(),
+                            b64,
+                        });
                     }
                     Err(_) => skipped += 1,
                 }
@@ -119,7 +125,11 @@ pub async fn send_message(
                     if skipped == 1 { "" } else { "s" },
                     if skipped == 1 { "was" } else { "were" },
                 );
-                text = if text.is_empty() { note } else { format!("{text}\n\n{note}") };
+                text = if text.is_empty() {
+                    note
+                } else {
+                    format!("{text}\n\n{note}")
+                };
             }
         } else {
             let n = image_paths.len();
@@ -128,7 +138,11 @@ pub async fn send_message(
                 n,
                 if n == 1 { "" } else { "s" },
             );
-            text = if text.is_empty() { note } else { format!("{text}\n\n{note}") };
+            text = if text.is_empty() {
+                note
+            } else {
+                format!("{text}\n\n{note}")
+            };
         }
     }
 
@@ -148,11 +162,8 @@ pub async fn send_message(
     let app_skill = active.as_ref().map(|a| a.skill());
     let selected = state.selected_skill.lock().unwrap().clone();
     let skill = match selected.and_then(|name| {
-        zanto_core::context::get_skill(
-            settings.project_dir.as_deref().map(Path::new),
-            &name,
-        )
-        .map(|s| s.body)
+        zanto_core::context::get_skill(settings.project_dir.as_deref().map(Path::new), &name)
+            .map(|s| s.body)
     }) {
         Some(body) => match &app_skill {
             Some(app) => Some(format!("{app}\n\n{body}")),
@@ -225,7 +236,10 @@ pub async fn send_message(
             let window = settings
                 .context_window_tokens
                 .unwrap_or_else(|| zanto_core::config::model_context_window(&config.model));
-            ContextPolicy::Auto { window_tokens: window, headroom_frac: 0.75 }
+            ContextPolicy::Auto {
+                window_tokens: window,
+                headroom_frac: 0.75,
+            }
         }
     };
     let result = chat(config, &state.store, &mut session, &text, &policy).await;
@@ -254,8 +268,17 @@ pub async fn send_message(
         .and_then(|w| w.is_focused().ok())
         .unwrap_or(false)
     {
-        let body = if turn.stopped { "Turn stopped" } else { "Reply ready" };
-        let _ = app.notification().builder().title("zanto").body(body).show();
+        let body = if turn.stopped {
+            "Turn stopped"
+        } else {
+            "Reply ready"
+        };
+        let _ = app
+            .notification()
+            .builder()
+            .title("zanto")
+            .body(body)
+            .show();
     }
 
     // Auto-title a fresh session from its first user message.

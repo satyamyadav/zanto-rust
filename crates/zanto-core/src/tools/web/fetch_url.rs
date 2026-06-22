@@ -1,9 +1,9 @@
-use std::borrow::Cow;
-use std::time::Duration;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
 use rmcp::{ErrorData, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::borrow::Cow;
+use std::time::Duration;
 
 /// Request timeout for a single fetch.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
@@ -56,8 +56,7 @@ impl ToolBase for FetchUrl {
 
 impl AsyncTool<super::WebTools> for FetchUrl {
     async fn invoke(svc: &super::WebTools, args: Args) -> Result<String, ErrorData> {
-        validate_url(&args.url)
-            .map_err(|e| ErrorData::invalid_params(e, None))?;
+        validate_url(&args.url).map_err(|e| ErrorData::invalid_params(e, None))?;
 
         let resp = svc
             .client
@@ -83,22 +82,20 @@ impl AsyncTool<super::WebTools> for FetchUrl {
             Mode::Text => {
                 let extracted = extract_text(&body);
                 match extracted.title {
-                    Some(title) => json!({ "url": final_url, "title": title, "text": extracted.text }),
+                    Some(title) => {
+                        json!({ "url": final_url, "title": title, "text": extracted.text })
+                    }
                     None => json!({ "url": final_url, "text": extracted.text }),
                 }
             }
         };
 
-        serde_json::to_string(&out)
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))
+        serde_json::to_string(&out).map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }
 }
 
 /// Read a response body, refusing to buffer more than `cap` bytes.
-async fn read_capped(
-    mut resp: reqwest::Response,
-    cap: usize,
-) -> Result<Vec<u8>, reqwest::Error> {
+async fn read_capped(mut resp: reqwest::Response, cap: usize) -> Result<Vec<u8>, reqwest::Error> {
     let mut buf = Vec::new();
     while let Some(chunk) = resp.chunk().await? {
         let take = (cap - buf.len()).min(chunk.len());
@@ -116,7 +113,11 @@ pub fn validate_url(url: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|e| format!("invalid URL: {e}"))?;
     match parsed.scheme() {
         "http" | "https" => {}
-        other => return Err(format!("unsupported scheme: {other} (only http/https allowed)")),
+        other => {
+            return Err(format!(
+                "unsupported scheme: {other} (only http/https allowed)"
+            ));
+        }
     }
     let host = parsed
         .host_str()
@@ -131,7 +132,10 @@ pub fn validate_url(url: &str) -> Result<(), String> {
 /// blocks loopback, unspecified, and link-local literals plus `localhost`.
 fn is_blocked_host(host: &str) -> bool {
     // Strip IPv6 brackets if present.
-    let h = host.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(host);
+    let h = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
     let lower = h.to_ascii_lowercase();
     if lower == "localhost" || lower.ends_with(".localhost") {
         return true;
@@ -202,7 +206,7 @@ fn strip_blocks(input: &str, tag: &str) -> String {
         let boundary_ok = lower[after..]
             .chars()
             .next()
-            .map_or(true, |c| c.is_whitespace() || c == '>' || c == '/');
+            .is_none_or(|c| c.is_whitespace() || c == '>' || c == '/');
         if !boundary_ok {
             // Not a real match; emit up to and including this char and advance past it.
             out.push_str(&input[cursor..after]);

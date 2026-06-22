@@ -34,7 +34,12 @@ impl Harness {
     }
 
     fn db_path(&self) -> String {
-        self.db_dir.path().join("test.db").to_str().unwrap().to_string()
+        self.db_dir
+            .path()
+            .join("test.db")
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 
     fn cmd(&self) -> Command {
@@ -46,7 +51,12 @@ impl Harness {
 
     fn stdout(&self, args: &[&str]) -> String {
         let out = self.cmd().args(args).output().unwrap();
-        assert!(out.status.success(), "exit {}: {}", out.status, String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "exit {}: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8_lossy(&out.stdout).to_string()
     }
 }
@@ -102,14 +112,17 @@ fn session_persists_across_runs() {
     let list = h.stdout(&["sessions", "list"]);
     let session_id = list
         .lines()
-        .skip(2)
-        .next()
+        .nth(2)
         .and_then(|line| line.split_whitespace().next())
         .unwrap_or("")
         .to_string();
     assert!(!session_id.is_empty(), "no session id in:\n{list}");
 
-    let second = h.stdout(&["--session", &session_id, "what number did I ask you to remember?"]);
+    let second = h.stdout(&[
+        "--session",
+        &session_id,
+        "what number did I ask you to remember?",
+    ]);
     assert!(
         second.contains("7741"),
         "expected 7741 in answer, got:\n{second}"
@@ -125,11 +138,12 @@ fn new_flag_starts_fresh_session() {
     h.stdout(&["--new", "hello again"]);
 
     let list = h.stdout(&["sessions", "list"]);
-    let session_count = list.lines().skip(2).filter(|l| !l.trim().is_empty()).count();
-    assert!(
-        session_count >= 2,
-        "expected >= 2 sessions, got:\n{list}"
-    );
+    let session_count = list
+        .lines()
+        .skip(2)
+        .filter(|l| !l.trim().is_empty())
+        .count();
+    assert!(session_count >= 2, "expected >= 2 sessions, got:\n{list}");
 }
 
 #[test]
@@ -139,10 +153,8 @@ fn edit_file_modifies_content() {
     let file = h.workspace.path().join("edit_target.txt");
     fs::write(&file, "the original line\nsome other content\n").unwrap();
 
-    h.stdout(&[
-        "Use the edit_file tool to edit edit_target.txt: \
-         replace the exact string 'the original line' with 'the modified line'",
-    ]);
+    h.stdout(&["Use the edit_file tool to edit edit_target.txt: \
+         replace the exact string 'the original line' with 'the modified line'"]);
 
     let content = fs::read_to_string(&file).unwrap();
     assert!(

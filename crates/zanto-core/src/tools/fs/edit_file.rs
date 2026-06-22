@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-use rmcp::{ErrorData, schemars::JsonSchema};
-use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
-use serde::{Deserialize, Serialize};
 use crate::permissions::Op;
+use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
+use rmcp::{ErrorData, schemars::JsonSchema};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
@@ -36,7 +36,10 @@ impl ToolBase for EditFile {
 
 impl AsyncTool<super::FsTools> for EditFile {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        let resolved = svc.permissions.check(&args.path, Op::Write).await
+        let resolved = svc
+            .permissions
+            .check(&args.path, Op::Write)
+            .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         let content = std::fs::read_to_string(&resolved)
@@ -44,12 +47,21 @@ impl AsyncTool<super::FsTools> for EditFile {
 
         let count = content.matches(&*args.old_str).count();
         match count {
-            0 => return Err(ErrorData::invalid_params(
-                format!("old_str not found in {}", resolved.display()), None,
-            )),
-            n if n > 1 => return Err(ErrorData::invalid_params(
-                format!("old_str matches {n} times in {} — must be unique", resolved.display()), None,
-            )),
+            0 => {
+                return Err(ErrorData::invalid_params(
+                    format!("old_str not found in {}", resolved.display()),
+                    None,
+                ));
+            }
+            n if n > 1 => {
+                return Err(ErrorData::invalid_params(
+                    format!(
+                        "old_str matches {n} times in {} — must be unique",
+                        resolved.display()
+                    ),
+                    None,
+                ));
+            }
             _ => {}
         }
 

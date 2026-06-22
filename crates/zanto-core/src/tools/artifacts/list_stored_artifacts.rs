@@ -1,7 +1,7 @@
-use std::borrow::Cow;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
 use rmcp::{ErrorData, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use crate::artifacts::Scope;
 
@@ -43,7 +43,6 @@ impl AsyncTool<super::ArtifactTools> for ListStoredArtifacts {
             .list(args.scope)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        serde_json::to_string(&refs)
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))
+        serde_json::to_string(&refs).map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }
 }

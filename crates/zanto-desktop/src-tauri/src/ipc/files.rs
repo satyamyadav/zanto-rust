@@ -1,10 +1,10 @@
 //! File-system browsing IPC command.
 
+use super::DesktopState;
 use serde::Serialize;
 use tauri::State;
 use zanto_core::config::Settings;
 use zanto_core::permissions::Op;
-use super::DesktopState;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,13 +44,15 @@ pub async fn browse_dir(
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_else(|| p.clone());
                     let is_dir = std::path::Path::new(&p).is_dir();
-                    FileEntry { name, path: p, is_dir }
+                    FileEntry {
+                        name,
+                        path: p,
+                        is_dir,
+                    }
                 })
                 .collect();
             // Dirs first, then files; stable sort within each group by name.
-            entries.sort_by(|a, b| {
-                b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name))
-            });
+            entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
             Ok(entries)
         }
         Some(raw_path) => {
@@ -62,8 +64,8 @@ pub async fn browse_dir(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            let read_dir = std::fs::read_dir(&resolved)
-                .map_err(|e| format!("cannot read directory: {e}"))?;
+            let read_dir =
+                std::fs::read_dir(&resolved).map_err(|e| format!("cannot read directory: {e}"))?;
 
             let mut dirs: Vec<FileEntry> = Vec::new();
             let mut files: Vec<FileEntry> = Vec::new();

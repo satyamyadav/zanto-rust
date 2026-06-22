@@ -4,13 +4,13 @@
 //! shared with sessions); each store is a table, mapped friendly-name → table in a
 //! `data_stores` meta-table.
 
-use std::path::Path;
-use std::sync::Mutex;
+use crate::session::{db_path, unix_now_pub};
 use rusqlite::types::Value as SqlValue;
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{Connection, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::session::{db_path, unix_now_pub};
+use std::path::Path;
+use std::sync::Mutex;
 
 // ---- Errors ----
 
@@ -40,13 +40,19 @@ impl std::fmt::Display for DataError {
 }
 impl std::error::Error for DataError {}
 impl From<rusqlite::Error> for DataError {
-    fn from(e: rusqlite::Error) -> Self { Self::Db(e) }
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Db(e)
+    }
 }
 impl From<serde_json::Error> for DataError {
-    fn from(e: serde_json::Error) -> Self { Self::Json(e) }
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
 }
 impl From<std::io::Error> for DataError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 // ---- Query model (structured filters; no raw SQL) ----
@@ -138,7 +144,10 @@ impl DataStore {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.execute_batch(META_SCHEMA)?;
-        Ok(DataStore { conn: Mutex::new(conn), workspace: workspace.to_string() })
+        Ok(DataStore {
+            conn: Mutex::new(conn),
+            workspace: workspace.to_string(),
+        })
     }
 
     /// Create a logical store (idempotent). Friendly name must be `[A-Za-z_][A-Za-z0-9_]*`.
@@ -168,8 +177,8 @@ impl DataStore {
     /// Friendly names of stores in this workspace.
     pub fn list_stores(&self) -> Result<Vec<String>, DataError> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn
-            .prepare("SELECT name FROM data_stores WHERE workspace = ?1 ORDER BY name")?;
+        let mut stmt =
+            conn.prepare("SELECT name FROM data_stores WHERE workspace = ?1 ORDER BY name")?;
         let rows = stmt.query_map(params![self.workspace], |r| r.get::<_, String>(0))?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
@@ -196,8 +205,9 @@ impl DataStore {
         let tx = conn.transaction()?;
         let mut ids = Vec::with_capacity(records.len());
         {
-            let mut stmt =
-                tx.prepare(&format!("INSERT INTO {table} (data, created_at) VALUES (?1, ?2)"))?;
+            let mut stmt = tx.prepare(&format!(
+                "INSERT INTO {table} (data, created_at) VALUES (?1, ?2)"
+            ))?;
             for record in records {
                 let json = serde_json::to_string(record)?;
                 stmt.execute(params![json, now])?;
@@ -246,7 +256,11 @@ impl DataStore {
 
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(binds.iter()), |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?;
 
         let mut out = Vec::new();
@@ -271,7 +285,10 @@ impl DataStore {
             params![json, id],
         )?;
         if n == 0 {
-            return Err(DataError::NotFound { store: store.to_string(), id });
+            return Err(DataError::NotFound {
+                store: store.to_string(),
+                id,
+            });
         }
         Ok(())
     }
@@ -288,10 +305,15 @@ impl DataStore {
     pub fn get(&self, store: &str, id: i64) -> Result<Option<Record>, DataError> {
         let conn = self.conn.lock().unwrap();
         let table = resolve_table(&conn, &self.workspace, store)?;
-        let mut stmt =
-            conn.prepare(&format!("SELECT id, data, created_at FROM {table} WHERE id = ?1"))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT id, data, created_at FROM {table} WHERE id = ?1"
+        ))?;
         let mut rows = stmt.query_map(params![id], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?;
         match rows.next() {
             Some(row) => {
@@ -430,27 +452,55 @@ mod tests {
     fn update_missing_id_is_not_found() {
         let (ds, _dir) = store("/ws");
         ds.create_store("t").unwrap();
-        assert!(matches!(ds.update("t", 999, &json!({})), Err(DataError::NotFound { .. })));
+        assert!(matches!(
+            ds.update("t", 999, &json!({})),
+            Err(DataError::NotFound { .. })
+        ));
     }
 
     #[test]
     fn invalid_name_rejected() {
         let (ds, _dir) = store("/ws");
-        assert!(matches!(ds.create_store("1bad"), Err(DataError::InvalidName(_))));
-        assert!(matches!(ds.create_store("bad-name"), Err(DataError::InvalidName(_))));
-        assert!(matches!(ds.create_store(""), Err(DataError::InvalidName(_))));
+        assert!(matches!(
+            ds.create_store("1bad"),
+            Err(DataError::InvalidName(_))
+        ));
+        assert!(matches!(
+            ds.create_store("bad-name"),
+            Err(DataError::InvalidName(_))
+        ));
+        assert!(matches!(
+            ds.create_store(""),
+            Err(DataError::InvalidName(_))
+        ));
     }
 
     #[test]
     fn insert_and_query_eq() {
         let (ds, _dir) = store("/ws");
         ds.create_store("transactions").unwrap();
-        ds.insert("transactions", &json!({"merchant":"DMart","amount":4200,"category":"groceries"})).unwrap();
-        ds.insert("transactions", &json!({"merchant":"Shell","amount":2000,"category":"fuel"})).unwrap();
-        ds.insert("transactions", &json!({"merchant":"BigBasket","amount":1800,"category":"groceries"})).unwrap();
+        ds.insert(
+            "transactions",
+            &json!({"merchant":"DMart","amount":4200,"category":"groceries"}),
+        )
+        .unwrap();
+        ds.insert(
+            "transactions",
+            &json!({"merchant":"Shell","amount":2000,"category":"fuel"}),
+        )
+        .unwrap();
+        ds.insert(
+            "transactions",
+            &json!({"merchant":"BigBasket","amount":1800,"category":"groceries"}),
+        )
+        .unwrap();
 
         let q = Query {
-            filters: vec![Filter { field: "category".into(), op: FilterOp::Eq, value: json!("groceries") }],
+            filters: vec![Filter {
+                field: "category".into(),
+                op: FilterOp::Eq,
+                value: json!("groceries"),
+            }],
             ..Default::default()
         };
         let rows = ds.query("transactions", &q).unwrap();
@@ -466,25 +516,42 @@ mod tests {
             ds.insert("t", &json!({"amount": a})).unwrap();
         }
         let q = Query {
-            filters: vec![Filter { field: "amount".into(), op: FilterOp::Gt, value: json!(1000) }],
+            filters: vec![Filter {
+                field: "amount".into(),
+                op: FilterOp::Gt,
+                value: json!(1000),
+            }],
             ..Default::default()
         };
         let rows = ds.query("t", &q).unwrap();
         assert_eq!(rows.len(), 2);
-        assert!(rows.iter().all(|r| r.data["amount"].as_i64().unwrap() > 1000));
+        assert!(
+            rows.iter()
+                .all(|r| r.data["amount"].as_i64().unwrap() > 1000)
+        );
     }
 
     #[test]
     fn query_contains_and_sort_limit() {
         let (ds, _dir) = store("/ws");
         ds.create_store("t").unwrap();
-        ds.insert("t", &json!({"merchant":"DMart","amount":300})).unwrap();
-        ds.insert("t", &json!({"merchant":"DMart Express","amount":100})).unwrap();
-        ds.insert("t", &json!({"merchant":"Shell","amount":200})).unwrap();
+        ds.insert("t", &json!({"merchant":"DMart","amount":300}))
+            .unwrap();
+        ds.insert("t", &json!({"merchant":"DMart Express","amount":100}))
+            .unwrap();
+        ds.insert("t", &json!({"merchant":"Shell","amount":200}))
+            .unwrap();
 
         let q = Query {
-            filters: vec![Filter { field: "merchant".into(), op: FilterOp::Contains, value: json!("DMart") }],
-            sort: Some(Sort { field: "amount".into(), dir: Dir::Asc }),
+            filters: vec![Filter {
+                field: "merchant".into(),
+                op: FilterOp::Contains,
+                value: json!("DMart"),
+            }],
+            sort: Some(Sort {
+                field: "amount".into(),
+                dir: Dir::Asc,
+            }),
             limit: Some(5),
         };
         let rows = ds.query("t", &q).unwrap();
@@ -508,7 +575,13 @@ mod tests {
         });
         let id = ds.insert("pinned_artifacts", &record).unwrap();
 
-        let q = Query { sort: Some(Sort { field: "created_at".into(), dir: Dir::Desc }), ..Default::default() };
+        let q = Query {
+            sort: Some(Sort {
+                field: "created_at".into(),
+                dir: Dir::Desc,
+            }),
+            ..Default::default()
+        };
         let rows = ds.query("pinned_artifacts", &q).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, id);
@@ -521,8 +594,14 @@ mod tests {
     #[test]
     fn unknown_store_errors() {
         let (ds, _dir) = store("/ws");
-        assert!(matches!(ds.query("nope", &Query::default()), Err(DataError::UnknownStore(_))));
-        assert!(matches!(ds.insert("nope", &json!({})), Err(DataError::UnknownStore(_))));
+        assert!(matches!(
+            ds.query("nope", &Query::default()),
+            Err(DataError::UnknownStore(_))
+        ));
+        assert!(matches!(
+            ds.insert("nope", &json!({})),
+            Err(DataError::UnknownStore(_))
+        ));
     }
 
     #[test]

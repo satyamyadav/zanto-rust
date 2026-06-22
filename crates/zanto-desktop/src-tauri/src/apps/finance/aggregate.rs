@@ -3,11 +3,11 @@
 //! (balances, net worth, budget status, goal progress, forecast, trends,
 //! recurring detection). No DataStore, no I/O — all unit-testable in isolation.
 
-use std::collections::HashMap;
-use serde_json::{json, Value};
-use zanto_core::data::Record;
 use super::import::coerce_amount;
 use super::DEFAULT_ACCOUNT;
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use zanto_core::data::Record;
 
 /// Income vs expense. Missing/unknown `type` defaults to Expense so legacy
 /// transactions (pre-v2, no `type` field) still aggregate correctly.
@@ -47,8 +47,17 @@ pub(super) fn normalize_txn(v: &Value) -> Txn {
         .filter(|s| !s.is_empty())
         .unwrap_or("uncategorized")
         .to_string();
-    let date = v.get("date").and_then(|d| d.as_str()).unwrap_or("").to_string();
-    Txn { kind, amount: coerce_amount(v.get("amount")).abs(), category, date }
+    let date = v
+        .get("date")
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_string();
+    Txn {
+        kind,
+        amount: coerce_amount(v.get("amount")).abs(),
+        category,
+        date,
+    }
 }
 
 // Recurring-charge detection thresholds (named so they're tunable).
@@ -92,7 +101,12 @@ pub(super) fn detect_recurring(records: &[Record], _now_month: &str) -> Vec<Valu
         if !matches!(t.kind, TxnKind::Expense) {
             continue;
         }
-        let merchant = r.data.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let merchant = r
+            .data
+            .get("merchant")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         if merchant.trim().is_empty() {
             continue;
         }
@@ -101,8 +115,13 @@ pub(super) fn detect_recurring(records: &[Record], _now_month: &str) -> Vec<Valu
             None => continue,
         };
         let mlow = merchant.to_lowercase();
-        display.entry(mlow.clone()).or_insert_with(|| merchant.clone());
-        groups.entry((mlow, t.amount.round() as i64)).or_default().push((ord, t.amount, t.date.clone()));
+        display
+            .entry(mlow.clone())
+            .or_insert_with(|| merchant.clone());
+        groups
+            .entry((mlow, t.amount.round() as i64))
+            .or_default()
+            .push((ord, t.amount, t.date.clone()));
     }
 
     let mut out = Vec::new();
@@ -125,7 +144,11 @@ pub(super) fn detect_recurring(records: &[Record], _now_month: &str) -> Vec<Valu
         let count = occ.len();
         let avg = occ.iter().map(|(_, a, _)| *a).sum::<f64>() / count as f64;
         let amount = (avg * 100.0).round() / 100.0;
-        let last_date = occ.iter().map(|(_, _, d)| d.clone()).max().unwrap_or_default();
+        let last_date = occ
+            .iter()
+            .map(|(_, _, d)| d.clone())
+            .max()
+            .unwrap_or_default();
         let merchant = display.get(&mlow).cloned().unwrap_or(mlow);
         out.push(json!({
             "merchant": merchant, "amount": amount, "count": count,
@@ -133,7 +156,9 @@ pub(super) fn detect_recurring(records: &[Record], _now_month: &str) -> Vec<Valu
         }));
     }
     out.sort_by(|a, b| {
-        b["monthly_total"].as_f64().unwrap_or(0.0)
+        b["monthly_total"]
+            .as_f64()
+            .unwrap_or(0.0)
             .partial_cmp(&a["monthly_total"].as_f64().unwrap_or(0.0))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
@@ -155,7 +180,9 @@ pub(super) fn compute_trends_data(records: &[Record], months: &[String]) -> Valu
         if !mset.contains(m) {
             continue;
         }
-        *by_mc.entry((m.to_string(), t.category.clone())).or_insert(0.0) += t.amount;
+        *by_mc
+            .entry((m.to_string(), t.category.clone()))
+            .or_insert(0.0) += t.amount;
         *totals.entry(t.category).or_insert(0.0) += t.amount;
     }
     let mut tv: Vec<(String, f64)> = totals.into_iter().collect();
@@ -164,8 +191,10 @@ pub(super) fn compute_trends_data(records: &[Record], months: &[String]) -> Valu
         .into_iter()
         .take(5)
         .map(|(c, _)| {
-            let data: Vec<f64> =
-                months.iter().map(|m| *by_mc.get(&(m.clone(), c.clone())).unwrap_or(&0.0)).collect();
+            let data: Vec<f64> = months
+                .iter()
+                .map(|m| *by_mc.get(&(m.clone(), c.clone())).unwrap_or(&0.0))
+                .collect();
             json!({ "category": c, "data": data })
         })
         .collect();
@@ -176,7 +205,12 @@ pub(super) fn compute_trends_data(records: &[Record], months: &[String]) -> Valu
 /// for the average baseline. Projects this month's end net worth by adding only
 /// the *remaining* expected income/expense to the (month-to-date-inclusive) net
 /// worth. Expected = max(month-to-date, 3-month average).
-pub(super) fn compute_forecast_data(records: &[Record], net_worth: f64, this_month: &str, prev_months: &[String]) -> Value {
+pub(super) fn compute_forecast_data(
+    records: &[Record],
+    net_worth: f64,
+    this_month: &str,
+    prev_months: &[String],
+) -> Value {
     let (mut mtd_exp, mut mtd_inc) = (0.0_f64, 0.0_f64);
     let mut by_month_exp: HashMap<String, f64> = HashMap::new();
     let mut by_month_inc: HashMap<String, f64> = HashMap::new();
@@ -206,7 +240,10 @@ pub(super) fn compute_forecast_data(records: &[Record], net_worth: f64, this_mon
         if prev_months.is_empty() {
             return 0.0;
         }
-        let sum: f64 = prev_months.iter().map(|m| *map.get(m).unwrap_or(&0.0)).sum();
+        let sum: f64 = prev_months
+            .iter()
+            .map(|m| *map.get(m).unwrap_or(&0.0))
+            .sum();
         sum / prev_months.len() as f64
     };
     let avg_exp = avg(&by_month_exp);
@@ -238,16 +275,26 @@ pub(super) fn compute_goal_status(goals: &[Value], accounts: &[Value]) -> Vec<Va
     goals
         .iter()
         .filter_map(|g| {
-            let name = g.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty())?.to_string();
+            let name = g
+                .get("name")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())?
+                .to_string();
             let kind = match g.get("kind").and_then(|v| v.as_str()) {
                 Some("debt") => "debt",
                 _ => "savings",
             };
-            let account = g.get("account").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let account = g
+                .get("account")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let target = g.get("target").and_then(|v| v.as_f64()).unwrap_or(0.0);
             // A goal whose account isn't present at all is "unlinked" — it must
             // never claim complete just because a missing balance reads as 0.
-            let linked = accounts.iter().any(|a| a.get("name").and_then(|v| v.as_str()) == Some(account.as_str()));
+            let linked = accounts
+                .iter()
+                .any(|a| a.get("name").and_then(|v| v.as_str()) == Some(account.as_str()));
             let b = balance_of(&account);
             let mut out = json!({
                 "name": name, "kind": kind, "account": account, "target": target, "linked": linked,
@@ -267,7 +314,11 @@ pub(super) fn compute_goal_status(goals: &[Value], accounts: &[Value]) -> Vec<Va
                 out["complete"] = json!(linked && owed <= 0.0);
             } else {
                 let current = b.max(0.0);
-                let progress = if target > 0.0 { (current / target).clamp(0.0, 1.0) } else { 0.0 };
+                let progress = if target > 0.0 {
+                    (current / target).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
                 out["current"] = json!(current);
                 out["progress"] = json!(progress);
                 out["remaining"] = json!((target - current).max(0.0));
@@ -286,17 +337,33 @@ pub(super) fn default_accounts() -> Value {
 /// Per-account balances + net worth. Each account = opening_balance + income −
 /// expense + transfers_in − transfers_out for that account. Transfers move money
 /// between accounts but leave net worth unchanged. Returns (accounts, net_worth).
-pub(super) fn compute_account_balances(accounts: &[Value], records: &[Record]) -> (Vec<Value>, f64) {
+pub(super) fn compute_account_balances(
+    accounts: &[Value],
+    records: &[Record],
+) -> (Vec<Value>, f64) {
     let mut bal: HashMap<String, f64> = HashMap::new();
     let mut order: Vec<(String, String)> = Vec::new(); // declared (name, type) — preserve order
     let mut declared: std::collections::HashSet<String> = std::collections::HashSet::new();
     for a in accounts {
-        let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let name = a
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         if name.is_empty() {
             continue;
         }
-        let typ = a.get("type").and_then(|v| v.as_str()).unwrap_or("cash").to_string();
-        bal.insert(name.clone(), a.get("opening_balance").and_then(|v| v.as_f64()).unwrap_or(0.0));
+        let typ = a
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("cash")
+            .to_string();
+        bal.insert(
+            name.clone(),
+            a.get("opening_balance")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0),
+        );
         declared.insert(name.clone());
         order.push((name, typ));
     }
@@ -305,13 +372,23 @@ pub(super) fn compute_account_balances(accounts: &[Value], records: &[Record]) -
     // so money is never silently dropped from net worth.
     for r in records {
         let t = normalize_txn(&r.data);
-        let acct = r.data.get("account").and_then(|v| v.as_str()).unwrap_or(DEFAULT_ACCOUNT).to_string();
+        let acct = r
+            .data
+            .get("account")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_ACCOUNT)
+            .to_string();
         match t.kind {
             TxnKind::Income => *bal.entry(acct).or_insert(0.0) += t.amount,
             TxnKind::Expense => *bal.entry(acct).or_insert(0.0) -= t.amount,
             TxnKind::Transfer => {
                 *bal.entry(acct).or_insert(0.0) -= t.amount;
-                let to = r.data.get("to_account").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let to = r
+                    .data
+                    .get("to_account")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 if !to.is_empty() {
                     *bal.entry(to).or_insert(0.0) += t.amount;
                 }
@@ -327,7 +404,8 @@ pub(super) fn compute_account_balances(accounts: &[Value], records: &[Record]) -
     }
     // Orphaned accounts (referenced by transactions but not declared) surface as
     // "unlinked" rather than vanishing. Sorted for stable output.
-    let mut orphans: Vec<(&String, &f64)> = bal.iter().filter(|(n, _)| !declared.contains(*n)).collect();
+    let mut orphans: Vec<(&String, &f64)> =
+        bal.iter().filter(|(n, _)| !declared.contains(*n)).collect();
     orphans.sort_by(|a, b| a.0.cmp(b.0));
     for (name, b) in orphans {
         net += *b;
@@ -406,7 +484,10 @@ pub(super) fn lifetime_balance(records: &[Record]) -> f64 {
 /// The `n` months ending at `end` (inclusive), oldest → newest, as `YYYY-MM`.
 pub(super) fn last_n_months(end: &str, n: usize) -> Vec<String> {
     // Parse "YYYY-MM"; fall back to a single-element series on malformed input.
-    let (year, month) = match (end.get(..4).and_then(|s| s.parse::<i32>().ok()), end.get(5..7).and_then(|s| s.parse::<u32>().ok())) {
+    let (year, month) = match (
+        end.get(..4).and_then(|s| s.parse::<i32>().ok()),
+        end.get(5..7).and_then(|s| s.parse::<u32>().ok()),
+    ) {
         (Some(y), Some(m)) if (1..=12).contains(&m) => (y, m),
         _ => return vec![end.to_string()],
     };
@@ -425,4 +506,3 @@ pub(super) fn last_n_months(end: &str, n: usize) -> Vec<String> {
     out.reverse();
     out
 }
-

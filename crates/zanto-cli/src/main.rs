@@ -1,13 +1,11 @@
-use std::io::Write;
-use std::sync::Arc;
 use async_trait::async_trait;
 use clap::{Parser, Subcommand};
-use zanto_core::chat::{chat, ChatConfig};
+use std::io::Write;
+use std::sync::Arc;
+use zanto_core::chat::{ChatConfig, chat};
 use zanto_core::config::Settings;
 use zanto_core::permissions::{ApprovalResponse, Approver, PermissionGuard};
-use zanto_core::session::{
-    auto_title, format_ts_display, ContextPolicy, Session, Store,
-};
+use zanto_core::session::{ContextPolicy, Session, Store, auto_title, format_ts_display};
 
 // ---- CLI definition ----
 
@@ -142,20 +140,46 @@ async fn main() {
     let permissions = Arc::new(PermissionGuard::new(&settings, StdinApprover));
     let store = match Store::open() {
         Ok(s) => s,
-        Err(e) => { eprintln!("Error opening session DB: {e}"); return; }
+        Err(e) => {
+            eprintln!("Error opening session DB: {e}");
+            return;
+        }
     };
 
     let generation = settings.effective_generation();
     let project_dir = settings.project_dir_path();
     match args.question {
         Some(q) => {
-            let mut session = resolve_session(&store, &workspace, args.session, args.new, args.title);
-            run_once(&store, &mut session, model, endpoint, &permissions, &policy, generation, project_dir, &q).await;
+            let mut session =
+                resolve_session(&store, &workspace, args.session, args.new, args.title);
+            run_once(
+                &store,
+                &mut session,
+                model,
+                endpoint,
+                &permissions,
+                &policy,
+                generation,
+                project_dir,
+                &q,
+            )
+            .await;
             finalize_session(&store, &mut session);
         }
         None => {
-            let mut session = resolve_session(&store, &workspace, args.session, args.new, args.title);
-            run_interactive(&store, &mut session, model, endpoint, &permissions, &policy, generation, project_dir).await;
+            let mut session =
+                resolve_session(&store, &workspace, args.session, args.new, args.title);
+            run_interactive(
+                &store,
+                &mut session,
+                model,
+                endpoint,
+                &permissions,
+                &policy,
+                generation,
+                project_dir,
+            )
+            .await;
             finalize_session(&store, &mut session);
         }
     }
@@ -186,11 +210,11 @@ fn resolve_session(
         }
     }
 
-    if let Some(id) = store.last_session_id(Some(workspace)) {
-        if let Ok(s) = store.load_session(&id) {
-            eprintln!("[zanto] resumed session: {} — {}", s.id, s.title);
-            return s;
-        }
+    if let Some(id) = store.last_session_id(Some(workspace))
+        && let Ok(s) = store.load_session(&id)
+    {
+        eprintln!("[zanto] resumed session: {} — {}", s.id, s.title);
+        return s;
     }
 
     Session::new(title.unwrap_or_default(), workspace)
@@ -208,6 +232,7 @@ fn finalize_session(store: &Store, session: &mut Session) {
 
 // ---- Chat runners ----
 
+#[allow(clippy::too_many_arguments)] // reason: all args are distinct CLI-level params; extracting a struct is out of scope for this lint-clean pass
 async fn run_once(
     store: &Store,
     session: &mut Session,
@@ -228,6 +253,7 @@ async fn run_once(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // reason: all args are distinct CLI-level params; extracting a struct is out of scope for this lint-clean pass
 async fn run_interactive(
     store: &Store,
     session: &mut Session,
@@ -251,13 +277,20 @@ async fn run_interactive(
         let mut line = String::new();
         match reader.read_line(&mut line).await {
             Ok(0) => break,
-            Err(e) => { eprintln!("Error reading input: {e}"); break; }
+            Err(e) => {
+                eprintln!("Error reading input: {e}");
+                break;
+            }
             Ok(_) => {}
         }
 
         let q = line.trim();
-        if q.is_empty() { continue; }
-        if q == "exit" || q == "quit" { break; }
+        if q.is_empty() {
+            continue;
+        }
+        if q == "exit" || q == "quit" {
+            break;
+        }
 
         let mut config = ChatConfig::new(model.clone(), endpoint.clone(), Arc::clone(permissions));
         config.generation = generation.clone();
@@ -275,7 +308,10 @@ async fn run_interactive(
 fn handle_sessions(action: SessionAction, workspace: &str) {
     let store = match Store::open() {
         Ok(s) => s,
-        Err(e) => { eprintln!("Error opening session DB: {e}"); return; }
+        Err(e) => {
+            eprintln!("Error opening session DB: {e}");
+            return;
+        }
     };
 
     match action {
@@ -290,7 +326,10 @@ fn handle_sessions(action: SessionAction, workspace: &str) {
                         let title = truncate(&s.title, 43);
                         println!(
                             "  {:<22}  {:<43}  {:>4}  {}",
-                            s.id, title, s.message_count, format_ts_display(s.updated_at)
+                            s.id,
+                            title,
+                            s.message_count,
+                            format_ts_display(s.updated_at)
                         );
                     }
                 }

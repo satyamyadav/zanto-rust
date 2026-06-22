@@ -3,9 +3,9 @@
 //! part of zanto-core; the core is parameterized at runtime by the active app's
 //! profile (skill + tools + stores), dispatched via `SharedDispatcher`.
 
-use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::{Arc, Mutex};
 use zanto_core::chat::{AppResult, GenaiTool};
 use zanto_core::data::DataStore;
 
@@ -45,7 +45,12 @@ pub trait App: Send + Sync {
     /// Agent tool schemas offered to the model when this app is active.
     fn agent_tools(&self) -> Vec<GenaiTool>;
     /// Execute an agent tool. Returns `None` if `name` is not this app's tool.
-    fn dispatch_tool(&self, data: &DataStore, name: &str, args: Value) -> Option<Result<AppResult, String>>;
+    fn dispatch_tool(
+        &self,
+        data: &DataStore,
+        name: &str,
+        args: Value,
+    ) -> Option<Result<AppResult, String>>;
     /// Manual read-only query (ungated backend path).
     fn query(&self, data: &DataStore, name: &str, args: Value) -> Result<Value, String>;
     /// Manual action / flow (ungated backend path).
@@ -60,7 +65,10 @@ pub struct AppRegistry {
 
 impl AppRegistry {
     pub fn new(apps: Vec<Arc<dyn App>>) -> Self {
-        Self { apps, active: Mutex::new(None) }
+        Self {
+            apps,
+            active: Mutex::new(None),
+        }
     }
 
     pub fn manifests(&self) -> Vec<AppManifest> {
@@ -89,4 +97,3 @@ impl AppRegistry {
         id.and_then(|id| self.get(&id))
     }
 }
-

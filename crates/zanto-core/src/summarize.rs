@@ -12,7 +12,7 @@
 //! result. See [`should_summarize`] for the suggested trigger.
 
 use genai::Client;
-use genai::chat::{ChatMessage, ChatRole, ChatRequest};
+use genai::chat::{ChatMessage, ChatRequest, ChatRole};
 
 /// System instruction steering the model toward a tight, factual recap.
 const SUMMARY_PROMPT: &str = "You are summarizing an ongoing conversation so it can \
@@ -49,7 +49,9 @@ pub async fn summarize_messages(
 fn render_transcript(messages: &[ChatMessage]) -> String {
     let mut out = String::new();
     for msg in messages {
-        let Some(text) = msg.content.first_text() else { continue };
+        let Some(text) = msg.content.first_text() else {
+            continue;
+        };
         let text = text.trim();
         if text.is_empty() {
             continue;

@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 use directories::ProjectDirs;
 use genai::chat::{ChatMessage, ChatRole};
 use rusqlite::{Connection, params};
-use rusqlite_migration::{Migrations, M};
+use rusqlite_migration::{M, Migrations};
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---- Error ----
 
@@ -35,16 +35,24 @@ impl std::fmt::Display for SessionError {
 
 impl std::error::Error for SessionError {}
 impl From<rusqlite::Error> for SessionError {
-    fn from(e: rusqlite::Error) -> Self { Self::Db(e) }
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Db(e)
+    }
 }
 impl From<rusqlite_migration::Error> for SessionError {
-    fn from(e: rusqlite_migration::Error) -> Self { Self::Migration(e) }
+    fn from(e: rusqlite_migration::Error) -> Self {
+        Self::Migration(e)
+    }
 }
 impl From<serde_json::Error> for SessionError {
-    fn from(e: serde_json::Error) -> Self { Self::Json(e) }
+    fn from(e: serde_json::Error) -> Self {
+        Self::Json(e)
+    }
 }
 impl From<std::io::Error> for SessionError {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 
 // ---- Structs ----
@@ -75,16 +83,23 @@ pub struct SessionMeta {
 
 pub enum ContextPolicy {
     All,
-    LastNTurns { max_turns: usize },
+    LastNTurns {
+        max_turns: usize,
+    },
     /// Keep the last `keep_last` turns verbatim; when older turns exist, prepend
     /// the session's stored running `summary` (see `summarize` module) as a leading
     /// system message so dropped history is not lost.
-    Summarize { keep_last: usize },
+    Summarize {
+        keep_last: usize,
+    },
     /// Automatic, model-aware management: keep as many recent messages verbatim as
     /// fit within `headroom_frac` of the model's `window_tokens`, summarizing the
     /// rest into the running summary. No manual turn count — the split is computed
     /// from estimated token usage at send time.
-    Auto { window_tokens: usize, headroom_frac: f64 },
+    Auto {
+        window_tokens: usize,
+        headroom_frac: f64,
+    },
 }
 
 impl Default for ContextPolicy {
@@ -207,28 +222,34 @@ impl Session {
                 let trimmed = trim_to_turns(&self.messages, *keep_last);
                 // Only prepend the summary when older turns were actually dropped
                 // and we have a summary to inject.
-                if count_turns(&self.messages) > *keep_last {
-                    if let Some(summary) = self.summary.as_deref().filter(|s| !s.trim().is_empty()) {
-                        let note = format!("Summary of earlier conversation:\n{summary}");
-                        let mut out = Vec::with_capacity(trimmed.len() + 1);
-                        out.push(ChatMessage::system(note));
-                        out.extend(trimmed);
-                        return out;
-                    }
+                if count_turns(&self.messages) > *keep_last
+                    && let Some(summary) =
+                        self.summary.as_deref().filter(|s| !s.trim().is_empty())
+                {
+                    let note = format!("Summary of earlier conversation:\n{summary}");
+                    let mut out = Vec::with_capacity(trimmed.len() + 1);
+                    out.push(ChatMessage::system(note));
+                    out.extend(trimmed);
+                    return out;
                 }
                 trimmed
             }
-            ContextPolicy::Auto { window_tokens, headroom_frac } => {
-                let split = auto_split_index(&self.messages, auto_budget(*window_tokens, *headroom_frac));
+            ContextPolicy::Auto {
+                window_tokens,
+                headroom_frac,
+            } => {
+                let split =
+                    auto_split_index(&self.messages, auto_budget(*window_tokens, *headroom_frac));
                 let tail = self.messages[split..].to_vec();
-                if split > 0 {
-                    if let Some(summary) = self.summary.as_deref().filter(|s| !s.trim().is_empty()) {
-                        let note = format!("Summary of earlier conversation:\n{summary}");
-                        let mut out = Vec::with_capacity(tail.len() + 1);
-                        out.push(ChatMessage::system(note));
-                        out.extend(tail);
-                        return out;
-                    }
+                if split > 0
+                    && let Some(summary) =
+                        self.summary.as_deref().filter(|s| !s.trim().is_empty())
+                {
+                    let note = format!("Summary of earlier conversation:\n{summary}");
+                    let mut out = Vec::with_capacity(tail.len() + 1);
+                    out.push(ChatMessage::system(note));
+                    out.extend(tail);
+                    return out;
                 }
                 tail
             }
@@ -253,12 +274,12 @@ fn auto_budget(window_tokens: usize, headroom_frac: f64) -> usize {
 /// Auto-generate a title from the first user message in the session.
 pub fn auto_title(messages: &[ChatMessage]) -> String {
     for msg in messages {
-        if matches!(msg.role, ChatRole::User) {
-            if let Some(text) = msg.content.first_text() {
-                let t: String = text.chars().take(60).collect();
-                if !t.is_empty() {
-                    return t;
-                }
+        if matches!(msg.role, ChatRole::User)
+            && let Some(text) = msg.content.first_text()
+        {
+            let t: String = text.chars().take(60).collect();
+            if !t.is_empty() {
+                return t;
             }
         }
     }
@@ -372,7 +393,9 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         migrations().to_latest(&mut conn)?;
-        Ok(Store { conn: Mutex::new(conn) })
+        Ok(Store {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// Upsert the session metadata row (does not touch messages).
@@ -422,11 +445,13 @@ impl Store {
     }
 
     /// Load per-message metadata, positionally parallel to `Session.messages`.
-    pub fn load_message_meta(&self, session_id: &str) -> Result<Vec<Option<serde_json::Value>>, SessionError> {
+    pub fn load_message_meta(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<Option<serde_json::Value>>, SessionError> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT metadata FROM messages WHERE session_id = ?1 ORDER BY position",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT metadata FROM messages WHERE session_id = ?1 ORDER BY position")?;
         stmt.query_map(params![session_id], |r| r.get::<_, Option<String>>(0))?
             .map(|r| {
                 r.map_err(SessionError::from).and_then(|opt| match opt {
@@ -457,17 +482,21 @@ impl Store {
 
         let (title, workspace, app_id, created_at, updated_at, archived, summary) = match row {
             Ok(r) => r,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Err(SessionError::NotFound(id.to_string())),
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                return Err(SessionError::NotFound(id.to_string()));
+            }
             Err(e) => return Err(e.into()),
         };
 
-        let mut stmt = conn.prepare(
-            "SELECT content FROM messages WHERE session_id = ?1 ORDER BY position",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT content FROM messages WHERE session_id = ?1 ORDER BY position")?;
 
         let messages: Result<Vec<ChatMessage>, SessionError> = stmt
             .query_map(params![id], |r| r.get::<_, String>(0))?
-            .map(|r| r.map_err(SessionError::from).and_then(|s| serde_json::from_str(&s).map_err(SessionError::from)))
+            .map(|r| {
+                r.map_err(SessionError::from)
+                    .and_then(|s| serde_json::from_str(&s).map_err(SessionError::from))
+            })
             .collect();
 
         Ok(Session {
@@ -556,7 +585,11 @@ impl Store {
              FROM sessions s LEFT JOIN messages m ON m.session_id = s.id",
         );
         // archived flag is always constrained; workspace/app are optional.
-        let mut conds: Vec<&str> = vec![if archived { "s.archived = 1" } else { "s.archived = 0" }];
+        let mut conds: Vec<&str> = vec![if archived {
+            "s.archived = 1"
+        } else {
+            "s.archived = 0"
+        }];
         let mut binds: Vec<String> = Vec::new();
         if let Some(ws) = workspace_filter {
             conds.push("s.workspace = ?");
@@ -617,13 +650,15 @@ impl Store {
                 "SELECT id FROM sessions WHERE workspace = ?1 ORDER BY updated_at DESC LIMIT 1",
                 params![ws],
                 |r| r.get::<_, String>(0),
-            ).ok()
+            )
+            .ok()
         } else {
             conn.query_row(
                 "SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1",
                 [],
                 |r| r.get::<_, String>(0),
-            ).ok()
+            )
+            .ok()
         }
     }
 
@@ -631,7 +666,8 @@ impl Store {
     pub fn find_by_prefix(&self, prefix: &str) -> Result<String, SessionError> {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("{}%", prefix);
-        let mut stmt = conn.prepare("SELECT id FROM sessions WHERE id LIKE ?1 ORDER BY updated_at DESC")?;
+        let mut stmt =
+            conn.prepare("SELECT id FROM sessions WHERE id LIKE ?1 ORDER BY updated_at DESC")?;
         let ids: Vec<String> = stmt
             .query_map(params![pattern], |r| r.get::<_, String>(0))?
             .filter_map(|r| r.ok())
@@ -719,15 +755,32 @@ fn format_ts(secs: u64) -> String {
     let mut y = 1970u32;
     loop {
         let dy = if is_leap(y) { 366u64 } else { 365 };
-        if days < dy { break; }
+        if days < dy {
+            break;
+        }
         days -= dy;
         y += 1;
     }
     let leap = is_leap(y);
-    let mdays: [u64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays: [u64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut mo = 1u32;
     for &md in &mdays {
-        if days < md { break; }
+        if days < md {
+            break;
+        }
         days -= md;
         mo += 1;
     }
@@ -736,7 +789,7 @@ fn format_ts(secs: u64) -> String {
 }
 
 fn is_leap(y: u32) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 /// Format unix seconds as "YYYY-MM-DD HH:MM" for display.
@@ -749,15 +802,32 @@ pub fn format_ts_display(secs: u64) -> String {
     let mut y = 1970u32;
     loop {
         let dy = if is_leap(y) { 366u64 } else { 365 };
-        if days < dy { break; }
+        if days < dy {
+            break;
+        }
         days -= dy;
         y += 1;
     }
     let leap = is_leap(y);
-    let mdays: [u64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays: [u64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut mo = 1u32;
     for &md in &mdays {
-        if days < md { break; }
+        if days < md {
+            break;
+        }
         days -= md;
         mo += 1;
     }
@@ -840,7 +910,9 @@ mod tests {
 
         // 10 display messages (alternating user/assistant) plus a system + an
         // empty-text message that the filter must drop.
-        store.append_message(&s.id, 0, &ChatMessage::system("you are a bot")).unwrap();
+        store
+            .append_message(&s.id, 0, &ChatMessage::system("you are a bot"))
+            .unwrap();
         let mut pos = 1;
         for i in 0..10u8 {
             let m = if i % 2 == 0 {
@@ -851,7 +923,9 @@ mod tests {
             store.append_message(&s.id, pos, &m).unwrap();
             pos += 1;
         }
-        store.append_message(&s.id, pos, &ChatMessage::assistant("   ")).unwrap();
+        store
+            .append_message(&s.id, pos, &ChatMessage::assistant("   "))
+            .unwrap();
 
         // Full list (system + blank filtered out) = 10 entries, newest-last.
         let all = store.load_messages_page(&s.id, 0, 100).unwrap();
@@ -947,7 +1021,9 @@ mod tests {
         let (store, _dir) = temp_store();
         let s = make_session("/ws");
         store.save_session(&s).unwrap();
-        store.append_message(&s.id, 0, &ChatMessage::user("hi")).unwrap();
+        store
+            .append_message(&s.id, 0, &ChatMessage::user("hi"))
+            .unwrap();
 
         store.delete_session(&s.id).unwrap();
         assert!(matches!(
@@ -990,7 +1066,13 @@ mod tests {
         // Leading system summary + last 2 turns (4 messages) = 5.
         assert_eq!(effective.len(), 5);
         assert!(matches!(effective[0].role, ChatRole::System));
-        assert!(effective[0].content.first_text().unwrap().contains("earlier recap"));
+        assert!(
+            effective[0]
+                .content
+                .first_text()
+                .unwrap()
+                .contains("earlier recap")
+        );
         assert_eq!(effective[1].content.first_text().unwrap(), "q2");
         assert_eq!(effective[3].content.first_text().unwrap(), "q3");
     }
@@ -1006,7 +1088,10 @@ mod tests {
     fn context_policy_auto_summarizes_when_over_budget() {
         // window 200 @ 0.5 headroom → ~100-token budget; six ~40-char messages
         // (~15 tokens each) overflow it, so a verbatim tail + summary is produced.
-        let policy = ContextPolicy::Auto { window_tokens: 200, headroom_frac: 0.5 };
+        let policy = ContextPolicy::Auto {
+            window_tokens: 200,
+            headroom_frac: 0.5,
+        };
         let mut s = make_session("/ws");
         s.summary = Some("earlier recap".to_string());
         for _ in 0..6 {
@@ -1015,14 +1100,23 @@ mod tests {
         }
         let eff = s.effective_messages(&policy);
         assert!(matches!(eff[0].role, ChatRole::System));
-        assert!(eff[0].content.first_text().unwrap().contains("earlier recap"));
+        assert!(
+            eff[0]
+                .content
+                .first_text()
+                .unwrap()
+                .contains("earlier recap")
+        );
         // Older messages were dropped from the live window → non-empty complement.
         assert!(!s.auto_older(200, 0.5).is_empty());
     }
 
     #[test]
     fn context_policy_auto_keeps_everything_when_it_fits() {
-        let policy = ContextPolicy::Auto { window_tokens: 1_000_000, headroom_frac: 0.75 };
+        let policy = ContextPolicy::Auto {
+            window_tokens: 1_000_000,
+            headroom_frac: 0.75,
+        };
         let mut s = make_session("/ws");
         for i in 0..3u8 {
             s.messages.push(ChatMessage::user(format!("q{i}")));
@@ -1035,7 +1129,10 @@ mod tests {
     #[test]
     fn context_policy_auto_always_keeps_a_full_last_turn() {
         // Even a tiny window keeps the most recent turn (2 messages) whole.
-        let policy = ContextPolicy::Auto { window_tokens: 1, headroom_frac: 0.5 };
+        let policy = ContextPolicy::Auto {
+            window_tokens: 1,
+            headroom_frac: 0.5,
+        };
         let mut s = make_session("/ws"); // no summary set
         for i in 0..4u8 {
             s.messages.push(ChatMessage::user(format!("q{i}")));
@@ -1129,7 +1226,10 @@ mod tests {
         assert!(store.load_session(&s.id).unwrap().summary.is_none());
 
         store.set_summary(&s.id, Some("a recap")).unwrap();
-        assert_eq!(store.load_session(&s.id).unwrap().summary.as_deref(), Some("a recap"));
+        assert_eq!(
+            store.load_session(&s.id).unwrap().summary.as_deref(),
+            Some("a recap")
+        );
 
         store.set_summary(&s.id, None).unwrap();
         assert!(store.load_session(&s.id).unwrap().summary.is_none());
@@ -1142,8 +1242,12 @@ mod tests {
         store.save_session(&s).unwrap();
 
         let meta = serde_json::json!({ "kind": "artifact", "n": 7 });
-        store.append_message(&s.id, 0, &ChatMessage::user("hi")).unwrap();
-        store.append_message_meta(&s.id, 1, &ChatMessage::assistant("yo"), Some(&meta)).unwrap();
+        store
+            .append_message(&s.id, 0, &ChatMessage::user("hi"))
+            .unwrap();
+        store
+            .append_message_meta(&s.id, 1, &ChatMessage::assistant("yo"), Some(&meta))
+            .unwrap();
 
         let loaded = store.load_message_meta(&s.id).unwrap();
         assert_eq!(loaded.len(), 2);
@@ -1222,23 +1326,34 @@ mod tests {
         }
         // ids[24] is newest. Page through in chunks of 10.
         let page_size = 10;
-        let p0 = store.list_sessions_page(Some("/ws"), None, false, 0, page_size).unwrap();
+        let p0 = store
+            .list_sessions_page(Some("/ws"), None, false, 0, page_size)
+            .unwrap();
         assert_eq!(p0.len(), 10);
         assert_eq!(p0[0].id, ids[24]); // newest first
         assert_eq!(p0[9].id, ids[15]);
 
-        let p1 = store.list_sessions_page(Some("/ws"), None, false, 10, page_size).unwrap();
+        let p1 = store
+            .list_sessions_page(Some("/ws"), None, false, 10, page_size)
+            .unwrap();
         assert_eq!(p1.len(), 10);
         assert_eq!(p1[0].id, ids[14]);
         assert_eq!(p1[9].id, ids[5]);
 
-        let p2 = store.list_sessions_page(Some("/ws"), None, false, 20, page_size).unwrap();
+        let p2 = store
+            .list_sessions_page(Some("/ws"), None, false, 20, page_size)
+            .unwrap();
         assert_eq!(p2.len(), 5); // remainder
         assert_eq!(p2[0].id, ids[4]);
         assert_eq!(p2[4].id, ids[0]);
 
         // Offset past the end yields empty.
-        assert!(store.list_sessions_page(Some("/ws"), None, false, 100, page_size).unwrap().is_empty());
+        assert!(
+            store
+                .list_sessions_page(Some("/ws"), None, false, 100, page_size)
+                .unwrap()
+                .is_empty()
+        );
 
         // Unpaginated list still returns all rows.
         assert_eq!(store.list_sessions(Some("/ws"), None).unwrap().len(), 25);
@@ -1249,6 +1364,9 @@ mod tests {
         let info = system_info();
         assert!(!info.is_empty());
         let date: String = format_ts_display(unix_now()).chars().take(10).collect();
-        assert!(info.contains(&date), "info {info:?} should contain date {date}");
+        assert!(
+            info.contains(&date),
+            "info {info:?} should contain date {date}"
+        );
     }
 }

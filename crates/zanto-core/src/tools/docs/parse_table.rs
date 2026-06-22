@@ -37,7 +37,9 @@ pub fn parse_table(path: &Path) -> Result<TableData, String> {
         "csv" => parse_delimited(path, b','),
         "tsv" => parse_delimited(path, b'\t'),
         "xlsx" | "xls" | "xlsm" | "xlsb" | "ods" => parse_spreadsheet(path),
-        other => Err(format!("unsupported table file type: .{other} (use CSV/TSV/XLSX/ODS)")),
+        other => Err(format!(
+            "unsupported table file type: .{other} (use CSV/TSV/XLSX/ODS)"
+        )),
     }
 }
 
@@ -69,13 +71,19 @@ fn parse_delimited(path: &Path, delim: u8) -> Result<TableData, String> {
         }
     }
     let truncated = total_rows.saturating_sub(malformed) > MAX_ROWS;
-    Ok(TableData { headers, rows, total_rows, truncated, malformed })
+    Ok(TableData {
+        headers,
+        rows,
+        total_rows,
+        truncated,
+        malformed,
+    })
 }
 
 fn parse_spreadsheet(path: &Path) -> Result<TableData, String> {
     use calamine::Reader;
-    let mut wb =
-        calamine::open_workbook_auto(path).map_err(|e| format!("could not open spreadsheet: {e}"))?;
+    let mut wb = calamine::open_workbook_auto(path)
+        .map_err(|e| format!("could not open spreadsheet: {e}"))?;
     let range = wb
         .worksheets()
         .into_iter()
@@ -96,7 +104,13 @@ fn parse_spreadsheet(path: &Path) -> Result<TableData, String> {
         }
     }
     let truncated = total_rows > MAX_ROWS;
-    Ok(TableData { headers, rows, total_rows, truncated, malformed: 0 })
+    Ok(TableData {
+        headers,
+        rows,
+        total_rows,
+        truncated,
+        malformed: 0,
+    })
 }
 
 /// Render a spreadsheet cell to a trimmed string. Date-typed cells are emitted as
@@ -105,7 +119,9 @@ fn parse_spreadsheet(path: &Path) -> Result<TableData, String> {
 fn cell_to_string(c: &calamine::Data) -> String {
     use calamine::Data;
     match c {
-        Data::DateTime(dt) => excel_serial_to_ymd(dt.as_f64()).unwrap_or_else(|| dt.as_f64().to_string()),
+        Data::DateTime(dt) => {
+            excel_serial_to_ymd(dt.as_f64()).unwrap_or_else(|| dt.as_f64().to_string())
+        }
         // ISO datetime (ODS) — keep just the date part.
         Data::DateTimeIso(s) => s.split('T').next().unwrap_or(s).trim().to_string(),
         other => other.to_string().trim().to_string(),

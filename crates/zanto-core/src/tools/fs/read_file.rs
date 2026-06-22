@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-use rmcp::{ErrorData, schemars::JsonSchema};
-use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
-use serde::{Deserialize, Serialize};
 use crate::permissions::Op;
+use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
+use rmcp::{ErrorData, schemars::JsonSchema};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
@@ -32,7 +32,10 @@ impl ToolBase for ReadFile {
 
 impl AsyncTool<super::FsTools> for ReadFile {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        let resolved = svc.permissions.check(&args.path, Op::Read).await
+        let resolved = svc
+            .permissions
+            .check(&args.path, Op::Read)
+            .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         std::fs::read_to_string(&resolved)

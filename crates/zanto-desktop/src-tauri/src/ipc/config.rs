@@ -1,8 +1,8 @@
 //! Configuration IPC commands.
 
+use super::{ConfigDto, ConfigPatch, DesktopState, ProviderDto};
 use tauri::State;
 use zanto_core::config::{self, ContextSource, Provider, ProviderConfig, Settings};
-use super::{ConfigDto, ConfigPatch, DesktopState, ProviderDto};
 
 /// Default provider list when none are configured: registry-derived.
 fn default_providers() -> Vec<ProviderConfig> {
@@ -80,7 +80,12 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
         let mut new_providers: Vec<ProviderConfig> = Vec::new();
         for pp in provider_patches {
             let p = parse_provider(&pp.provider)?;
-            new_providers.push(ProviderConfig { provider: p, model: pp.model, endpoint: pp.endpoint, generation: pp.generation });
+            new_providers.push(ProviderConfig {
+                provider: p,
+                model: pp.model,
+                endpoint: pp.endpoint,
+                generation: pp.generation,
+            });
         }
         settings.providers = new_providers;
     }
@@ -130,7 +135,10 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
 #[tauri::command]
 pub async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    app.dialog().file().blocking_pick_folder().map(|p| p.to_string())
+    app.dialog()
+        .file()
+        .blocking_pick_folder()
+        .map(|p| p.to_string())
 }
 
 /// Grant a folder (and children) for this session and persist it to project config.
@@ -158,7 +166,10 @@ fn load_project_settings() -> Settings {
 pub fn add_context_source(state: State<'_, DesktopState>, path: String) -> Result<(), String> {
     let mut settings = load_project_settings();
     if !settings.context_sources.iter().any(|s| s.path == path) {
-        settings.context_sources.push(ContextSource { path: path.clone(), enabled: true });
+        settings.context_sources.push(ContextSource {
+            path: path.clone(),
+            enabled: true,
+        });
         settings.save().map_err(|e| e.to_string())?;
         // Inputs auto-grant read: keep the intent + security layers consistent.
         state.permissions.add_allowed(&path);

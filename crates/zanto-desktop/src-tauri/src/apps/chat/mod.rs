@@ -2,11 +2,11 @@
 //! exposes the flexible built-in capabilities (filesystem + shell) rather than one
 //! domain. This is what powers "normal" chats like "update my chrome".
 
-use std::sync::Arc;
+use crate::app::{App, AppManifest, StartAction};
 use serde_json::Value;
+use std::sync::Arc;
 use zanto_core::chat::{AppResult, GenaiTool};
 use zanto_core::data::DataStore;
-use crate::app::{App, AppManifest, StartAction};
 
 pub struct ChatApp {
     manifest: AppManifest,
@@ -22,8 +22,14 @@ impl ChatApp {
                 stores: Vec::new(),
                 components: Vec::new(),
                 start_actions: vec![
-                    StartAction { label: "What can you do?".into(), prompt: "What can you help me with?".into() },
-                    StartAction { label: "Summarize a file".into(), prompt: "Read a file I name and summarize it.".into() },
+                    StartAction {
+                        label: "What can you do?".into(),
+                        prompt: "What can you help me with?".into(),
+                    },
+                    StartAction {
+                        label: "Summarize a file".into(),
+                        prompt: "Read a file I name and summarize it.".into(),
+                    },
                 ],
             },
         })
@@ -47,7 +53,12 @@ impl App for ChatApp {
         Vec::new()
     }
 
-    fn dispatch_tool(&self, _data: &DataStore, _name: &str, _args: Value) -> Option<Result<AppResult, String>> {
+    fn dispatch_tool(
+        &self,
+        _data: &DataStore,
+        _name: &str,
+        _args: Value,
+    ) -> Option<Result<AppResult, String>> {
         None
     }
 

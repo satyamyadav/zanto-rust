@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-use rmcp::{ErrorData, schemars::JsonSchema};
-use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
-use serde::{Deserialize, Serialize};
 use crate::permissions::Op;
+use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
+use rmcp::{ErrorData, schemars::JsonSchema};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
@@ -32,7 +32,10 @@ impl ToolBase for ListDirectory {
 
 impl AsyncTool<super::FsTools> for ListDirectory {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        let resolved = svc.permissions.check(&args.path, Op::Read).await
+        let resolved = svc
+            .permissions
+            .check(&args.path, Op::Read)
+            .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         let entries = std::fs::read_dir(&resolved)
@@ -42,7 +45,11 @@ impl AsyncTool<super::FsTools> for ListDirectory {
             .filter_map(|e| e.ok())
             .map(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
-                if e.path().is_dir() { format!("{}/", name) } else { name }
+                if e.path().is_dir() {
+                    format!("{}/", name)
+                } else {
+                    name
+                }
             })
             .collect();
 

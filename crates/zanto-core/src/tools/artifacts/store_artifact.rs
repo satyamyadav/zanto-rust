@@ -1,8 +1,8 @@
-use std::borrow::Cow;
 use base64::Engine;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
 use rmcp::{ErrorData, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 use crate::artifacts::{ArtifactKind, Scope};
 
@@ -10,7 +10,9 @@ use crate::artifacts::{ArtifactKind, Scope};
 pub struct Args {
     #[schemars(description = "Artifact kind: markdown, image, json, or text")]
     pub kind: ArtifactKind,
-    #[schemars(description = "Human-readable title (image titles may carry an extension, e.g. chart.svg)")]
+    #[schemars(
+        description = "Human-readable title (image titles may carry an extension, e.g. chart.svg)"
+    )]
     pub title: String,
     #[schemars(
         description = "Content: UTF-8 text for markdown/json/text; base64-encoded bytes for image"
@@ -73,8 +75,7 @@ impl AsyncTool<super::ArtifactTools> for StoreArtifact {
             .save(args.kind, &args.title, &bytes, scope)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        serde_json::to_string(&art)
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))
+        serde_json::to_string(&art).map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }
 }
 
@@ -82,9 +83,7 @@ impl AsyncTool<super::ArtifactTools> for StoreArtifact {
 /// both padded and unpadded variants).
 fn decode_base64(s: &str) -> Result<Vec<u8>, base64::DecodeError> {
     use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
-    STANDARD
-        .decode(s)
-        .or_else(|_| STANDARD_NO_PAD.decode(s))
+    STANDARD.decode(s).or_else(|_| STANDARD_NO_PAD.decode(s))
 }
 
 #[cfg(test)]

@@ -4,15 +4,15 @@ pub mod catalogue;
 mod interaction;
 pub mod ipc;
 
+use crate::app::AppRegistry;
+use crate::interaction::TauriInteractor;
+use crate::ipc::DesktopState;
 use std::sync::Arc;
 use tauri::Manager;
 use zanto_core::config::Settings;
 use zanto_core::data::DataStore;
 use zanto_core::permissions::PermissionGuard;
 use zanto_core::session::{Session, Store};
-use crate::app::AppRegistry;
-use crate::interaction::TauriInteractor;
-use crate::ipc::DesktopState;
 
 // Fixed workspace for the first slice. Directory picker / multi-workspace is future.
 const WORKSPACE: &str = "default";
@@ -40,7 +40,10 @@ pub fn run() {
             // matches what get_config will report as active_provider.
             let (_, active_model, active_endpoint) = settings.active();
             let model = if active_model.is_empty() {
-                settings.model.clone().unwrap_or_else(|| "qwen2.5:14b".to_string())
+                settings
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "qwen2.5:14b".to_string())
             } else {
                 active_model
             };

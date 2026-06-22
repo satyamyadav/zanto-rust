@@ -2,7 +2,7 @@ pub mod list_stored_artifacts;
 pub mod read_stored_artifact;
 pub mod store_artifact;
 
-use std::sync::Arc;
+use crate::artifacts::ArtifactStore;
 use genai::chat::Tool as GenaiTool;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase, ToolRouter};
@@ -10,7 +10,7 @@ use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams};
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer};
-use crate::artifacts::ArtifactStore;
+use std::sync::Arc;
 
 /// Ungated artifact tools. Unlike fs/shell, these hold no `PermissionGuard`:
 /// they operate only within the store's managed roots (like `DataStore`).
@@ -38,7 +38,9 @@ impl ServerHandler for ArtifactTools {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        Self::tool_router().call(ToolCallContext::new(self, request, context)).await
+        Self::tool_router()
+            .call(ToolCallContext::new(self, request, context))
+            .await
     }
 
     async fn list_tools(
@@ -46,18 +48,26 @@ impl ServerHandler for ArtifactTools {
         _: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult { tools: Self::tool_router().list_all(), next_cursor: None, meta: None })
+        Ok(ListToolsResult {
+            tools: Self::tool_router().list_all(),
+            next_cursor: None,
+            meta: None,
+        })
     }
 }
 
 pub(super) fn schemas() -> Vec<GenaiTool> {
-    ArtifactTools::tool_router().list_all().into_iter().map(|t| {
-        let mut g = GenaiTool::new(t.name.as_ref());
-        if let Some(ref desc) = t.description {
-            g = g.with_description(desc.as_ref());
-        }
-        g.with_schema(t.schema_as_json_value())
-    }).collect()
+    ArtifactTools::tool_router()
+        .list_all()
+        .into_iter()
+        .map(|t| {
+            let mut g = GenaiTool::new(t.name.as_ref());
+            if let Some(ref desc) = t.description {
+                g = g.with_description(desc.as_ref());
+            }
+            g.with_schema(t.schema_as_json_value())
+        })
+        .collect()
 }
 
 pub(super) async fn dispatch(

@@ -2,14 +2,14 @@
 //! deterministic flows, agent tools, component decls) + a Svelte frontend slice.
 //! Aggregation is deterministic Rust (never the LLM).
 
+use crate::app::{App, AppManifest, ComponentDecl, StartAction};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use serde_json::{json, Value};
 use zanto_core::chat::{AppResult, GenaiTool, Target};
 use zanto_core::data::{DataStore, Filter, FilterOp, Query};
 use zanto_core::session::{format_ts_display, unix_now_pub};
-use crate::app::{App, AppManifest, ComponentDecl, StartAction};
 
 mod aggregate;
 mod import;
@@ -31,12 +31,27 @@ const DEFAULT_ACCOUNT: &str = "Cash";
 /// Every dashboard widget kind the UI can render. The save validator and
 /// `default_widgets()` both draw from this list so they can't drift (the default
 /// layout previously shipped kinds `do_save_widgets` rejected → save dropped them).
-const WIDGET_KINDS: &[&str] =
-    &["kpi", "chart", "table", "budget", "subscriptions", "accounts", "goals", "forecast"];
+const WIDGET_KINDS: &[&str] = &[
+    "kpi",
+    "chart",
+    "table",
+    "budget",
+    "subscriptions",
+    "accounts",
+    "goals",
+    "forecast",
+];
 
 /// Default expense categories seeded when a profile omits them.
-const DEFAULT_CATEGORIES: &[&str] =
-    &["groceries", "dining", "transport", "utilities", "rent", "entertainment", "other"];
+const DEFAULT_CATEGORIES: &[&str] = &[
+    "groceries",
+    "dining",
+    "transport",
+    "utilities",
+    "rent",
+    "entertainment",
+    "other",
+];
 
 pub struct FinanceApp {
     manifest: AppManifest,
@@ -102,7 +117,10 @@ impl FinanceApp {
                 },
             ],
         };
-        Arc::new(FinanceApp { manifest, migrated: AtomicBool::new(false) })
+        Arc::new(FinanceApp {
+            manifest,
+            migrated: AtomicBool::new(false),
+        })
     }
 
     fn ensure_store(&self, data: &DataStore) -> Result<(), String> {
@@ -125,11 +143,23 @@ impl FinanceApp {
         // is unambiguous regardless of how the model phrased the value.
         let kind = txn_kind_str(args.get("type"));
         let amount = coerce_amount(args.get("amount")).abs();
-        let merchant = args.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let merchant = args
+            .get("merchant")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         // Enforce categories: keep a requested category only if it's in the
         // profile; else try merchant rules; else "uncategorized" (review queue).
-        let category = self.resolve_category(data, &merchant, args.get("category").and_then(|v| v.as_str()));
-        let note = args.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let category = self.resolve_category(
+            data,
+            &merchant,
+            args.get("category").and_then(|v| v.as_str()),
+        );
+        let note = args
+            .get("note")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let date = args
             .get("date")
             .and_then(|v| v.as_str())
@@ -149,10 +179,15 @@ impl FinanceApp {
 
         // Import dedupe: an imported row carries a stable hash of date+amount+
         // merchant; if one already exists, skip (re-running an import is a no-op).
-        let import_h = (source == "import").then(|| import_hash(&date, amount, &merchant, &account));
+        let import_h =
+            (source == "import").then(|| import_hash(&date, amount, &merchant, &account));
         if let Some(h) = &import_h {
             let mut q = Query::default();
-            q.filters.push(Filter { field: "import_hash".into(), op: FilterOp::Eq, value: json!(h) });
+            q.filters.push(Filter {
+                field: "import_hash".into(),
+                op: FilterOp::Eq,
+                value: json!(h),
+            });
             if !data.query(STORE, &q).map_err(|e| e.to_string())?.is_empty() {
                 return Ok(json!({ "status": "duplicate_skipped", "import_hash": h }));
             }
@@ -190,7 +225,10 @@ impl FinanceApp {
                 obj.insert("type".into(), json!(txn_kind_str(args.get("type"))));
             }
             if args.get("amount").is_some() {
-                obj.insert("amount".into(), json!(coerce_amount(args.get("amount")).abs()));
+                obj.insert(
+                    "amount".into(),
+                    json!(coerce_amount(args.get("amount")).abs()),
+                );
             }
             for field in ["merchant", "category", "date", "note"] {
                 if let Some(s) = args.get(field).and_then(|v| v.as_str()) {
@@ -201,8 +239,15 @@ impl FinanceApp {
         // Re-resolve the category when merchant or category changed, so edits go
         // through the same enforcement as adds.
         if args.get("category").is_some() || args.get("merchant").is_some() {
-            let merchant = rec.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let requested = rec.get("category").and_then(|v| v.as_str()).map(str::to_string);
+            let merchant = rec
+                .get("merchant")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let requested = rec
+                .get("category")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             let resolved = self.resolve_category(data, &merchant, requested.as_deref());
             rec["category"] = json!(resolved);
         }
@@ -230,7 +275,13 @@ impl FinanceApp {
             .get_profile(data)
             .ok()
             .and_then(|p| p.get("categories").cloned())
-            .and_then(|c| c.as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()))
+            .and_then(|c| {
+                c.as_array().map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+            })
             .unwrap_or_default();
         if cats.is_empty() {
             DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect()
@@ -242,7 +293,9 @@ impl FinanceApp {
     /// All saved merchant→category rules, each carrying its `id`.
     fn get_category_rules(&self, data: &DataStore) -> Result<Vec<Value>, String> {
         data.create_store(RULES_STORE).map_err(|e| e.to_string())?;
-        let rows = data.query(RULES_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let rows = data
+            .query(RULES_STORE, &Query::default())
+            .map_err(|e| e.to_string())?;
         Ok(rows
             .into_iter()
             .map(|r| {
@@ -255,7 +308,12 @@ impl FinanceApp {
 
     /// Resolve a category: a requested one that's in the profile wins; else a
     /// matching merchant rule; else "uncategorized".
-    fn resolve_category(&self, data: &DataStore, merchant: &str, requested: Option<&str>) -> String {
+    fn resolve_category(
+        &self,
+        data: &DataStore,
+        merchant: &str,
+        requested: Option<&str>,
+    ) -> String {
         let cats = self.profile_categories(data);
         let rules = self.get_category_rules(data).unwrap_or_default();
         resolve_category_pure(merchant, requested, &cats, &rules)
@@ -269,12 +327,19 @@ impl FinanceApp {
             .unwrap_or("")
             .trim()
             .to_lowercase();
-        let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let category = args
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         if merchant_contains.is_empty() || category.is_empty() {
             return Err("a rule needs a non-empty merchant_contains and category".to_string());
         }
         let record = json!({ "merchant_contains": merchant_contains, "category": category });
-        let id = data.insert(RULES_STORE, &record).map_err(|e| e.to_string())?;
+        let id = data
+            .insert(RULES_STORE, &record)
+            .map_err(|e| e.to_string())?;
         Ok(json!({ "status": "saved", "id": id, "record": record }))
     }
 
@@ -291,10 +356,18 @@ impl FinanceApp {
         self.ensure_store(data)?;
         let mut q = Query::default();
         if let Some(cat) = args.get("category").and_then(|v| v.as_str()) {
-            q.filters.push(Filter { field: "category".into(), op: FilterOp::Eq, value: json!(cat) });
+            q.filters.push(Filter {
+                field: "category".into(),
+                op: FilterOp::Eq,
+                value: json!(cat),
+            });
         }
         if let Some(month) = args.get("month").and_then(|v| v.as_str()) {
-            q.filters.push(Filter { field: "date".into(), op: FilterOp::Contains, value: json!(month) });
+            q.filters.push(Filter {
+                field: "date".into(),
+                op: FilterOp::Contains,
+                value: json!(month),
+            });
         }
         // Include each row's `id` so the UI can edit/delete a specific transaction.
         let rows: Vec<Value> = data
@@ -318,7 +391,9 @@ impl FinanceApp {
             .map(|s| s.to_string())
             .unwrap_or_else(|| today()[..7].to_string()); // YYYY-MM
 
-        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let all = data
+            .query(STORE, &Query::default())
+            .map_err(|e| e.to_string())?;
         let mut income = 0.0_f64;
         let mut total = 0.0_f64; // expenses
         let mut by_cat: HashMap<String, f64> = HashMap::new();
@@ -336,9 +411,13 @@ impl FinanceApp {
                 TxnKind::Transfer => {} // neutral to a month's income/expense
             }
         }
-        let by_category: Vec<Value> =
-            by_cat.into_iter().map(|(c, t)| json!({ "category": c, "total": t })).collect();
-        Ok(json!({ "month": month, "income": income, "total": total, "net": income - total, "by_category": by_category }))
+        let by_category: Vec<Value> = by_cat
+            .into_iter()
+            .map(|(c, t)| json!({ "category": c, "total": t }))
+            .collect();
+        Ok(
+            json!({ "month": month, "income": income, "total": total, "net": income - total, "by_category": by_category }),
+        )
     }
 
     /// Dashboard overview: lifetime balance, this-month spend, top categories
@@ -346,7 +425,9 @@ impl FinanceApp {
     /// transactions exist. All aggregation is deterministic Rust.
     fn compute_overview(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let all = data
+            .query(STORE, &Query::default())
+            .map_err(|e| e.to_string())?;
         if all.is_empty() {
             return Ok(json!({ "empty": true }));
         }
@@ -357,7 +438,7 @@ impl FinanceApp {
         let mut month_total = 0.0_f64; // this month expense
         let mut uncategorized_count: u64 = 0; // lifetime uncategorized expenses (review queue)
         let mut by_cat: HashMap<String, f64> = HashMap::new(); // this month, expenses
-        // Per-month EXPENSE, keyed by YYYY-MM (the 6-month spend series).
+                                                               // Per-month EXPENSE, keyed by YYYY-MM (the 6-month spend series).
         let mut by_month: HashMap<String, f64> = HashMap::new();
 
         for r in &all {
@@ -384,9 +465,18 @@ impl FinanceApp {
 
         // Budget vs actual for this month (uses the per-category spend above).
         // `f` = fraction of the month elapsed, for the run-rate pace warning.
-        let day_of_month: f64 = today().get(8..10).and_then(|s| s.parse().ok()).unwrap_or(1.0);
-        let year: i64 = this_month.get(..4).and_then(|s| s.parse().ok()).unwrap_or(2000);
-        let month_n: u32 = this_month.get(5..7).and_then(|s| s.parse().ok()).unwrap_or(1);
+        let day_of_month: f64 = today()
+            .get(8..10)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1.0);
+        let year: i64 = this_month
+            .get(..4)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2000);
+        let month_n: u32 = this_month
+            .get(5..7)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
         let f = (day_of_month / days_in_month(year, month_n) as f64).clamp(0.0, 1.0);
         let (budget_status, over_budget, pace_warnings) =
             compute_budget_status(&self.budgets_vec(data), &by_cat, f);
@@ -408,13 +498,24 @@ impl FinanceApp {
 
         // Last 6 months (oldest → newest) ending at the current month.
         let months = last_n_months(&this_month, 6);
-        let series: Vec<f64> = months.iter().map(|m| *by_month.get(m).unwrap_or(&0.0)).collect();
+        let series: Vec<f64> = months
+            .iter()
+            .map(|m| *by_month.get(m).unwrap_or(&0.0))
+            .collect();
 
         // Month-over-month change in spend (this vs previous month).
         let n = series.len();
-        let mom_delta = if n >= 2 { series[n - 1] - series[n - 2] } else { 0.0 };
+        let mom_delta = if n >= 2 {
+            series[n - 1] - series[n - 2]
+        } else {
+            0.0
+        };
         let mom_prev = if n >= 2 { series[n - 2] } else { 0.0 };
-        let mom_pct = if mom_prev > 0.0 { mom_delta / mom_prev } else { 0.0 };
+        let mom_pct = if mom_prev > 0.0 {
+            mom_delta / mom_prev
+        } else {
+            0.0
+        };
 
         // Rest-of-month run-rate forecast (v0.5): projected end-of-month net worth,
         // using the 3 complete months before this one as the run-rate baseline.
@@ -458,7 +559,9 @@ impl FinanceApp {
     /// relying on the store's scan order, which is not contractually defined.
     fn get_profile(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_profile_store(data)?;
-        let rows = data.query(PROFILE_STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let rows = data
+            .query(PROFILE_STORE, &Query::default())
+            .map_err(|e| e.to_string())?;
         let latest = rows
             .into_iter()
             .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
@@ -509,7 +612,8 @@ impl FinanceApp {
             "saved_at": unix_now_pub(),
         });
 
-        data.insert(PROFILE_STORE, &profile).map_err(|e| e.to_string())?;
+        data.insert(PROFILE_STORE, &profile)
+            .map_err(|e| e.to_string())?;
         Ok(profile)
     }
 
@@ -566,11 +670,23 @@ impl FinanceApp {
         let headers: Vec<String> = args
             .get("headers")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let rows = args.get("rows").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let rows = args
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         let mapping = args.get("mapping").cloned().unwrap_or_else(|| json!({}));
-        let account = args.get("account").and_then(|v| v.as_str()).unwrap_or(DEFAULT_ACCOUNT).to_string();
+        let account = args
+            .get("account")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_ACCOUNT)
+            .to_string();
 
         // Resolve category-enforcement inputs ONCE (not per row) and collect the
         // existing import hashes in a single query — the per-row do_add_transaction
@@ -581,7 +697,12 @@ impl FinanceApp {
             .query(STORE, &Query::default())
             .map_err(|e| e.to_string())?
             .into_iter()
-            .filter_map(|r| r.data.get("import_hash").and_then(|v| v.as_str()).map(str::to_string))
+            .filter_map(|r| {
+                r.data
+                    .get("import_hash")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
             .collect();
 
         let mut to_insert: Vec<Value> = Vec::new();
@@ -590,7 +711,11 @@ impl FinanceApp {
         for (i, row_v) in rows.iter().enumerate() {
             let row: Vec<String> = row_v
                 .as_array()
-                .map(|a| a.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect())
+                .map(|a| {
+                    a.iter()
+                        .map(|x| x.as_str().unwrap_or("").to_string())
+                        .collect()
+                })
                 .unwrap_or_default();
             let targs = match import_row_to_args(&headers, &row, &mapping, &account) {
                 Some(t) => t,
@@ -602,9 +727,22 @@ impl FinanceApp {
             // Same record shape + category enforcement as do_add_transaction.
             let kind = txn_kind_str(targs.get("type"));
             let amount = coerce_amount(targs.get("amount")).abs();
-            let merchant = targs.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let category = resolve_category_pure(&merchant, targs.get("category").and_then(|v| v.as_str()), &cats, &rules);
-            let date = targs.get("date").and_then(|v| v.as_str()).map(str::to_string).unwrap_or_else(today);
+            let merchant = targs
+                .get("merchant")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let category = resolve_category_pure(
+                &merchant,
+                targs.get("category").and_then(|v| v.as_str()),
+                &cats,
+                &rules,
+            );
+            let date = targs
+                .get("date")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(today);
             let hash = import_hash(&date, amount, &merchant, &account);
             // Dedupe against existing rows AND earlier rows in this same batch.
             if !seen.insert(hash.clone()) {
@@ -622,7 +760,9 @@ impl FinanceApp {
         let inserted = if to_insert.is_empty() {
             0
         } else {
-            data.insert_batch(STORE, &to_insert).map_err(|e| e.to_string())?.len() as u64
+            data.insert_batch(STORE, &to_insert)
+                .map_err(|e| e.to_string())?
+                .len() as u64
         };
 
         let mut result = json!({ "inserted": inserted, "skipped": skipped, "errors": errors });
@@ -640,14 +780,18 @@ impl FinanceApp {
     /// Recurring/subscription detection over all transactions.
     fn compute_recurring(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let all = data
+            .query(STORE, &Query::default())
+            .map_err(|e| e.to_string())?;
         Ok(json!({ "items": detect_recurring(&all, &today()[..7]) }))
     }
 
     /// Rest-of-this-month cash-flow forecast (run-rate + 3-month averages).
     fn compute_forecast(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let all = data
+            .query(STORE, &Query::default())
+            .map_err(|e| e.to_string())?;
         let (_, net_worth) = compute_account_balances(&self.accounts_vec(data), &all);
         let this_month = today()[..7].to_string();
         let months = last_n_months(&this_month, 4);
@@ -658,7 +802,9 @@ impl FinanceApp {
     /// Per-category 6-month expense trends + overall month-over-month change.
     fn compute_trends(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data.query(STORE, &Query::default()).map_err(|e| e.to_string())?;
+        let all = data
+            .query(STORE, &Query::default())
+            .map_err(|e| e.to_string())?;
         let months = last_n_months(&today()[..7], 6);
         let mut trends = compute_trends_data(&all, &months);
 
@@ -671,7 +817,11 @@ impl FinanceApp {
             }
         }
         let this = *by_month.get(&months[months.len() - 1]).unwrap_or(&0.0);
-        let last = if months.len() >= 2 { *by_month.get(&months[months.len() - 2]).unwrap_or(&0.0) } else { 0.0 };
+        let last = if months.len() >= 2 {
+            *by_month.get(&months[months.len() - 2]).unwrap_or(&0.0)
+        } else {
+            0.0
+        };
         let mom_delta = this - last;
         let mom_pct = if last > 0.0 { mom_delta / last } else { 0.0 };
         if let Value::Object(o) = &mut trends {
@@ -703,12 +853,17 @@ impl FinanceApp {
     /// Persist per-category budgets. Keeps only entries with a non-empty
     /// `category` and a positive `limit` (coerced from number/string).
     fn do_save_budgets(&self, data: &DataStore, args: Value) -> Result<Value, String> {
-        data.create_store(BUDGETS_STORE).map_err(|e| e.to_string())?;
+        data.create_store(BUDGETS_STORE)
+            .map_err(|e| e.to_string())?;
         let budgets: Vec<Value> = match args.get("budgets").and_then(|v| v.as_array()) {
             Some(arr) => arr
                 .iter()
                 .filter_map(|b| {
-                    let category = b.get("category").and_then(|v| v.as_str())?.trim().to_string();
+                    let category = b
+                        .get("category")
+                        .and_then(|v| v.as_str())?
+                        .trim()
+                        .to_string();
                     let limit = coerce_amount(b.get("limit")).abs();
                     if category.is_empty() || limit <= 0.0 {
                         return None;
@@ -726,7 +881,9 @@ impl FinanceApp {
     /// The user's accounts (latest-wins), defaulting to a single seeded "Cash".
     fn get_accounts(&self, data: &DataStore) -> Result<Value, String> {
         match latest_singleton(data, ACCOUNTS_STORE, "accounts") {
-            Some(a) if a.as_array().map(|x| !x.is_empty()).unwrap_or(false) => Ok(json!({ "accounts": a })),
+            Some(a) if a.as_array().map(|x| !x.is_empty()).unwrap_or(false) => {
+                Ok(json!({ "accounts": a }))
+            }
             _ => Ok(json!({ "accounts": default_accounts() })),
         }
     }
@@ -741,7 +898,8 @@ impl FinanceApp {
     /// Persist the account list. Keeps entries with a non-empty name; type
     /// defaults to "cash", opening_balance coerced to a number (default 0).
     fn do_save_accounts(&self, data: &DataStore, args: Value) -> Result<Value, String> {
-        data.create_store(ACCOUNTS_STORE).map_err(|e| e.to_string())?;
+        data.create_store(ACCOUNTS_STORE)
+            .map_err(|e| e.to_string())?;
         let accounts: Vec<Value> = match args.get("accounts").and_then(|v| v.as_array()) {
             Some(arr) => arr
                 .iter()
@@ -750,7 +908,11 @@ impl FinanceApp {
                     if name.is_empty() {
                         return None;
                     }
-                    let typ = a.get("type").and_then(|v| v.as_str()).unwrap_or("cash").to_string();
+                    let typ = a
+                        .get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("cash")
+                        .to_string();
                     let opening = coerce_amount(a.get("opening_balance"));
                     Some(json!({ "name": name, "type": typ, "opening_balance": opening }))
                 })
@@ -765,13 +927,31 @@ impl FinanceApp {
     fn do_add_transfer(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_store(data)?;
         let amount = coerce_amount(args.get("amount")).abs();
-        let from = args.get("from_account").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_ACCOUNT).to_string();
-        let to = args.get("to_account").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let from = args
+            .get("from_account")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(DEFAULT_ACCOUNT)
+            .to_string();
+        let to = args
+            .get("to_account")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         if to.is_empty() || from == to {
             return Err("a transfer needs distinct from/to accounts".to_string());
         }
-        let date = args.get("date").and_then(|v| v.as_str()).map(String::from).unwrap_or_else(today);
-        let note = args.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let date = args
+            .get("date")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(today);
+        let note = args
+            .get("note")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let record = json!({
             "type": "transfer", "amount": amount, "account": from, "to_account": to,
             "category": "transfer", "date": date, "note": note, "source": "manual",
@@ -941,22 +1121,41 @@ impl App for FinanceApp {
         ]
     }
 
-    fn dispatch_tool(&self, data: &DataStore, name: &str, args: Value) -> Option<Result<AppResult, String>> {
+    fn dispatch_tool(
+        &self,
+        data: &DataStore,
+        name: &str,
+        args: Value,
+    ) -> Option<Result<AppResult, String>> {
         let target = target_of(&args);
         match name {
             "add_transaction" => Some(self.do_add_transaction(data, args).map(AppResult::Data)),
-            "query_transactions" => Some(self.compute_transactions(data, args).map(|d| AppResult::Block {
-                component_id: "transactions_table".to_string(),
-                data: d,
-                target,
-            })),
-            "monthly_summary" => Some(self.compute_monthly_summary(data, args).map(|d| AppResult::Block {
-                component_id: "monthly_summary".to_string(),
-                data: d,
-                target,
-            })),
-            "update_transaction" => Some(self.do_update_transaction(data, args).map(AppResult::Data)),
-            "delete_transaction" => Some(self.do_delete_transaction(data, args).map(AppResult::Data)),
+            "query_transactions" => {
+                Some(
+                    self.compute_transactions(data, args)
+                        .map(|d| AppResult::Block {
+                            component_id: "transactions_table".to_string(),
+                            data: d,
+                            target,
+                        }),
+                )
+            }
+            "monthly_summary" => {
+                Some(
+                    self.compute_monthly_summary(data, args)
+                        .map(|d| AppResult::Block {
+                            component_id: "monthly_summary".to_string(),
+                            data: d,
+                            target,
+                        }),
+                )
+            }
+            "update_transaction" => {
+                Some(self.do_update_transaction(data, args).map(AppResult::Data))
+            }
+            "delete_transaction" => {
+                Some(self.do_delete_transaction(data, args).map(AppResult::Data))
+            }
             "add_transfer" => Some(self.do_add_transfer(data, args).map(AppResult::Data)),
             _ => None,
         }
@@ -975,7 +1174,9 @@ impl App for FinanceApp {
             "forecast" => self.compute_forecast(data),
             "accounts" => self.get_accounts(data),
             "goals" => self.get_goals(data),
-            "category_rules" => self.get_category_rules(data).map(|rules| json!({ "rules": rules })),
+            "category_rules" => self
+                .get_category_rules(data)
+                .map(|rules| json!({ "rules": rules })),
             other => Err(format!("unknown query: {other}")),
         }
     }
@@ -1032,7 +1233,10 @@ fn resolve_category_pure(
     }
     let ml = merchant.to_lowercase();
     for rule in rules {
-        let sub = rule.get("merchant_contains").and_then(|v| v.as_str()).unwrap_or("");
+        let sub = rule
+            .get("merchant_contains")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let cat = rule.get("category").and_then(|v| v.as_str()).unwrap_or("");
         if !sub.is_empty() && !cat.is_empty() && ml.contains(&sub.to_lowercase()) {
             return cat.to_string();
@@ -1059,7 +1263,9 @@ fn latest_singleton(data: &DataStore, store: &str, key: &str) -> Option<Value> {
 fn save_singleton(data: &DataStore, store: &str, key: &str, value: Value) -> Result<Value, String> {
     data.create_store(store).map_err(|e| e.to_string())?;
     let record = json!({ key: value, "saved_at": unix_now_pub() });
-    let rows = data.query(store, &Query::default()).map_err(|e| e.to_string())?;
+    let rows = data
+        .query(store, &Query::default())
+        .map_err(|e| e.to_string())?;
     let latest = rows
         .iter()
         .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0))
@@ -1091,9 +1297,21 @@ mod tests {
         // Acceptance #1 + #5: income − expense, and a legacy row (no `type`)
         // counts as an expense.
         let recs = vec![
-            Record { id: 1, data: json!({ "type": "income", "amount": 2000 }), created_at: 0 },
-            Record { id: 2, data: json!({ "type": "expense", "amount": 12.50 }), created_at: 0 },
-            Record { id: 3, data: json!({ "amount": 8 }), created_at: 0 }, // legacy → expense
+            Record {
+                id: 1,
+                data: json!({ "type": "income", "amount": 2000 }),
+                created_at: 0,
+            },
+            Record {
+                id: 2,
+                data: json!({ "type": "expense", "amount": 12.50 }),
+                created_at: 0,
+            },
+            Record {
+                id: 3,
+                data: json!({ "amount": 8 }),
+                created_at: 0,
+            }, // legacy → expense
         ];
         assert_eq!(lifetime_balance(&recs), 2000.0 - 12.5 - 8.0);
     }
@@ -1113,20 +1331,41 @@ mod tests {
         let cats = vec!["dining".to_string(), "transport".to_string()];
         let rules = vec![json!({ "merchant_contains": "starbucks", "category": "dining" })];
         // requested category in the profile (case-insensitive) → profile casing
-        assert_eq!(resolve_category_pure("x", Some("Dining"), &cats, &rules), "dining");
+        assert_eq!(
+            resolve_category_pure("x", Some("Dining"), &cats, &rules),
+            "dining"
+        );
         // merchant matches a rule
-        assert_eq!(resolve_category_pure("STARBUCKS #5", None, &cats, &rules), "dining");
+        assert_eq!(
+            resolve_category_pure("STARBUCKS #5", None, &cats, &rules),
+            "dining"
+        );
         // requested not in profile + no rule → uncategorized
-        assert_eq!(resolve_category_pure("Acme", Some("foobar"), &cats, &rules), "uncategorized");
+        assert_eq!(
+            resolve_category_pure("Acme", Some("foobar"), &cats, &rules),
+            "uncategorized"
+        );
     }
 
     #[test]
     fn trends_builds_per_category_expense_series() {
         let months = vec!["2026-05".to_string(), "2026-06".to_string()];
         let recs = vec![
-            Record { id: 1, data: json!({ "type": "expense", "category": "dining", "amount": 10, "date": "2026-05-10" }), created_at: 0 },
-            Record { id: 2, data: json!({ "type": "expense", "category": "dining", "amount": 20, "date": "2026-06-10" }), created_at: 0 },
-            Record { id: 3, data: json!({ "type": "income", "category": "salary", "amount": 1000, "date": "2026-06-01" }), created_at: 0 },
+            Record {
+                id: 1,
+                data: json!({ "type": "expense", "category": "dining", "amount": 10, "date": "2026-05-10" }),
+                created_at: 0,
+            },
+            Record {
+                id: 2,
+                data: json!({ "type": "expense", "category": "dining", "amount": 20, "date": "2026-06-10" }),
+                created_at: 0,
+            },
+            Record {
+                id: 3,
+                data: json!({ "type": "income", "category": "salary", "amount": 1000, "date": "2026-06-01" }),
+                created_at: 0,
+            },
         ];
         let t = compute_trends_data(&recs, &months);
         let cats = t["categories"].as_array().unwrap();
@@ -1138,10 +1377,26 @@ mod tests {
     #[test]
     fn detect_recurring_finds_monthly_charge() {
         let recs = vec![
-            Record { id: 1, data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-04-03" }), created_at: 0 },
-            Record { id: 2, data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-05-03" }), created_at: 0 },
-            Record { id: 3, data: json!({ "type": "expense", "merchant": "netflix", "amount": 9.99, "date": "2026-06-03" }), created_at: 0 },
-            Record { id: 4, data: json!({ "type": "expense", "merchant": "Coffee", "amount": 3.50, "date": "2026-06-01" }), created_at: 0 },
+            Record {
+                id: 1,
+                data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-04-03" }),
+                created_at: 0,
+            },
+            Record {
+                id: 2,
+                data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-05-03" }),
+                created_at: 0,
+            },
+            Record {
+                id: 3,
+                data: json!({ "type": "expense", "merchant": "netflix", "amount": 9.99, "date": "2026-06-03" }),
+                created_at: 0,
+            },
+            Record {
+                id: 4,
+                data: json!({ "type": "expense", "merchant": "Coffee", "amount": 3.50, "date": "2026-06-01" }),
+                created_at: 0,
+            },
         ];
         let items = detect_recurring(&recs, "2026-06");
         assert_eq!(items.len(), 1);
@@ -1157,7 +1412,10 @@ mod tests {
         let defaults = default_widgets();
         for w in defaults.as_array().unwrap() {
             let kind = w.get("kind").and_then(|v| v.as_str()).unwrap();
-            assert!(WIDGET_KINDS.contains(&kind), "default widget kind '{kind}' is not saveable");
+            assert!(
+                WIDGET_KINDS.contains(&kind),
+                "default widget kind '{kind}' is not saveable"
+            );
         }
     }
 
@@ -1165,16 +1423,36 @@ mod tests {
     fn forecast_projects_from_run_rate() {
         // 3 complete months at £1000 expense; £300 spent so far this month.
         let recs = vec![
-            Record { id: 1, data: json!({ "type": "expense", "amount": 1000, "date": "2026-03-15" }), created_at: 0 },
-            Record { id: 2, data: json!({ "type": "expense", "amount": 1000, "date": "2026-04-15" }), created_at: 0 },
-            Record { id: 3, data: json!({ "type": "expense", "amount": 1000, "date": "2026-05-15" }), created_at: 0 },
-            Record { id: 4, data: json!({ "type": "expense", "amount": 300, "date": "2026-06-10" }), created_at: 0 },
+            Record {
+                id: 1,
+                data: json!({ "type": "expense", "amount": 1000, "date": "2026-03-15" }),
+                created_at: 0,
+            },
+            Record {
+                id: 2,
+                data: json!({ "type": "expense", "amount": 1000, "date": "2026-04-15" }),
+                created_at: 0,
+            },
+            Record {
+                id: 3,
+                data: json!({ "type": "expense", "amount": 1000, "date": "2026-05-15" }),
+                created_at: 0,
+            },
+            Record {
+                id: 4,
+                data: json!({ "type": "expense", "amount": 300, "date": "2026-06-10" }),
+                created_at: 0,
+            },
         ];
-        let prev = vec!["2026-03".to_string(), "2026-04".to_string(), "2026-05".to_string()];
+        let prev = vec![
+            "2026-03".to_string(),
+            "2026-04".to_string(),
+            "2026-05".to_string(),
+        ];
         let f = compute_forecast_data(&recs, 5000.0, "2026-06", &prev);
         assert_eq!(f["avg_monthly_expense"], json!(1000.0));
         assert_eq!(f["expected_expense"], json!(1000.0)); // max(300, 1000)
-        // 5000 + (0−0) − (1000−300) = 4300
+                                                          // 5000 + (0−0) − (1000−300) = 4300
         assert_eq!(f["projected_net_worth"], json!(4300.0));
     }
 
@@ -1206,12 +1484,28 @@ mod tests {
             json!({ "name": "Card", "type": "card", "opening_balance": 0 }),
         ];
         let recs = vec![
-            Record { id: 1, data: json!({ "type": "expense", "amount": 50, "account": "Card" }), created_at: 0 },
-            Record { id: 2, data: json!({ "type": "transfer", "amount": 200, "account": "Checking", "to_account": "Card" }), created_at: 0 },
-            Record { id: 3, data: json!({ "type": "income", "amount": 500, "account": "Checking" }), created_at: 0 },
+            Record {
+                id: 1,
+                data: json!({ "type": "expense", "amount": 50, "account": "Card" }),
+                created_at: 0,
+            },
+            Record {
+                id: 2,
+                data: json!({ "type": "transfer", "amount": 200, "account": "Checking", "to_account": "Card" }),
+                created_at: 0,
+            },
+            Record {
+                id: 3,
+                data: json!({ "type": "income", "amount": 500, "account": "Checking" }),
+                created_at: 0,
+            },
         ];
         let (accts, net) = compute_account_balances(&accounts, &recs);
-        let bal = |name: &str| accts.iter().find(|a| a["name"] == name).unwrap()["balance"].as_f64().unwrap();
+        let bal = |name: &str| {
+            accts.iter().find(|a| a["name"] == name).unwrap()["balance"]
+                .as_f64()
+                .unwrap()
+        };
         assert_eq!(bal("Checking"), 1300.0); // 1000 + 500 income − 200 transfer out
         assert_eq!(bal("Card"), 150.0); // 0 − 50 expense + 200 transfer in
         assert_eq!(net, 1450.0); // transfer nets to zero across accounts
@@ -1250,10 +1544,19 @@ mod tests {
     fn orphaned_account_money_is_not_lost() {
         // A transaction on an account that is NOT declared (renamed/deleted) must
         // still count toward net worth as an "unlinked" bucket.
-        let accounts = vec![json!({ "name": "Checking", "type": "checking", "opening_balance": 100 })];
+        let accounts =
+            vec![json!({ "name": "Checking", "type": "checking", "opening_balance": 100 })];
         let recs = vec![
-            Record { id: 1, data: json!({ "type": "expense", "amount": 30, "account": "Checking" }), created_at: 0 },
-            Record { id: 2, data: json!({ "type": "income", "amount": 50, "account": "OldCard" }), created_at: 0 },
+            Record {
+                id: 1,
+                data: json!({ "type": "expense", "amount": 30, "account": "Checking" }),
+                created_at: 0,
+            },
+            Record {
+                id: 2,
+                data: json!({ "type": "income", "amount": 50, "account": "OldCard" }),
+                created_at: 0,
+            },
         ];
         let (accts, net) = compute_account_balances(&accounts, &recs);
         let unlinked = accts.iter().find(|a| a["name"] == "OldCard").unwrap();
@@ -1261,5 +1564,4 @@ mod tests {
         assert_eq!(unlinked["balance"], json!(50.0));
         assert_eq!(net, 120.0); // 100 - 30 (Checking) + 50 (OldCard)
     }
-
 }

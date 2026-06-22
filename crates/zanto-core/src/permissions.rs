@@ -1,8 +1,8 @@
+use crate::config::Settings;
+use async_trait::async_trait;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
-use crate::config::Settings;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApprovalResponse {
@@ -107,7 +107,11 @@ impl PermissionGuard {
     }
 
     fn is_allowed(&self, path: &Path) -> bool {
-        self.allowed.lock().unwrap().iter().any(|a| path.starts_with(a))
+        self.allowed
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|a| path.starts_with(a))
     }
 
     /// Grant a folder (and its children) for the rest of this process. The caller
@@ -117,12 +121,45 @@ impl PermissionGuard {
     }
 }
 
+/// Expands a leading `~` to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if path == "~" || path.starts_with("~/") || path.starts_with("~\\") {
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        format!("{}{}", home, &path[1..])
+    } else {
+        path.to_string()
+    }
+}
+
+/// Resolves a path to canonical absolute form. For paths that don't exist yet
+/// (e.g. a file about to be written), canonicalizes the parent and appends the filename.
+fn resolve(path: &str) -> PathBuf {
+    let expanded = expand_tilde(path);
+    let p = PathBuf::from(&expanded);
+    if let Ok(c) = std::fs::canonicalize(&p) {
+        return c;
+    }
+    if let (Some(parent), Some(name)) = (p.parent(), p.file_name()) {
+        let base = if parent == Path::new("") {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        } else if let Ok(c) = std::fs::canonicalize(parent) {
+            c
+        } else {
+            parent.to_path_buf()
+        };
+        return base.join(name);
+    }
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::Settings;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct PanicApprover;
     #[async_trait::async_trait]
@@ -221,37 +258,4 @@ mod tests {
         guard.check("/some/path", Op::Read).await.unwrap();
         assert_eq!(count.load(Ordering::SeqCst), 1);
     }
-}
-
-/// Expands a leading `~` to the user's home directory.
-fn expand_tilde(path: &str) -> String {
-    if path == "~" || path.starts_with("~/") || path.starts_with("~\\") {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .unwrap_or_else(|_| ".".to_string());
-        format!("{}{}", home, &path[1..])
-    } else {
-        path.to_string()
-    }
-}
-
-/// Resolves a path to canonical absolute form. For paths that don't exist yet
-/// (e.g. a file about to be written), canonicalizes the parent and appends the filename.
-fn resolve(path: &str) -> PathBuf {
-    let expanded = expand_tilde(path);
-    let p = PathBuf::from(&expanded);
-    if let Ok(c) = std::fs::canonicalize(&p) {
-        return c;
-    }
-    if let (Some(parent), Some(name)) = (p.parent(), p.file_name()) {
-        let base = if parent == Path::new("") {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        } else if let Ok(c) = std::fs::canonicalize(parent) {
-            c
-        } else {
-            parent.to_path_buf()
-        };
-        return base.join(name);
-    }
-    p
 }

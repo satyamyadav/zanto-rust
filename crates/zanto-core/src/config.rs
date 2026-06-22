@@ -311,7 +311,10 @@ impl<'de> Deserialize<'de> for ContextSource {
             },
         }
         Ok(match Shape::deserialize(deserializer)? {
-            Shape::Bare(path) => ContextSource { path, enabled: true },
+            Shape::Bare(path) => ContextSource {
+                path,
+                enabled: true,
+            },
             Shape::Full { path, enabled } => ContextSource { path, enabled },
         })
     }
@@ -399,7 +402,11 @@ pub struct Settings {
     #[serde(default, deserialize_with = "de_providers")]
     pub providers: Vec<ProviderConfig>,
     /// The selected provider; when set, its `ProviderConfig` is the effective active one.
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "de_active_provider")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "de_active_provider"
+    )]
     pub active_provider: Option<Provider>,
     /// Root directory of the active project (canonicalized on load).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -445,7 +452,7 @@ impl Settings {
             std::fs::create_dir_all(parent)?;
         }
         let content = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         std::fs::write(path, content)
     }
 
@@ -455,14 +462,18 @@ impl Settings {
     /// back to the legacy `model`/`endpoint` fields (inferring the provider from
     /// the model prefix, defaulting to Ollama).
     pub fn active(&self) -> (Provider, String, Option<String>) {
-        if let Some(active) = self.active_provider {
-            if let Some(pc) = self.providers.iter().find(|p| p.provider == active) {
-                return (pc.provider, pc.model.clone(), pc.endpoint.clone());
-            }
+        if let Some(active) = self.active_provider
+            && let Some(pc) = self.providers.iter().find(|p| p.provider == active)
+        {
+            return (pc.provider, pc.model.clone(), pc.endpoint.clone());
         }
         match &self.model {
             Some(model) => (provider_of(model), model.clone(), self.endpoint.clone()),
-            None => (Provider(AdapterKind::Ollama), String::new(), self.endpoint.clone()),
+            None => (
+                Provider(AdapterKind::Ollama),
+                String::new(),
+                self.endpoint.clone(),
+            ),
         }
     }
 
@@ -587,12 +598,11 @@ fn key_entry(p: Provider) -> Result<keyring::Entry, String> {
 /// Read the API key for a provider: keychain first, then env-var fallback.
 /// Returns `None` for providers that need no key (Ollama) when none is set.
 pub fn api_key(p: Provider) -> Option<String> {
-    if let Ok(entry) = key_entry(p) {
-        if let Ok(key) = entry.get_password() {
-            if !key.is_empty() {
-                return Some(key);
-            }
-        }
+    if let Ok(entry) = key_entry(p)
+        && let Ok(key) = entry.get_password()
+        && !key.is_empty()
+    {
+        return Some(key);
     }
     p.env_var()
         .and_then(|var| std::env::var(var).ok())
@@ -679,12 +689,27 @@ mod tests {
     fn registry_has_curated_set_in_order() {
         let reg = provider_registry();
         let ids: Vec<&str> = reg.iter().map(|p| p.id.as_str()).collect();
-        assert_eq!(ids, vec![
-            "anthropic","openai","gemini","groq","xai","deepseek","together","fireworks","cohere","ollama"
-        ]);
+        assert_eq!(
+            ids,
+            vec![
+                "anthropic",
+                "openai",
+                "gemini",
+                "groq",
+                "xai",
+                "deepseek",
+                "together",
+                "fireworks",
+                "cohere",
+                "ollama"
+            ]
+        );
         let ollama = reg.iter().find(|p| p.id == "ollama").unwrap();
         assert!(!ollama.needs_key);
-        assert_eq!(ollama.default_endpoint.as_deref(), Some("http://localhost:11434/"));
+        assert_eq!(
+            ollama.default_endpoint.as_deref(),
+            Some("http://localhost:11434/")
+        );
         let anthropic = reg.iter().find(|p| p.id == "anthropic").unwrap();
         assert!(anthropic.needs_key);
         assert!(anthropic.default_endpoint.is_none());
@@ -751,8 +776,14 @@ mod tests {
         assert_eq!(
             s.context_sources,
             vec![
-                ContextSource { path: "/a".to_string(), enabled: true },
-                ContextSource { path: "/b".to_string(), enabled: true },
+                ContextSource {
+                    path: "/a".to_string(),
+                    enabled: true
+                },
+                ContextSource {
+                    path: "/b".to_string(),
+                    enabled: true
+                },
             ]
         );
 
@@ -765,8 +796,14 @@ mod tests {
         assert_eq!(
             s.context_sources,
             vec![
-                ContextSource { path: "/a".to_string(), enabled: true },
-                ContextSource { path: "/b".to_string(), enabled: false },
+                ContextSource {
+                    path: "/a".to_string(),
+                    enabled: true
+                },
+                ContextSource {
+                    path: "/b".to_string(),
+                    enabled: false
+                },
             ]
         );
     }
@@ -816,8 +853,14 @@ mod tests {
 
     #[test]
     fn provider_of_prefix_map() {
-        assert_eq!(provider_of("gemini-2.0-flash"), Provider(AdapterKind::Gemini));
-        assert_eq!(provider_of("claude-opus-4"), Provider(AdapterKind::Anthropic));
+        assert_eq!(
+            provider_of("gemini-2.0-flash"),
+            Provider(AdapterKind::Gemini)
+        );
+        assert_eq!(
+            provider_of("claude-opus-4"),
+            Provider(AdapterKind::Anthropic)
+        );
         assert_eq!(provider_of("gpt-4o"), Provider(AdapterKind::OpenAI));
         assert_eq!(provider_of("o1-mini"), Provider(AdapterKind::OpenAI));
         assert_eq!(provider_of("llama3"), Provider(AdapterKind::Ollama));
@@ -840,7 +883,10 @@ mod tests {
         let prev = std::env::var(var).ok();
         unsafe { std::env::set_var(var, "sk-test-123") };
 
-        assert_eq!(api_key(Provider(AdapterKind::OpenAI)).as_deref(), Some("sk-test-123"));
+        assert_eq!(
+            api_key(Provider(AdapterKind::OpenAI)).as_deref(),
+            Some("sk-test-123")
+        );
         assert!(has_api_key(Provider(AdapterKind::OpenAI)));
 
         match prev {
@@ -882,7 +928,10 @@ mod tests {
             provider: Provider(AdapterKind::OpenAI),
             model: "gpt-4o".into(),
             endpoint: None,
-            generation: GenerationParams { temperature: Some(0.1), ..Default::default() },
+            generation: GenerationParams {
+                temperature: Some(0.1),
+                ..Default::default()
+            },
         }];
         s.active_provider = Some(Provider(AdapterKind::OpenAI));
         let eff = s.effective_generation();
@@ -893,13 +942,22 @@ mod tests {
     #[test]
     fn apply_maps_reasoning_max_budget_jsonmode_toolchoice() {
         use genai::chat::{ChatOptions, ReasoningEffort, ToolChoice};
-        let max = GenerationParams { reasoning_effort: Some("max".into()), ..Default::default() }
-            .apply(ChatOptions::default());
+        let max = GenerationParams {
+            reasoning_effort: Some("max".into()),
+            ..Default::default()
+        }
+        .apply(ChatOptions::default());
         assert!(matches!(max.reasoning_effort, Some(ReasoningEffort::Max)));
 
-        let budget = GenerationParams { reasoning_effort: Some("2048".into()), ..Default::default() }
-            .apply(ChatOptions::default());
-        assert!(matches!(budget.reasoning_effort, Some(ReasoningEffort::Budget(2048))));
+        let budget = GenerationParams {
+            reasoning_effort: Some("2048".into()),
+            ..Default::default()
+        }
+        .apply(ChatOptions::default());
+        assert!(matches!(
+            budget.reasoning_effort,
+            Some(ReasoningEffort::Budget(2048))
+        ));
 
         let opts = GenerationParams {
             json_mode: Some(true),
@@ -919,7 +977,7 @@ mod tests {
         project.generation.max_tokens = Some(500);
         let merged = user.merge(project);
         assert_eq!(merged.generation.temperature, Some(0.2)); // preserved from user
-        assert_eq!(merged.generation.max_tokens, Some(500));  // overridden by project
+        assert_eq!(merged.generation.max_tokens, Some(500)); // overridden by project
     }
 
     #[test]
@@ -927,8 +985,10 @@ mod tests {
         // R-4: selected_skill must survive a JSON save → load cycle.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        let mut s = Settings::default();
-        s.selected_skill = Some("reviewer".to_string());
+        let s = Settings {
+            selected_skill: Some("reviewer".to_string()),
+            ..Default::default()
+        };
         let content = serde_json::to_string_pretty(&s).unwrap();
         std::fs::write(&path, content).unwrap();
         let loaded = Settings::load_file(path).expect("load");

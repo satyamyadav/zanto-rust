@@ -1,10 +1,10 @@
-use std::borrow::Cow;
-use std::path::Path;
+use crate::permissions::Op;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
 use rmcp::{ErrorData, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::permissions::Op;
+use std::borrow::Cow;
+use std::path::Path;
 
 /// Default cap on extracted characters before truncation.
 const DEFAULT_MAX_CHARS: usize = 32_000;
@@ -98,11 +98,12 @@ impl AsyncTool<super::DocTools> for ReadDocument {
         // async runtime free by running it (and the truncation walk over the full
         // extracted string) on the blocking pool.
         let path = resolved.clone();
-        let text = tokio::task::spawn_blocking(move || {
-            truncate_chars(&extract(kind, &path), max_chars)
-        })
-        .await
-        .map_err(|e| ErrorData::internal_error(format!("extraction task failed: {e}"), None))?;
+        let text =
+            tokio::task::spawn_blocking(move || truncate_chars(&extract(kind, &path), max_chars))
+                .await
+                .map_err(|e| {
+                    ErrorData::internal_error(format!("extraction task failed: {e}"), None)
+                })?;
 
         let out = json!({
             "path": resolved.to_string_lossy(),
@@ -129,8 +130,8 @@ pub(crate) fn detect_kind(path: &Path) -> Kind {
         "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" => Kind::Image,
         // Known binary formats we cannot extract from.
         "zip" | "tar" | "gz" | "7z" | "rar" | "exe" | "dll" | "so" | "dylib" | "bin" | "o"
-        | "a" | "wasm" | "mp3" | "mp4" | "mov" | "avi" | "mkv" | "wav" | "flac" | "doc"
-        | "ppt" | "pptx" => Kind::Binary,
+        | "a" | "wasm" | "mp3" | "mp4" | "mov" | "avi" | "mkv" | "wav" | "flac" | "doc" | "ppt"
+        | "pptx" => Kind::Binary,
         // Everything else (txt/md/json/log/yaml/toml/source code/…) is read as text.
         _ => Kind::Text,
     }
@@ -144,7 +145,11 @@ fn extract(kind: Kind, path: &Path) -> String {
             // The extension tells us the delimiter with certainty (.tsv → tab),
             // so don't re-sniff it from the content.
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let delim = if ext.eq_ignore_ascii_case("tsv") { '\t' } else { ',' };
+            let delim = if ext.eq_ignore_ascii_case("tsv") {
+                '\t'
+            } else {
+                ','
+            };
             csv_to_table(&read_utf8(path), delim)
         }
         Kind::Html => {

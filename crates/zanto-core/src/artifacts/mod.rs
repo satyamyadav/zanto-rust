@@ -252,12 +252,11 @@ fn write_index_atomic(root: &Path, index: &[ArtifactRef]) -> Result<()> {
 /// Pick the blob extension: for images, honor an explicit extension in the title
 /// (`chart.svg` → `svg`); otherwise use the kind's default.
 fn ext_for(kind: ArtifactKind, title: &str) -> String {
-    if kind == ArtifactKind::Image {
-        if let Some(ext) = Path::new(title).extension().and_then(|e| e.to_str()) {
-            if !ext.is_empty() {
-                return ext.to_ascii_lowercase();
-            }
-        }
+    if kind == ArtifactKind::Image
+        && let Some(ext) = Path::new(title).extension().and_then(|e| e.to_str())
+        && !ext.is_empty()
+    {
+        return ext.to_ascii_lowercase();
     }
     kind.ext().to_string()
 }

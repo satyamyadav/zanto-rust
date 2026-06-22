@@ -1,21 +1,24 @@
+use async_trait::async_trait;
+use futures::StreamExt;
+use futures::future::join_all;
+use genai::chat::{
+    ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent, ToolCall,
+    ToolResponse,
+};
+use genai::{Client, ServiceTarget};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use async_trait::async_trait;
-use futures::future::join_all;
-use futures::StreamExt;
-use genai::{Client, ServiceTarget};
-use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent, ToolCall, ToolResponse};
 // Re-exported so downstream crates (the desktop app) can build tool schemas
 // without depending on genai directly.
+use crate::config::{self, Provider};
+use crate::permissions::PermissionGuard;
+use crate::session::{ContextPolicy, Session, Store};
+use crate::tools::ToolService;
+use genai::adapter::AdapterKind;
 pub use genai::chat::Tool as GenaiTool;
 use genai::resolver::{AuthData, AuthResolver, Endpoint, ServiceTargetResolver};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::config::{self, Provider};
-use genai::adapter::AdapterKind;
-use crate::permissions::PermissionGuard;
-use crate::session::{ContextPolicy, Session, Store};
-use crate::tools::ToolService;
 
 // ---- Turn output (chat-block protocol) ----
 
@@ -37,8 +40,14 @@ pub struct ChatTurn {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChatBlock {
-    Markdown { text: String },
-    Component { component_id: String, data: Value, target: Target },
+    Markdown {
+        text: String,
+    },
+    Component {
+        component_id: String,
+        data: Value,
+        target: Target,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -69,7 +78,11 @@ impl ChatTurn {
 /// deterministically (small-model-safe); the model only picks `target`.
 pub enum AppResult {
     Data(Value),
-    Block { component_id: String, data: Value, target: Target },
+    Block {
+        component_id: String,
+        data: Value,
+        target: Target,
+    },
 }
 
 #[async_trait]
@@ -174,7 +187,9 @@ impl ChatConfig {
 
 /// True when this config's cancel flag has been set (the turn should stop).
 fn cancelled(c: &ChatConfig) -> bool {
-    c.cancel.as_ref().map_or(false, |f| f.load(Ordering::SeqCst))
+    c.cancel
+        .as_ref()
+        .is_some_and(|f| f.load(Ordering::SeqCst))
 }
 
 // ---- System prompt ----
@@ -248,8 +263,16 @@ pub async fn chat(
             match &endpoint_override {
                 None => Ok(service_target),
                 Some(ep) => {
-                    let ServiceTarget { endpoint: _, auth, model } = service_target;
-                    Ok(ServiceTarget { endpoint: ep.clone(), auth, model })
+                    let ServiceTarget {
+                        endpoint: _,
+                        auth,
+                        model,
+                    } = service_target;
+                    Ok(ServiceTarget {
+                        endpoint: ep.clone(),
+                        auth,
+                        model,
+                    })
                 }
             }
         },
@@ -307,9 +330,10 @@ pub async fn chat(
                 Vec::new()
             }
         }
-        ContextPolicy::Auto { window_tokens, headroom_frac } => {
-            session.auto_older(*window_tokens, *headroom_frac)
-        }
+        ContextPolicy::Auto {
+            window_tokens,
+            headroom_frac,
+        } => session.auto_older(*window_tokens, *headroom_frac),
         _ => Vec::new(),
     };
     if !older.is_empty() {
@@ -324,8 +348,7 @@ pub async fn chat(
         }
     }
 
-    let base_prompt =
-        "You are a helpful assistant. Use the provided tools to answer questions about the filesystem. \
+    let base_prompt = "You are a helpful assistant. Use the provided tools to answer questions about the filesystem. \
 When a user message contains an @<path> token, treat it as a request to read that file with the read_file tool before answering.";
     let system_text = build_system_prompt(
         base_prompt,
@@ -359,8 +382,18 @@ When a user message contains an @<path> token, treat it as a request to read tha
         // persist whatever we have and return a stopped turn without a model call.
         if cancelled(&config) {
             let meta = assistant_turn_meta(&display, &blocks, true);
-            push_msg_meta(store, session, ChatMessage::assistant(String::new()), meta.as_ref()).await?;
-            return Ok(ChatTurn { blocks, stopped: true, summarized });
+            push_msg_meta(
+                store,
+                session,
+                ChatMessage::assistant(String::new()),
+                meta.as_ref(),
+            )
+            .await?;
+            return Ok(ChatTurn {
+                blocks,
+                stopped: true,
+                summarized,
+            });
         }
 
         println!("--- TURN {turn} ---");
@@ -419,11 +452,21 @@ When a user message contains an @<path> token, treat it as a request to read tha
         // Cancelled mid-stream: persist the partial assistant text and return it.
         if cancelled(&config) {
             let meta = assistant_turn_meta(&display, &blocks, true);
-            push_msg_meta(store, session, ChatMessage::assistant(answer.clone()), meta.as_ref()).await?;
+            push_msg_meta(
+                store,
+                session,
+                ChatMessage::assistant(answer.clone()),
+                meta.as_ref(),
+            )
+            .await?;
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
             }
-            return Ok(ChatTurn { blocks, stopped: true, summarized });
+            return Ok(ChatTurn {
+                blocks,
+                stopped: true,
+                summarized,
+            });
         }
 
         if tool_calls.is_empty() {
@@ -431,9 +474,20 @@ When a user message contains an @<path> token, treat it as a request to read tha
             // JSON text instead of structured calls. Detect and execute them.
             let fallback = extract_raw_tool_calls(&answer);
             if !fallback.is_empty() {
-                eprintln!("[zanto] warn: model returned unparsed tool call(s), applying fallback parser");
+                eprintln!(
+                    "[zanto] warn: model returned unparsed tool call(s), applying fallback parser"
+                );
                 push_msg(store, session, ChatMessage::from(fallback.clone())).await?;
-                route_tool_calls(&config, &tools, store, session, &fallback, &mut blocks, &mut display).await?;
+                route_tool_calls(
+                    &config,
+                    &tools,
+                    store,
+                    session,
+                    &fallback,
+                    &mut blocks,
+                    &mut display,
+                )
+                .await?;
                 turn += 1;
                 continue;
             }
@@ -442,23 +496,52 @@ When a user message contains an @<path> token, treat it as a request to read tha
             // blocks/text) + the stopped flag so reopening restores it exactly. The
             // back-compat `blocks` list rides along for old readers.
             let meta = assistant_turn_meta(&display, &blocks, false);
-            push_msg_meta(store, session, ChatMessage::assistant(answer.clone()), meta.as_ref()).await?;
+            push_msg_meta(
+                store,
+                session,
+                ChatMessage::assistant(answer.clone()),
+                meta.as_ref(),
+            )
+            .await?;
             if !answer.trim().is_empty() || blocks.is_empty() {
                 blocks.push(ChatBlock::Markdown { text: answer });
             }
-            return Ok(ChatTurn { blocks, stopped: false, summarized });
+            return Ok(ChatTurn {
+                blocks,
+                stopped: false,
+                summarized,
+            });
         }
 
         push_msg(store, session, ChatMessage::from(tool_calls.clone())).await?;
-        route_tool_calls(&config, &tools, store, session, &tool_calls, &mut blocks, &mut display).await?;
+        route_tool_calls(
+            &config,
+            &tools,
+            store,
+            session,
+            &tool_calls,
+            &mut blocks,
+            &mut display,
+        )
+        .await?;
 
         // Check point 3 (coupling) — `route_tool_calls` stops dispatching on cancel;
         // if cancelled, return the partial turn rather than looping into another model
         // request.
         if cancelled(&config) {
             let meta = assistant_turn_meta(&display, &blocks, true);
-            push_msg_meta(store, session, ChatMessage::assistant(String::new()), meta.as_ref()).await?;
-            return Ok(ChatTurn { blocks, stopped: true, summarized });
+            push_msg_meta(
+                store,
+                session,
+                ChatMessage::assistant(String::new()),
+                meta.as_ref(),
+            )
+            .await?;
+            return Ok(ChatTurn {
+                blocks,
+                stopped: true,
+                summarized,
+            });
         }
 
         turn += 1;
@@ -508,12 +591,22 @@ async fn route_tool_calls(
             // Mutating base tool: drain pending reads first, then run it.
             flush_parallel(config, tools, store, session, &read_batch, display).await?;
             read_batch.clear();
-            println!("[TOOL CALL mutating] {} ({:?})", call.fn_name, call.fn_arguments);
+            println!(
+                "[TOOL CALL mutating] {} ({:?})",
+                call.fn_name, call.fn_arguments
+            );
             emit_tool_call(config, display, call).await;
-            let output = tools.dispatch(&call.fn_name, call.fn_arguments.clone()).await?;
+            let output = tools
+                .dispatch(&call.fn_name, call.fn_arguments.clone())
+                .await?;
             println!("[TOOL OUTPUT] {}", log_preview(&output, 120));
             emit_tool_result(config, display, &call.call_id, &output, true).await;
-            push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
+            push_msg(
+                store,
+                session,
+                ChatMessage::from(ToolResponse::new(call.call_id.clone(), output)),
+            )
+            .await?;
         } else {
             // Non-base tool (artifact / domain): drain reads, then dispatch to the app.
             flush_parallel(config, tools, store, session, &read_batch, display).await?;
@@ -525,14 +618,25 @@ async fn route_tool_calls(
             // again in the tool-call output would persist + re-parse a second full copy
             // (review A2 / B5-2).
             let (llm_text, display_text, ok) = match &config.app_dispatch {
-                Some(disp) => match disp.dispatch(&call.fn_name, call.fn_arguments.clone()).await {
+                Some(disp) => match disp
+                    .dispatch(&call.fn_name, call.fn_arguments.clone())
+                    .await
+                {
                     Some(Ok(AppResult::Data(v))) => {
                         let s = v.to_string();
                         (s.clone(), s, true)
                     }
-                    Some(Ok(AppResult::Block { component_id, data, target })) => {
+                    Some(Ok(AppResult::Block {
+                        component_id,
+                        data,
+                        target,
+                    })) => {
                         let reference = format!("[rendered {component_id} block]");
-                        let block = ChatBlock::Component { component_id, data: data.clone(), target };
+                        let block = ChatBlock::Component {
+                            component_id,
+                            data: data.clone(),
+                            target,
+                        };
                         if let Some(sink) = &config.sink {
                             sink.on_block(&block).await;
                         }
@@ -560,7 +664,12 @@ async fn route_tool_calls(
                 }
             };
             emit_tool_result(config, display, &call.call_id, &display_text, ok).await;
-            push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), llm_text))).await?;
+            push_msg(
+                store,
+                session,
+                ChatMessage::from(ToolResponse::new(call.call_id.clone(), llm_text)),
+            )
+            .await?;
         }
     }
 
@@ -583,7 +692,13 @@ async fn emit_tool_call(config: &ChatConfig, display: &mut TurnDisplay, call: &T
 
 /// Notify the sink (if any) that a tool call finished, with its output and outcome,
 /// and fill the matching display segment's output/ok.
-async fn emit_tool_result(config: &ChatConfig, display: &mut TurnDisplay, id: &str, output: &str, ok: bool) {
+async fn emit_tool_result(
+    config: &ChatConfig,
+    display: &mut TurnDisplay,
+    id: &str,
+    output: &str,
+    ok: bool,
+) {
     display.complete_tool_call(id, output, ok);
     if let Some(sink) = &config.sink {
         sink.on_tool_result(id, output, ok).await;
@@ -631,15 +746,15 @@ impl TurnDisplay {
         if delta.is_empty() {
             return;
         }
-        if let Some(last) = self.segments.last_mut() {
-            if last.get("kind").and_then(Value::as_str) == Some("reasoning") {
-                if let Some(Value::String(t)) = last.get_mut("text") {
-                    t.push_str(delta);
-                    return;
-                }
-            }
+        if let Some(last) = self.segments.last_mut()
+            && last.get("kind").and_then(Value::as_str) == Some("reasoning")
+            && let Some(Value::String(t)) = last.get_mut("text")
+        {
+            t.push_str(delta);
+            return;
         }
-        self.segments.push(serde_json::json!({ "kind": "reasoning", "text": delta }));
+        self.segments
+            .push(serde_json::json!({ "kind": "reasoning", "text": delta }));
     }
 
     /// Append a tool-call segment with its inputs (output/ok filled in later).
@@ -683,7 +798,8 @@ impl TurnDisplay {
     /// Append a component block segment, in order.
     fn push_block(&mut self, block: &ChatBlock) {
         if let Ok(v) = serde_json::to_value(block) {
-            self.segments.push(serde_json::json!({ "kind": "block", "block": v }));
+            self.segments
+                .push(serde_json::json!({ "kind": "block", "block": v }));
         }
     }
 
@@ -692,7 +808,8 @@ impl TurnDisplay {
         if text.trim().is_empty() {
             return;
         }
-        self.segments.push(serde_json::json!({ "kind": "text", "text": text }));
+        self.segments
+            .push(serde_json::json!({ "kind": "text", "text": text }));
     }
 }
 
@@ -706,7 +823,11 @@ impl TurnDisplay {
 /// never spawns a bubble for such a turn. A STOPPED turn always persists (even
 /// with no output) so its `stopped:true` flag — and the "Stopped" marker — survive
 /// a reload, matching the live path which DOES show the marker for an early stop.
-fn assistant_turn_meta(display: &TurnDisplay, blocks: &[ChatBlock], stopped: bool) -> Option<Value> {
+fn assistant_turn_meta(
+    display: &TurnDisplay,
+    blocks: &[ChatBlock],
+    stopped: bool,
+) -> Option<Value> {
     let components: Vec<&ChatBlock> = blocks
         .iter()
         .filter(|b| matches!(b, ChatBlock::Component { .. }))
@@ -749,9 +870,18 @@ async fn flush_parallel(
 
     for (call, result) in batch.iter().zip(results) {
         let output = result?;
-        println!("[TOOL OUTPUT] {} → {}", call.fn_name, log_preview(&output, 120));
+        println!(
+            "[TOOL OUTPUT] {} → {}",
+            call.fn_name,
+            log_preview(&output, 120)
+        );
         emit_tool_result(config, display, &call.call_id, &output, true).await;
-        push_msg(store, session, ChatMessage::from(ToolResponse::new(call.call_id.clone(), output))).await?;
+        push_msg(
+            store,
+            session,
+            ChatMessage::from(ToolResponse::new(call.call_id.clone(), output)),
+        )
+        .await?;
     }
 
     Ok(())
@@ -818,17 +948,19 @@ fn extract_raw_tool_calls(text: &str) -> Vec<ToolCall> {
         }
 
         if found_end {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text[start..=j]) {
-                if let (Some(name), Some(args)) =
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text[start..=j])
+                && let (Some(name), Some(args)) =
                     (v.get("name").and_then(|n| n.as_str()), v.get("arguments"))
-                {
-                    result.push(ToolCall {
-                        call_id: format!("fallback-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]),
-                        fn_name: name.to_string(),
-                        fn_arguments: args.clone(),
-                        thought_signatures: None,
-                    });
-                }
+            {
+                result.push(ToolCall {
+                    call_id: format!(
+                        "fallback-{}",
+                        &uuid::Uuid::new_v4().simple().to_string()[..8]
+                    ),
+                    fn_name: name.to_string(),
+                    fn_arguments: args.clone(),
+                    thought_signatures: None,
+                });
             }
             i = j + 1;
         } else {
@@ -912,10 +1044,16 @@ mod tests {
         async fn on_text(&self, _delta: &str) {}
         async fn on_block(&self, _block: &ChatBlock) {}
         async fn on_tool_call(&self, call: &ToolCallView) {
-            self.events.lock().unwrap().push(format!("call:{}", call.id));
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("call:{}", call.id));
         }
         async fn on_tool_result(&self, id: &str, _output: &str, ok: bool) {
-            self.events.lock().unwrap().push(format!("result:{id}:{ok}"));
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("result:{id}:{ok}"));
         }
     }
 
@@ -978,12 +1116,23 @@ mod tests {
 
         let mut blocks = Vec::new();
         let mut display = TurnDisplay::default();
-        route_tool_calls(&config, &tools, &store, &mut session, &[call], &mut blocks, &mut display)
-            .await
-            .unwrap();
+        route_tool_calls(
+            &config,
+            &tools,
+            &store,
+            &mut session,
+            &[call],
+            &mut blocks,
+            &mut display,
+        )
+        .await
+        .unwrap();
 
         let events = sink.events.lock().unwrap().clone();
-        assert_eq!(events, vec!["call:call-1".to_string(), "result:call-1:true".to_string()]);
+        assert_eq!(
+            events,
+            vec!["call:call-1".to_string(), "result:call-1:true".to_string()]
+        );
     }
 
     #[test]
@@ -991,7 +1140,9 @@ mod tests {
         // The back-compat `blocks` field holds only this turn's Component blocks
         // (markdown lives in the message content), so old readers still restore them.
         let mixed = vec![
-            ChatBlock::Markdown { text: "see chart".into() },
+            ChatBlock::Markdown {
+                text: "see chart".into(),
+            },
             ChatBlock::Component {
                 component_id: "chart".into(),
                 data: serde_json::json!({ "points": [1, 2, 3] }),
@@ -1026,20 +1177,28 @@ mod tests {
         d.push_tool_call("c1", "read_file", &serde_json::json!({ "path": "x" }));
         d.complete_tool_call("c1", "contents", true);
         // A block, then the final text answer.
-        d.push_block(&ChatBlock::Markdown { text: "inline".into() });
+        d.push_block(&ChatBlock::Markdown {
+            text: "inline".into(),
+        });
         d.push_text("done");
         // Empty/whitespace text is dropped (no trailing empty segment).
         d.push_text("   ");
 
         let segs = &d.segments;
         assert_eq!(segs.len(), 4);
-        assert_eq!(segs[0], serde_json::json!({ "kind": "reasoning", "text": "Let me think." }));
+        assert_eq!(
+            segs[0],
+            serde_json::json!({ "kind": "reasoning", "text": "Let me think." })
+        );
         assert_eq!(segs[1]["kind"], "tool_call");
         assert_eq!(segs[1]["id"], "c1");
         assert_eq!(segs[1]["output"], "contents");
         assert_eq!(segs[1]["ok"], true);
         assert_eq!(segs[2]["kind"], "block");
-        assert_eq!(segs[3], serde_json::json!({ "kind": "text", "text": "done" }));
+        assert_eq!(
+            segs[3],
+            serde_json::json!({ "kind": "text", "text": "done" })
+        );
     }
 
     #[tokio::test]
@@ -1058,10 +1217,17 @@ mod tests {
         display.push_text("here");
         let meta = assistant_turn_meta(&display, &[], true).expect("non-empty turn → metadata");
 
-        push_msg(&store, &mut session, ChatMessage::user("find foo")).await.unwrap();
-        push_msg_meta(&store, &mut session, ChatMessage::assistant("here"), Some(&meta))
+        push_msg(&store, &mut session, ChatMessage::user("find foo"))
             .await
             .unwrap();
+        push_msg_meta(
+            &store,
+            &mut session,
+            ChatMessage::assistant("here"),
+            Some(&meta),
+        )
+        .await
+        .unwrap();
 
         let loaded = store.load_message_meta(&session.id).unwrap();
         assert_eq!(loaded.len(), 2);
@@ -1073,12 +1239,18 @@ mod tests {
         // The ordered segments round-trip intact.
         let segs = stored["segments"].as_array().expect("segments array");
         assert_eq!(segs.len(), 3);
-        assert_eq!(segs[0], serde_json::json!({ "kind": "reasoning", "text": "thinking" }));
+        assert_eq!(
+            segs[0],
+            serde_json::json!({ "kind": "reasoning", "text": "thinking" })
+        );
         assert_eq!(segs[1]["kind"], "tool_call");
         assert_eq!(segs[1]["name"], "search_files");
         assert_eq!(segs[1]["output"], "3 hits");
         assert_eq!(segs[1]["ok"], true);
-        assert_eq!(segs[2], serde_json::json!({ "kind": "text", "text": "here" }));
+        assert_eq!(
+            segs[2],
+            serde_json::json!({ "kind": "text", "text": "here" })
+        );
     }
 
     #[tokio::test]
@@ -1097,10 +1269,17 @@ mod tests {
             .expect("component block present → metadata");
 
         // Persist a plain user turn, then the assistant turn carrying block metadata.
-        push_msg(&store, &mut session, ChatMessage::user("plot it")).await.unwrap();
-        push_msg_meta(&store, &mut session, ChatMessage::assistant("here you go"), Some(&meta))
+        push_msg(&store, &mut session, ChatMessage::user("plot it"))
             .await
             .unwrap();
+        push_msg_meta(
+            &store,
+            &mut session,
+            ChatMessage::assistant("here you go"),
+            Some(&meta),
+        )
+        .await
+        .unwrap();
 
         // Reload metadata aligned by position; the user row has none, the assistant
         // row carries the component block, which deserializes back to a ChatBlock.
@@ -1109,11 +1288,14 @@ mod tests {
         assert!(loaded[0].is_none());
 
         let stored = loaded[1].as_ref().expect("assistant metadata present");
-        let restored: Vec<ChatBlock> =
-            serde_json::from_value(stored["blocks"].clone()).unwrap();
+        let restored: Vec<ChatBlock> = serde_json::from_value(stored["blocks"].clone()).unwrap();
         assert_eq!(restored.len(), 1);
         match &restored[0] {
-            ChatBlock::Component { component_id, data, target } => {
+            ChatBlock::Component {
+                component_id,
+                data,
+                target,
+            } => {
                 assert_eq!(component_id, "chart");
                 assert_eq!(data, &serde_json::json!({ "points": [1, 2, 3] }));
                 assert_eq!(*target, Target::Canvas);

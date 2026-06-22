@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-use rmcp::{ErrorData, schemars::JsonSchema};
-use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
-use serde::{Deserialize, Serialize};
 use crate::permissions::Op;
+use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
+use rmcp::{ErrorData, schemars::JsonSchema};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
@@ -34,7 +34,10 @@ impl ToolBase for WriteFile {
 
 impl AsyncTool<super::FsTools> for WriteFile {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
-        let resolved = svc.permissions.check(&args.path, Op::Write).await
+        let resolved = svc
+            .permissions
+            .check(&args.path, Op::Write)
+            .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         if let Some(parent) = resolved.parent() {
@@ -45,6 +48,10 @@ impl AsyncTool<super::FsTools> for WriteFile {
         std::fs::write(&resolved, &args.content)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        Ok(format!("wrote {} bytes to {}", args.content.len(), resolved.display()))
+        Ok(format!(
+            "wrote {} bytes to {}",
+            args.content.len(),
+            resolved.display()
+        ))
     }
 }

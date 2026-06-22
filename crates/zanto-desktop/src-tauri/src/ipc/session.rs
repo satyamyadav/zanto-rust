@@ -1,8 +1,8 @@
 //! Session-management IPC commands (scoped to the active app).
 
+use super::{DesktopState, RenderMsg};
 use tauri::State;
 use zanto_core::session::{unix_now_pub, Session, SessionMeta};
-use super::{DesktopState, RenderMsg};
 
 #[tauri::command]
 pub fn list_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionMeta>, String> {
@@ -24,14 +24,26 @@ pub fn list_sessions_page(
     let app_id = state.active_app_id();
     state
         .store
-        .list_sessions_page(Some(&state.workspace), app_id.as_deref(), false, offset, limit)
+        .list_sessions_page(
+            Some(&state.workspace),
+            app_id.as_deref(),
+            false,
+            offset,
+            limit,
+        )
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn load_session(state: State<'_, DesktopState>, id: String) -> Result<Vec<RenderMsg>, String> {
+pub async fn load_session(
+    state: State<'_, DesktopState>,
+    id: String,
+) -> Result<Vec<RenderMsg>, String> {
     let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;
-    let meta = state.store.load_message_meta(&id).map_err(|e| e.to_string())?;
+    let meta = state
+        .store
+        .load_message_meta(&id)
+        .map_err(|e| e.to_string())?;
     let msgs = loaded
         .display_messages_meta(&meta)
         .into_iter()
@@ -52,7 +64,10 @@ pub async fn load_session_page(
     limit: usize,
 ) -> Result<Vec<RenderMsg>, String> {
     let loaded = state.store.load_session(&id).map_err(|e| e.to_string())?;
-    let meta = state.store.load_message_meta(&id).map_err(|e| e.to_string())?;
+    let meta = state
+        .store
+        .load_message_meta(&id)
+        .map_err(|e| e.to_string())?;
     let page = loaded
         .display_messages_meta(&meta)
         .into_iter()
@@ -79,7 +94,11 @@ pub fn delete_session(state: State<'_, DesktopState>, id: String) -> Result<(), 
 }
 
 #[tauri::command]
-pub fn rename_session(state: State<'_, DesktopState>, id: String, title: String) -> Result<(), String> {
+pub fn rename_session(
+    state: State<'_, DesktopState>,
+    id: String,
+    title: String,
+) -> Result<(), String> {
     let mut s = state.store.load_session(&id).map_err(|e| e.to_string())?;
     s.title = title;
     s.updated_at = unix_now_pub();
@@ -88,12 +107,18 @@ pub fn rename_session(state: State<'_, DesktopState>, id: String, title: String)
 
 #[tauri::command]
 pub fn archive_session(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
-    state.store.set_archived(&id, true).map_err(|e| e.to_string())
+    state
+        .store
+        .set_archived(&id, true)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn unarchive_session(state: State<'_, DesktopState>, id: String) -> Result<(), String> {
-    state.store.set_archived(&id, false).map_err(|e| e.to_string())
+    state
+        .store
+        .set_archived(&id, false)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

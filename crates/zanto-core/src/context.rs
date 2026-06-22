@@ -74,7 +74,10 @@ fn dir_text_files(dir: &Path) -> Vec<PathBuf> {
             .filter(|p| p.is_file() && is_text_ext(p))
             .collect(),
         Err(e) => {
-            eprintln!("[zanto] warn: cannot read context dir {}: {e}", dir.display());
+            eprintln!(
+                "[zanto] warn: cannot read context dir {}: {e}",
+                dir.display()
+            );
             Vec::new()
         }
     };
@@ -99,7 +102,10 @@ fn append_file(out: &mut String, path: &Path) -> bool {
     let body = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("[zanto] warn: cannot read context file {}: {e}", path.display());
+            eprintln!(
+                "[zanto] warn: cannot read context file {}: {e}",
+                path.display()
+            );
             return true;
         }
     };
@@ -204,7 +210,7 @@ pub fn get_skill(project_dir: Option<&Path>, name: &str) -> Option<Skill> {
                     return Some(Skill {
                         name: name.to_string(),
                         body,
-                    })
+                    });
                 }
                 Err(e) => {
                     eprintln!("[zanto] warn: cannot read skill {}: {e}", path.display());
@@ -223,7 +229,10 @@ mod tests {
 
     /// Build an enabled `ContextSource` from a path-like value.
     fn enabled(path: impl ToString) -> ContextSource {
-        ContextSource { path: path.to_string(), enabled: true }
+        ContextSource {
+            path: path.to_string(),
+            enabled: true,
+        }
     }
 
     #[test]
@@ -279,8 +288,14 @@ mod tests {
         fs::write(&off, "disabled body").unwrap();
 
         let sources = vec![
-            ContextSource { path: on.display().to_string(), enabled: true },
-            ContextSource { path: off.display().to_string(), enabled: false },
+            ContextSource {
+                path: on.display().to_string(),
+                enabled: true,
+            },
+            ContextSource {
+                path: off.display().to_string(),
+                enabled: false,
+            },
         ];
         let out = load_context(&sources);
 

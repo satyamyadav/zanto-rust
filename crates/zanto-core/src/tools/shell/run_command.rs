@@ -1,14 +1,16 @@
-use std::borrow::Cow;
-use rmcp::{ErrorData, schemars::JsonSchema};
-use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
-use serde::{Deserialize, Serialize};
 use crate::permissions::Op;
+use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
+use rmcp::{ErrorData, schemars::JsonSchema};
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 #[derive(Deserialize, Serialize, JsonSchema, Debug, Default)]
 pub struct Args {
     #[schemars(description = "Shell command to execute (passed to sh -c)")]
     pub command: String,
-    #[schemars(description = "Working directory for the command. Defaults to current directory if omitted.")]
+    #[schemars(
+        description = "Working directory for the command. Defaults to current directory if omitted."
+    )]
     pub working_dir: Option<String>,
 }
 
@@ -39,7 +41,10 @@ impl AsyncTool<super::ShellTools> for RunCommand {
         // writes — fewer / less-alarming prompts. Best-effort, not a security
         // boundary: anything compound/redirected falls back to Write.
         let op = classify_op(&args.command);
-        let resolved_wd = svc.permissions.check(wd_str, op).await
+        let resolved_wd = svc
+            .permissions
+            .check(wd_str, op)
+            .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 
         let command = args.command.clone();
@@ -90,15 +95,26 @@ fn classify_op(command: &str) -> Op {
 }
 
 fn is_read_only(tokens: &[&str]) -> bool {
-    let Some(&cmd) = tokens.first() else { return false };
+    let Some(&cmd) = tokens.first() else {
+        return false;
+    };
     match cmd {
         "ls" | "cat" | "pwd" | "whoami" | "echo" | "which" | "head" | "tail" | "wc" | "stat"
         | "df" | "du" | "env" | "date" | "uname" | "grep" | "find" | "file" | "realpath" => true,
         "git" => matches!(
             tokens.get(1).copied(),
             Some(
-                "status" | "log" | "diff" | "show" | "ls-remote" | "remote" | "branch"
-                    | "rev-parse" | "describe" | "config" | "ls-files"
+                "status"
+                    | "log"
+                    | "diff"
+                    | "show"
+                    | "ls-remote"
+                    | "remote"
+                    | "branch"
+                    | "rev-parse"
+                    | "describe"
+                    | "config"
+                    | "ls-files"
             )
         ),
         "pacman" => tokens.get(1).is_some_and(|a| a.starts_with("-Q")),

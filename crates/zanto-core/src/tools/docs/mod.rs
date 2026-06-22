@@ -1,7 +1,7 @@
 pub mod parse_table;
 pub mod read_document;
 
-use std::sync::Arc;
+use crate::permissions::PermissionGuard;
 use genai::chat::Tool as GenaiTool;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase, ToolRouter};
@@ -9,7 +9,7 @@ use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams};
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer};
-use crate::permissions::PermissionGuard;
+use std::sync::Arc;
 
 /// Gated document-extraction tools. Holds a `PermissionGuard` like `FsTools`:
 /// `read_document` reads arbitrary filesystem paths and so is path-gated.
@@ -34,7 +34,9 @@ impl ServerHandler for DocTools {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        Self::tool_router().call(ToolCallContext::new(self, request, context)).await
+        Self::tool_router()
+            .call(ToolCallContext::new(self, request, context))
+            .await
     }
 
     async fn list_tools(
@@ -42,18 +44,26 @@ impl ServerHandler for DocTools {
         _: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult { tools: Self::tool_router().list_all(), next_cursor: None, meta: None })
+        Ok(ListToolsResult {
+            tools: Self::tool_router().list_all(),
+            next_cursor: None,
+            meta: None,
+        })
     }
 }
 
 pub(super) fn schemas() -> Vec<GenaiTool> {
-    DocTools::tool_router().list_all().into_iter().map(|t| {
-        let mut g = GenaiTool::new(t.name.as_ref());
-        if let Some(ref desc) = t.description {
-            g = g.with_description(desc.as_ref());
-        }
-        g.with_schema(t.schema_as_json_value())
-    }).collect()
+    DocTools::tool_router()
+        .list_all()
+        .into_iter()
+        .map(|t| {
+            let mut g = GenaiTool::new(t.name.as_ref());
+            if let Some(ref desc) = t.description {
+                g = g.with_description(desc.as_ref());
+            }
+            g.with_schema(t.schema_as_json_value())
+        })
+        .collect()
 }
 
 pub(super) async fn dispatch(

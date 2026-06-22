@@ -1,9 +1,9 @@
-use std::borrow::Cow;
 use base64::Engine;
 use rmcp::handler::server::router::tool::{AsyncTool, ToolBase};
 use rmcp::{ErrorData, schemars::JsonSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::borrow::Cow;
 
 use crate::artifacts::ArtifactKind;
 
@@ -52,7 +52,6 @@ impl AsyncTool<super::ArtifactTools> for ReadStoredArtifact {
         };
 
         let out = json!({ "ref": art, "content": content });
-        serde_json::to_string(&out)
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))
+        serde_json::to_string(&out).map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }
 }

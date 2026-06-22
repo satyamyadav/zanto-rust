@@ -55,7 +55,9 @@ impl ServerHandler for WebTools {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
-        Self::tool_router().call(ToolCallContext::new(self, request, context)).await
+        Self::tool_router()
+            .call(ToolCallContext::new(self, request, context))
+            .await
     }
 
     async fn list_tools(
@@ -63,18 +65,26 @@ impl ServerHandler for WebTools {
         _: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult { tools: Self::tool_router().list_all(), next_cursor: None, meta: None })
+        Ok(ListToolsResult {
+            tools: Self::tool_router().list_all(),
+            next_cursor: None,
+            meta: None,
+        })
     }
 }
 
 pub(super) fn schemas() -> Vec<GenaiTool> {
-    WebTools::tool_router().list_all().into_iter().map(|t| {
-        let mut g = GenaiTool::new(t.name.as_ref());
-        if let Some(ref desc) = t.description {
-            g = g.with_description(desc.as_ref());
-        }
-        g.with_schema(t.schema_as_json_value())
-    }).collect()
+    WebTools::tool_router()
+        .list_all()
+        .into_iter()
+        .map(|t| {
+            let mut g = GenaiTool::new(t.name.as_ref());
+            if let Some(ref desc) = t.description {
+                g = g.with_description(desc.as_ref());
+            }
+            g.with_schema(t.schema_as_json_value())
+        })
+        .collect()
 }
 
 pub(super) async fn dispatch(

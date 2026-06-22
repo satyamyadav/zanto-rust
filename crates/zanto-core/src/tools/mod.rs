@@ -4,11 +4,11 @@ pub mod fs;
 pub mod shell;
 pub mod web;
 
-use std::path::Path;
-use std::sync::Arc;
-use genai::chat::Tool as GenaiTool;
 use crate::artifacts::ArtifactStore;
 use crate::permissions::PermissionGuard;
+use genai::chat::Tool as GenaiTool;
+use std::path::Path;
+use std::sync::Arc;
 
 pub struct ToolService {
     fs: fs::FsTools,
