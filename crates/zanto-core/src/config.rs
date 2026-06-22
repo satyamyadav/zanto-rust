@@ -923,6 +923,19 @@ mod tests {
     }
 
     #[test]
+    fn selected_skill_persists_round_trip() {
+        // R-4: selected_skill must survive a JSON save → load cycle.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut s = Settings::default();
+        s.selected_skill = Some("reviewer".to_string());
+        let content = serde_json::to_string_pretty(&s).unwrap();
+        std::fs::write(&path, content).unwrap();
+        let loaded = Settings::load_file(path).expect("load");
+        assert_eq!(loaded.selected_skill.as_deref(), Some("reviewer"));
+    }
+
+    #[test]
     fn generation_params_default_is_empty() {
         let gp = GenerationParams::default();
         assert!(gp.temperature.is_none());

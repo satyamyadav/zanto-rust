@@ -232,6 +232,17 @@ mod tests {
     }
 
     #[test]
+    fn coerce_amount_parses_currency_strings() {
+        // R-5: dollar-sign prefix must parse to the numeric value, not 0.
+        assert_eq!(coerce_amount(Some(&json!("$12.50"))), 12.50);
+        assert_eq!(coerce_amount(Some(&json!("12.50"))), 12.50);
+        assert_eq!(coerce_amount(Some(&json!(12.50))), 12.50);
+        assert_eq!(coerce_amount(None), 0.0);
+        // Genuinely non-numeric → 0 (not a silent wrong value).
+        assert_eq!(coerce_amount(Some(&json!("garbage"))), 0.0);
+    }
+
+    #[test]
     fn legacy_backfill_stamps_missing_type_and_account() {
         // Legacy row (no type/account) → explicit expense + Cash.
         let out = legacy_backfill(&json!({ "amount": 10, "date": "2026-01-01" })).unwrap();
