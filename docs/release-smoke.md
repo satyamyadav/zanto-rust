@@ -235,7 +235,7 @@ and it continues the turn using them.
 
 ### FS-1 — Import sample statement
 
-**Precondition:** `docs/sample-statement.csv` present in the repo root.
+**Precondition:** `docs/sample-statement.csv` present in the repository (at that path).
 
 **Steps:**
 1. Finance → **Import** tab.
