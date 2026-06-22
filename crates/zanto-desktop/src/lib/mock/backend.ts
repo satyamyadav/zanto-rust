@@ -109,12 +109,4 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   add_allowed_path: async (): Promise<void> => undefined,
 };
 
-export function resetBackend(): void {
-  interrupted = false;
-  interruptResolve?.();
-  interruptResolve = null;
-  errorArmed = true;
-  pinned = listPinnedFx.response.slice();
-  nextPinId = pinned.length + 1;
-  // re-seed mutable state here as commands with side effects are added.
-}
+// Note: mock state (interrupted/errorArmed/pinned/nextPinId) resets naturally — each Playwright test loads a fresh page, re-evaluating this module.
