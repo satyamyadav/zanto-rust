@@ -34,7 +34,19 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   list_apps: async (): Promise<AppManifest[]> => listAppsFx.response,
   get_catalogue: async (): Promise<ArtifactDef[]> => getCatalogueFx.response,
   list_sessions: async (): Promise<SessionMeta[]> => listSessionsFx.response,
-  list_sessions_page: async (): Promise<SessionMeta[]> => listSessionsFx.response,
+  list_sessions_page: async (): Promise<SessionMeta[]> => [
+    ...listSessionsFx.response,
+    {
+      id: "sess-long",
+      title: "Long session",
+      workspace: "/home/user/project",
+      app_id: null,
+      created_at: 1700000100,
+      updated_at: 1700000200,
+      message_count: 60,
+      archived: false,
+    } as any,
+  ],
   list_archived_sessions: async (): Promise<SessionMeta[]> => listSessionsFx.response,
   new_session: async (): Promise<string> => newSessionFx.response,
   mount_app: async () => undefined,
@@ -70,14 +82,14 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
     interruptResolve?.();
     interruptResolve = null;
   },
-  load_session: async (): Promise<any> => loadSessionFx.response,
+  load_session: async (a: { id?: string }): Promise<any> =>
+    a?.id === "sess-long" ? longSession : loadSessionFx.response,
   load_session_page: async (a: { offset?: number; limit?: number }): Promise<any> => {
     const offset = a?.offset ?? 0;
     const limit = a?.limit ?? 20;
-    // Newest-last list; offset=0 yields the most recent `limit` entries, larger offsets yield older ones.
-    const end = Math.max(0, longSession.length - offset);
-    const start = Math.max(0, end - limit);
-    return longSession.slice(start, end);
+    // offset is the absolute index of the first message to return (0-based, oldest-first).
+    // This matches the store's loadOlder() call: offset = loadedOffset - PAGE_SIZE.
+    return longSession.slice(offset, offset + limit);
   },
   list_pinned_artifacts: async (): Promise<any> => pinned,
   read_pinned_artifact: async (a: { id: number }): Promise<any> =>

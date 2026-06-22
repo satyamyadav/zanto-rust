@@ -327,6 +327,67 @@ test("C-9: slash menu offers /new and /clear, and /new starts a fresh session", 
   await expect(page.getByText("Hi there.")).toHaveCount(0);
 });
 
+// C-11: Scrolling the message list to the top loads older messages (infinite scroll)
+// and preserves the scroll position so previously-visible messages are still in the DOM.
+//
+// Setup: the mock list_sessions_page includes a second session "Long session" (id "sess-long")
+// whose load_session returns the full 60-message longSession list. selectSession() slices the
+// last PAGE_SIZE (30) entries, so "msg #30"–"msg #59" are shown initially (loadedOffset = 30,
+// hasMore = true). loadOlder() is triggered when the scroll container's scrollTop ≤ NEAR_TOP_PX
+// (64 px) and !atBottom. After the fetch, "msg #0"–"msg #29" are prepended.
+//
+// The viewport is shrunk vertically so the 30 short messages overflow the container —
+// making the scroller actually scrollable so the scroll-to-top handler can fire.
+test("C-11: scrolling to the top loads older messages and preserves position", async ({ page }) => {
+  await page.goto("/");
+
+  // Open "Long session" from the sidebar (added by the mock list_sessions_page handler).
+  await page.getByText("Long session").click();
+
+  // Shrink the viewport height AFTER opening the session so the 30 short messages
+  // overflow the container. At the default 720px height the container fits all messages
+  // (scrollHeight == clientHeight), keeping scrollTop = 0 and atBottom = true, which
+  // blocks maybeLoadOlder. A short viewport forces overflow so the handler can fire.
+  await page.setViewportSize({ width: 1280, height: 250 });
+
+  // Initial page: "msg #59" (newest) must be visible; "msg #0" (oldest) must NOT.
+  await expect(page.getByText("msg #59")).toBeVisible();
+  await expect(page.getByText("msg #0")).toHaveCount(0);
+
+  // Record a message from the initial page so we can confirm it remains in the
+  // DOM after older messages are prepended (position preserved).
+  const anchorMsg = page.getByText("msg #30");
+  await expect(anchorMsg).toBeVisible();
+
+  // Find the message-list scroll container centre so we can wheel-scroll over it.
+  // The MessageList scroller is the .overflow-auto div with scrollable content;
+  // the sidebar session list is the other .overflow-auto (clientHeight may be 0
+  // before the resize, so we pick by scrollHeight > clientHeight > 0).
+  const scrollerCenter = await page.evaluate(() => {
+    const scrollers = Array.from(document.querySelectorAll<HTMLElement>(".overflow-auto"));
+    const s = scrollers.find(el => el.scrollHeight > el.clientHeight && el.clientHeight > 0);
+    if (!s) return null;
+    const r = s.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  if (!scrollerCenter) throw new Error("scrollable message container not found");
+
+  // Wheel-scroll upward to trigger maybeLoadOlder(). Using mouse.wheel rather than
+  // setting scrollTop directly because the Svelte autoscroll $effect tracks atBottom
+  // state and snaps the position back when it fires; real wheel events properly
+  // update the atBottom flag via the onScroll handler before the load triggers.
+  await page.mouse.move(scrollerCenter.x, scrollerCenter.y);
+  for (let i = 0; i < 20; i++) {
+    await page.mouse.wheel(0, -200);
+  }
+
+  // Wait (auto-poll) for older messages to load — "msg #0" must appear.
+  await expect(page.getByText("msg #0")).toBeVisible({ timeout: 5000 });
+
+  // The anchor message from the initial page must still be in the DOM (position preserved).
+  await expect(anchorMsg).toBeVisible();
+});
+
 // C-12: Clicking a link in a reply opens the link preview panel; the app does not navigate.
 // The "link" scenario emits: chat_chunk("See https://example.com for details.") + chat_done.
 // The rendered markdown produces an <a href="https://example.com"> link. The `interceptLinks`
