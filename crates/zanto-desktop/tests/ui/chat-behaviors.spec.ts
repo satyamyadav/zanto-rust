@@ -168,6 +168,87 @@ test("C-5: multiple tool calls are grouped as a Workflow", async ({ page }) => {
   await expect(page.getByText("2/2 done")).toBeVisible();
 });
 
+// C-7: A large paste (>20 lines or >2000 chars) collapses to a 'pasted N lines' chip
+// in the composer, but the full text is spliced into the message on send.
+// Composer thresholds: CHAR_THRESHOLD = 2000, LINE_THRESHOLD = 20.
+// We paste 60 lines ("line 0" … "line 59"), which exceeds the line threshold.
+// The component's onpaste handler reads e.clipboardData.getData("text/plain") and
+// calls e.preventDefault() to suppress the normal insert, then pushes a Paste chip.
+// The chip label is "pasted 60 lines". On send, composeMessage() joins paste texts
+// into the message, so the user bubble contains the full text.
+// Triggering paste: Playwright's clipboard API + keyboard Ctrl+V can be unreliable
+// across environments, so we dispatch a synthetic ClipboardEvent directly on the
+// textarea via page.evaluate, mirroring what a real paste would deliver.
+test("C-7: a large paste collapses to a chip but the full text is still sent", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+  await composer.focus();
+
+  // Build a 60-line string — exceeds the LINE_THRESHOLD of 20.
+  const lines = Array.from({ length: 60 }, (_, i) => `line ${i}`);
+  const big = lines.join("\n");
+
+  // Dispatch a synthetic ClipboardEvent carrying the big text on the textarea.
+  // This replicates exactly what the browser delivers on Ctrl+V; the component's
+  // `onpaste` handler calls e.clipboardData.getData("text/plain") to extract it.
+  await page.evaluate((text) => {
+    const el = document.querySelector("textarea");
+    if (!el) throw new Error("textarea not found");
+    const dt = new DataTransfer();
+    dt.setData("text/plain", text);
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, big);
+
+  // The chip "pasted 60 lines" must appear in the composer area.
+  await expect(page.getByText("pasted 60 lines")).toBeVisible();
+
+  // Send — composeMessage() includes the paste text in the user message.
+  await composer.press("Enter");
+
+  // The user bubble must contain text from the full paste (e.g. the first line).
+  await expect(page.getByText("line 0")).toBeVisible();
+  // The last line must also be present, confirming the full text was sent.
+  await expect(page.getByText("line 59")).toBeVisible();
+});
+
+// C-8: Typing @ opens a file autocomplete (backed by browse_dir) and selecting an
+// entry inserts an @<path> token into the composer.
+// The file menu is a role="listbox" overlay; each entry is role="option".
+// Selecting a non-directory entry calls insertTag(path), writing `@<path> ` into input.
+// The mock browse_dir returns two entries: a dir "src" and a file "README.md".
+// We pick "README.md" (the file), which inserts "@/home/user/project/README.md ".
+// Note: the listbox uses onmousedown (not onclick) with e.preventDefault() to
+// prevent the textarea from blurring before the insertion completes.
+test("C-8: typing @ opens a file autocomplete and inserts the path", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+
+  // Type up to and including `@` — oninput triggers syncMenu → openFileMenu.
+  // Use fill + type so the `@` triggers the input event that opens the file menu.
+  await composer.fill("what is in ");
+  await composer.type("@");
+
+  // The file autocomplete listbox must appear.
+  const fileMenu = page.getByRole("listbox");
+  await expect(fileMenu).toBeVisible();
+
+  // Both seeded entries must be present.
+  await expect(fileMenu.getByRole("option", { name: /README\.md/ })).toBeVisible();
+
+  // Click the file entry (README.md) — this calls insertTag and inserts the @-token.
+  await fileMenu.getByRole("option", { name: /README\.md/ }).click();
+
+  // The listbox must close.
+  await expect(fileMenu).not.toBeVisible();
+
+  // The composer must now contain the @<path> token.
+  await expect(composer).toHaveValue(/\@\/home\/user\/project\/README\.md/);
+});
+
 // C-9: Slash menu lists /new and /clear; selecting /new starts a fresh session.
 // Typing `/` at line start (empty composer) opens the listbox.
 // The menu items are role="option" buttons inside a role="listbox".
