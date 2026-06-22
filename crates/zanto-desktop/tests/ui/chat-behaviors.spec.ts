@@ -50,6 +50,71 @@ test("C-6: copy a reply puts its text on the clipboard", async ({ page, context 
   }
 });
 
+// C-2: Stopping mid-turn keeps the partial reply and shows the Stopped marker.
+// The "partial stop" scenario emits one chunk ("Partial answer so far") then
+// blocks until interrupt_turn is called. Clicking Stop (aria-label="Stop")
+// fires interrupt_turn; the store emits chat_stopped + chat_done so the
+// streaming turn finalises with entry.stopped === true, which MessageList
+// renders as a "Stopped" label after the bubble.
+test("C-2: stopping mid-turn keeps the partial reply and shows the Stopped marker", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("partial stop now");
+  await composer.press("Enter");
+
+  // Wait for the partial text to stream in (turn is now blocked/busy).
+  await expect(page.getByText("Partial answer so far")).toBeVisible();
+
+  // Click Stop — fires interrupt_turn, unblocks the mock, emits chat_stopped.
+  const stopBtn = page.getByRole("button", { name: "Stop" });
+  await expect(stopBtn).toBeVisible();
+  await stopBtn.click();
+
+  // Partial text must still be visible after stopping.
+  await expect(page.getByText("Partial answer so far")).toBeVisible();
+  // The Stopped marker must appear beneath the assistant bubble.
+  await expect(page.getByText("Stopped")).toBeVisible();
+});
+
+// C-3: A message typed while busy is queued and dispatched FIFO after the turn ends.
+// While the "partial stop" turn is blocking, submitting a second message queues it.
+// MessageList renders queued messages as dashed-border chips with the message text.
+// After Stop frees the first turn, send()'s finally dispatches the queued message
+// using the default scenario (it doesn't contain "partial stop"), producing a
+// user bubble and a "Hi there." reply.
+test("C-3: a message typed while busy is queued and dispatched after the turn ends", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("partial stop please");
+  await composer.press("Enter");
+
+  // Wait until the blocking turn is streaming (busy = true).
+  await expect(page.getByText("Partial answer so far")).toBeVisible();
+
+  // Submit a second message while busy — it should queue, not send immediately.
+  await composer.fill("queued follow-up");
+  await composer.press("Enter");
+
+  // The queued message appears as a dashed-border chip in MessageList.
+  // Its text is rendered directly inside the chip span.
+  await expect(page.getByText("queued follow-up")).toBeVisible();
+
+  // Free the first turn by clicking Stop.
+  const stopBtn = page.getByRole("button", { name: "Stop" });
+  await expect(stopBtn).toBeVisible();
+  await stopBtn.click();
+
+  // After the turn ends, send()'s finally dispatches the queued message.
+  // The user bubble "queued follow-up" should now appear in the convo proper
+  // and the default scenario reply ("Hi there.") should follow.
+  await expect(page.getByText("queued follow-up")).toBeVisible();
+  await expect(page.getByText("Hi there.")).toBeVisible();
+});
+
 // C-9: Slash menu lists /new and /clear; selecting /new starts a fresh session.
 // Typing `/` at line start (empty composer) opens the listbox.
 // The menu items are role="option" buttons inside a role="listbox".
