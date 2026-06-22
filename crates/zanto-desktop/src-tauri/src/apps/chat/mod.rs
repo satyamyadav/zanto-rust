@@ -13,6 +13,7 @@ pub struct ChatApp {
 }
 
 impl ChatApp {
+    #[allow(clippy::new_ret_no_self)] // reason: factory returns Arc<dyn App>, not ChatApp
     pub fn new() -> Arc<dyn App> {
         Arc::new(ChatApp {
             manifest: AppManifest {

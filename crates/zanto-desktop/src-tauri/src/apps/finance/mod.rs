@@ -60,6 +60,7 @@ pub struct FinanceApp {
 }
 
 impl FinanceApp {
+    #[allow(clippy::new_ret_no_self)] // reason: factory returns Arc<dyn App>, not FinanceApp
     pub fn new() -> Arc<dyn App> {
         let manifest = AppManifest {
             id: "finance".to_string(),

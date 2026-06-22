@@ -232,12 +232,7 @@ mod tests {
         let mapping = json!({ "date": "Date", "merchant": "Description", "debit": "Debit", "credit": "Credit" });
         let expense = import_row_to_args(
             &headers,
-            &vec![
-                "2026-06-01".into(),
-                "Cafe".into(),
-                "12.50".into(),
-                "".into(),
-            ],
+            &["2026-06-01".into(), "Cafe".into(), "12.50".into(), "".into()],
             &mapping,
             "Checking",
         )
@@ -247,12 +242,7 @@ mod tests {
         assert_eq!(expense["account"], json!("Checking"));
         let income = import_row_to_args(
             &headers,
-            &vec![
-                "2026-06-02".into(),
-                "Payroll".into(),
-                "".into(),
-                "2000".into(),
-            ],
+            &["2026-06-02".into(), "Payroll".into(), "".into(), "2000".into()],
             &mapping,
             "Checking",
         )
@@ -264,14 +254,14 @@ mod tests {
         let h2 = vec!["Date".into(), "Amount".into()];
         let m2 = json!({ "date": "Date", "amount": "Amount" });
         let signed =
-            import_row_to_args(&h2, &vec!["2026-06-03".into(), "-5".into()], &m2, "X").unwrap();
+            import_row_to_args(&h2, &["2026-06-03".into(), "-5".into()], &m2, "X").unwrap();
         assert_eq!(signed["type"], json!("expense"));
         assert_eq!(signed["amount"], json!(5.0));
 
         // A row with no amount is skipped.
         assert!(import_row_to_args(
             &headers,
-            &vec!["2026-06-04".into(), "x".into(), "".into(), "".into()],
+            &["2026-06-04".into(), "x".into(), "".into(), "".into()],
             &mapping,
             "X"
         )
