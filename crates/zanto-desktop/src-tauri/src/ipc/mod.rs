@@ -56,7 +56,7 @@ impl DesktopState {
 /// restores exactly as it rendered live; `stopped` marks an interrupted turn. Both
 /// are `None` for legacy sessions persisted before the segment metadata, where the
 /// frontend falls back to text + `blocks`.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RenderMsg {
     pub role: String,
     pub text: String,
@@ -80,7 +80,7 @@ impl RenderMsg {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ProviderDto {
     pub provider: String,
     pub model: String,
@@ -92,7 +92,7 @@ pub struct ProviderDto {
     pub generation: GenerationParams,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ConfigDto {
     pub model: String,
     pub endpoint: String,

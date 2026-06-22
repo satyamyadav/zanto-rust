@@ -1,8 +1,8 @@
-mod app;
+pub mod app;
 mod apps;
-mod catalogue;
+pub mod catalogue;
 mod interaction;
-mod ipc;
+pub mod ipc;
 
 use std::sync::Arc;
 use tauri::Manager;

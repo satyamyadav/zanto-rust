@@ -114,7 +114,7 @@ pub fn provider_from_id(s: &str) -> Option<Provider> {
 }
 
 /// A registry entry describing a provider for the UI.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProviderInfo {
     pub id: String,
     pub label: String,

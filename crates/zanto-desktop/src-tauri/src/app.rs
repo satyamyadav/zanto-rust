@@ -4,7 +4,7 @@
 //! profile (skill + tools + stores), dispatched via `SharedDispatcher`.
 
 use std::sync::{Arc, Mutex};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zanto_core::chat::{AppResult, GenaiTool};
 use zanto_core::data::DataStore;
@@ -12,7 +12,7 @@ use zanto_core::data::DataStore;
 /// A component an app can render in chat / the right panel. The agent fills `data`
 /// conforming to `schema`; the frontend renders the Svelte component registered
 /// under `id`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComponentDecl {
     pub id: String,
     pub schema: Value,
@@ -20,13 +20,13 @@ pub struct ComponentDecl {
 
 /// A suggested action shown at chat-start (the static NBA flow). Clicking sends
 /// `prompt` as a message.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartAction {
     pub label: String,
     pub prompt: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppManifest {
     pub id: String,
     pub name: String,

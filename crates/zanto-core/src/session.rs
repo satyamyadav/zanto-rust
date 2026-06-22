@@ -61,7 +61,7 @@ pub struct Session {
     pub messages: Vec<ChatMessage>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionMeta {
     pub id: String,
     pub title: String,
