@@ -34,7 +34,9 @@ test("R-3: empty-stop 'Stopped' marker shows live and survives reopen", async ({
   // 4. Open a new session so we can navigate away from the current one.
   //    Click the "New chat" (PlusIcon) button in the sidebar.
   await page.getByRole("button", { name: "New chat" }).click();
-  // Confirm we're on a fresh session (no Stopped marker initially).
+  // Confirm the new-chat view is clean — Stopped marker must be gone before we
+  // reopen, so the subsequent assertion reflects the reloaded session, not lingering DOM.
+  await expect(page.getByText("Stopped")).toHaveCount(0);
   // The sidebar lists "Test session" from the list_sessions fixture.
 
   // 5. Reopen the session via the sidebar. The mock load_session always returns
@@ -68,9 +70,6 @@ test("R-8: /clear is deterministic — clears with content, no-op when empty, ne
   // ── Part A: /clear with content ──────────────────────────────────────────
 
   // Fill the composer then move to the end and type `/` to open the slash menu.
-  await composer.fill("some text");
-  // Append a newline then `/` so the caret is at the start of a new line,
-  // which is what Composer.svelte's regex `^\/[^\s]*$` requires.
   // Simpler: clear and just start with `/` on the first (and only) line.
   await composer.fill("some text");
 
