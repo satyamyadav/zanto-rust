@@ -462,3 +462,53 @@ test("C-12: clicking a link in a reply opens the link preview panel; the app doe
   await page.getByRole("button", { name: "Open in browser" }).click();
   expect(page.url()).toBe(urlBefore);
 });
+
+// C-skill: /skill opens a skill picker and selecting sets the active skill.
+// Typing `/skill` at the start of the empty composer opens the slash menu with
+// the `/skill` entry. Selecting it switches the menu to "skill" mode, which
+// lists the seeded skills (reviewer, researcher). Clicking "reviewer" calls
+// setActiveSkill("reviewer") and shows a "skill: reviewer" chip near the
+// composer. The chip has an aria-label "Active skill: reviewer" for assertion.
+test("C-skill: /skill opens a skill picker and selecting sets the active skill", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const composer = page.getByRole("textbox").first();
+
+  // Type `/skill` at line start — triggers the slash menu.
+  await composer.pressSequentially("/skill");
+
+  const slashMenu = page.getByRole("listbox");
+  await expect(slashMenu).toBeVisible();
+
+  // The /skill entry must appear in the slash menu.
+  const skillEntry = slashMenu.getByRole("option", { name: /\/skill/ });
+  await expect(skillEntry).toBeVisible();
+
+  // Select /skill — switches menu to skill mode with seeded skills.
+  await skillEntry.click();
+
+  // The skill picker (listbox) must reopen in skill mode.
+  await expect(slashMenu).toBeVisible();
+
+  // Both seeded skills must appear in the picker.
+  await expect(slashMenu.getByRole("option", { name: /reviewer/ })).toBeVisible();
+  await expect(slashMenu.getByRole("option", { name: /researcher/ })).toBeVisible();
+
+  // Select "reviewer" by clicking it.
+  await slashMenu.getByRole("option", { name: /reviewer/ }).click();
+
+  // The picker must close.
+  await expect(slashMenu).not.toBeVisible();
+
+  // The active-skill chip must appear near the composer.
+  const skillChip = page.locator('[aria-label="Active skill: reviewer"]');
+  await expect(skillChip).toBeVisible();
+
+  // Clearing the chip removes the active skill indicator.
+  const clearBtn = page.getByRole("button", { name: "Clear active skill" });
+  await expect(clearBtn).toBeVisible();
+  await clearBtn.click();
+  await expect(skillChip).not.toBeVisible();
+});

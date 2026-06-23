@@ -11,11 +11,12 @@
   import FolderIcon from "@lucide/svelte/icons/folder";
   import TerminalIcon from "@lucide/svelte/icons/terminal";
   import LoaderIcon from "@lucide/svelte/icons/loader";
+  import BookOpenIcon from "@lucide/svelte/icons/book-open";
   import { onMount } from "svelte";
   import { sessionStore, send, newSession, interrupt } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
   import { openWorkspace } from "$lib/stores/workspace.svelte";
-  import { ipc, type FileEntry } from "$lib/ipc";
+  import { ipc, type FileEntry, type SkillDto } from "$lib/ipc";
   import FileListItem from "$lib/components/FileListItem.svelte";
 
   // Active-context summary: enabled context sources + the project's base name.
@@ -162,9 +163,9 @@
     }
   }
 
-  // ── Composer menus (@ file-picker / slash commands) ──────────────────────
-  // A single overlay drives both menus; `menu` selects which is active.
-  type Menu = "none" | "file" | "slash";
+  // ── Composer menus (@ file-picker / slash commands / skill picker) ────────
+  // A single overlay drives all menus; `menu` selects which is active.
+  type Menu = "none" | "file" | "slash" | "skill";
 
   // Slash-command registry. `/clear` is always selectable — gating it on
   // "is there something to clear" made typing `/clear` strip its own fragment,
@@ -174,6 +175,7 @@
   const SLASH_COMMANDS = $derived<SlashCommand[]>([
     { name: "new", hint: "Start a new session", run: () => newSession() },
     { name: "clear", hint: "Clear the composer", run: clearInput },
+    { name: "skill", hint: "Select an active skill", run: openSkillMenu },
   ]);
 
   let menu = $state<Menu>("none");
@@ -185,6 +187,9 @@
   let tagStart = -1; // index of the `@` that opened the file menu
   let query = $state(""); // text typed after `@` (or `/`)
   let loadingDir = $state(false); // a directory listing fetch is in flight
+  // Skill-menu state
+  let skills = $state<SkillDto[]>([]);
+  let activeSkillName = $state<string | null>(null); // currently selected skill name
 
   function clearInput() {
     input = "";
@@ -209,7 +214,18 @@
       ? SLASH_COMMANDS.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
       : SLASH_COMMANDS,
   );
-  const itemCount = $derived(menu === "file" ? filteredEntries.length : filteredCommands.length);
+  const filteredSkills = $derived(
+    query
+      ? skills.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
+      : skills,
+  );
+  const itemCount = $derived(
+    menu === "file"
+      ? filteredEntries.length
+      : menu === "skill"
+        ? filteredSkills.length
+        : filteredCommands.length,
+  );
 
   async function loadDir(path?: string) {
     loadingDir = true;
@@ -237,6 +253,18 @@
     query = "";
     dirStack = [];
     await loadDir();
+  }
+
+  async function openSkillMenu() {
+    menu = "skill";
+    active = 0;
+    query = "";
+    try {
+      skills = await ipc.listSkills();
+    } catch (e) {
+      toast.error(`${e}`);
+      closeMenu();
+    }
   }
 
   // Find the `@` that opens a file tag at the caret: the nearest `@` before the
@@ -269,6 +297,14 @@
     }
     if (menu === "slash") {
       closeMenu();
+      return;
+    }
+
+    // Skill menu: open and collecting a filter query — keep query in sync with
+    // whatever the user types until Esc/Enter closes it.
+    if (menu === "skill") {
+      query = input;
+      active = 0;
       return;
     }
 
@@ -329,6 +365,22 @@
     queueFocus(lineStart);
   }
 
+  async function selectSkill(skill: SkillDto) {
+    try {
+      await ipc.setActiveSkill(skill.name);
+      activeSkillName = skill.name;
+    } catch (e) {
+      toast.error(`${e}`);
+    }
+    closeMenu();
+    queueMicrotask(() => textarea?.focus());
+  }
+
+  function clearActiveSkill() {
+    ipc.setActiveSkill(null).catch((e) => toast.error(`${e}`));
+    activeSkillName = null;
+  }
+
   function queueFocus(pos: number) {
     queueMicrotask(() => {
       const el = textarea;
@@ -345,6 +397,9 @@
     } else if (menu === "slash") {
       const c = filteredCommands[active];
       if (c) runCommand(c);
+    } else if (menu === "skill") {
+      const s = filteredSkills[active];
+      if (s) selectSkill(s);
     }
   }
 
@@ -448,6 +503,23 @@
       <span class="text-primary" aria-hidden="true">◇</span>
       {contextLabel}
     </button>
+    {#if activeSkillName}
+      <span
+        class="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+        aria-label="Active skill: {activeSkillName}"
+      >
+        <BookOpenIcon class="size-3" />
+        skill: {activeSkillName}
+        <button
+          type="button"
+          onclick={clearActiveSkill}
+          aria-label="Clear active skill"
+          class="rounded hover:text-foreground"
+        >
+          <XIcon class="size-3" />
+        </button>
+      </span>
+    {/if}
     {#if attachments.length > 0}
       <span class="text-xs text-muted-foreground">
         {attachments.length} attached
@@ -467,6 +539,13 @@
             >
               <FolderIcon class="size-3.5 shrink-0" />
               <span class="truncate font-mono">{dirStack.length > 0 ? dirStack[dirStack.length - 1] : "Allowed roots"}</span>
+            </div>
+          {:else if menu === "skill"}
+            <div
+              class="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground border-b border-border"
+            >
+              <BookOpenIcon class="size-3.5 shrink-0" />
+              <span>Select a skill</span>
             </div>
           {/if}
           <div class="max-h-64 overflow-y-auto p-1">
@@ -503,6 +582,29 @@
                 <div class="px-2 py-1.5 text-sm text-muted-foreground">No matches</div>
               {/each}
               {/if}
+            {:else if menu === "skill"}
+              {#each filteredSkills as s, i (s.name)}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={i === active}
+                  class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-hidden {i ===
+                  active
+                    ? 'bg-accent text-accent-foreground'
+                    : ''}"
+                  onmousedown={(ev) => {
+                    ev.preventDefault();
+                    selectSkill(s);
+                  }}
+                  onmousemove={() => (active = i)}
+                >
+                  <BookOpenIcon class="size-4 shrink-0 text-muted-foreground" />
+                  <span class="font-mono font-medium">{s.name}</span>
+                  <span class="ml-auto truncate text-xs text-muted-foreground">{s.preview}</span>
+                </button>
+              {:else}
+                <div class="px-2 py-1.5 text-sm text-muted-foreground">No skills found</div>
+              {/each}
             {:else}
               {#each filteredCommands as c, i (c.name)}
                 <button
