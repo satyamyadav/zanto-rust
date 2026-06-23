@@ -35,7 +35,7 @@ impl ToolService {
     pub fn with_project_dir(permissions: Arc<PermissionGuard>, project_dir: Option<&Path>) -> Self {
         let store = Arc::new(ArtifactStore::new(project_dir));
         Self {
-            fs: fs::FsTools::new(Arc::clone(&permissions)),
+            fs: fs::FsTools::new(Arc::clone(&permissions), project_dir.map(Path::to_path_buf)),
             docs: docs::DocTools::new(Arc::clone(&permissions)),
             shell: shell::ShellTools::new(permissions),
             artifacts: artifacts::ArtifactTools::new(store),

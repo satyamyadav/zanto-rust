@@ -34,9 +34,10 @@ impl ToolBase for SearchFiles {
 
 impl AsyncTool<super::FsTools> for SearchFiles {
     async fn invoke(svc: &super::FsTools, args: Args) -> Result<String, ErrorData> {
+        let input = svc.resolve_input(&args.path);
         let resolved = svc
             .permissions
-            .check(&args.path, Op::Read)
+            .check(&input, Op::Read)
             .await
             .map_err(|e| ErrorData::internal_error(e, None))?;
 

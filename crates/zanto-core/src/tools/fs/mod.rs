@@ -12,16 +12,39 @@ use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ListToolsResult, PaginatedRequestParams};
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct FsTools {
     pub permissions: Arc<PermissionGuard>,
+    project_dir: Option<PathBuf>,
 }
 
 impl FsTools {
-    pub fn new(permissions: Arc<PermissionGuard>) -> Self {
-        Self { permissions }
+    pub fn new(permissions: Arc<PermissionGuard>, project_dir: Option<PathBuf>) -> Self {
+        Self {
+            permissions,
+            project_dir,
+        }
+    }
+
+    /// Resolve a model-supplied path for the working-directory model: a relative
+    /// path joins onto `project_dir` (when set); absolute and `~`-prefixed paths
+    /// are returned unchanged (the permission layer expands `~` and canonicalizes).
+    /// With no `project_dir`, the path is returned unchanged (resolved against cwd
+    /// downstream, as before).
+    pub fn resolve_input(&self, path: &str) -> String {
+        match &self.project_dir {
+            Some(base) if !path.starts_with('~') && Path::new(path).is_relative() => {
+                if path == "." || path == "./" {
+                    base.to_string_lossy().into_owned()
+                } else {
+                    base.join(path).to_string_lossy().into_owned()
+                }
+            }
+            _ => path.to_string(),
+        }
     }
 
     pub(super) fn tool_router() -> ToolRouter<Self> {
@@ -110,4 +133,40 @@ pub(super) fn owns(name: &str) -> bool {
         || name == read_file::ReadFile::name().as_ref()
         || name == search_files::SearchFiles::name().as_ref()
         || name == write_file::WriteFile::name().as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Settings;
+    use crate::permissions::{ApprovalResponse, Approver, PermissionGuard};
+
+    struct PanicApprover;
+    #[async_trait::async_trait]
+    impl Approver for PanicApprover {
+        async fn confirm(&self, _: &str, _: &str, _: &str) -> ApprovalResponse {
+            panic!("approver should not have been called");
+        }
+    }
+
+    fn make_guard() -> Arc<PermissionGuard> {
+        let settings = Settings {
+            allow_read_outside: true,
+            allow_write_outside: true,
+            ..Default::default()
+        };
+        Arc::new(PermissionGuard::new(&settings, PanicApprover))
+    }
+
+    #[test]
+    fn resolve_input_joins_relative_under_project_dir() {
+        let perms = make_guard();
+        let fs = FsTools::new(Arc::clone(&perms), Some(PathBuf::from("/proj")));
+        assert_eq!(fs.resolve_input("src/main.rs"), "/proj/src/main.rs");
+        assert_eq!(fs.resolve_input("."), "/proj");
+        assert_eq!(fs.resolve_input("/etc/hosts"), "/etc/hosts");
+        assert_eq!(fs.resolve_input("~/notes.md"), "~/notes.md");
+        let fs_none = FsTools::new(perms, None);
+        assert_eq!(fs_none.resolve_input("src/main.rs"), "src/main.rs");
+    }
 }
