@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ipc, type FileEntry } from "$lib/ipc";
   import { Button } from "$lib/components/ui/button";
+  import FileListItem from "$lib/components/FileListItem.svelte";
   import { toast } from "svelte-sonner";
   import {
     Folder,
@@ -257,7 +258,7 @@
                     onclick={() => openDir(d)}
                   >
                     <Folder class="size-4 text-muted-foreground" />
-                    <span class="min-w-0 flex-1 truncate font-mono">{d.name}</span>
+                    <FileListItem name={d.name} path={d.path} isDir={true} />
                     <span class="text-xs text-muted-foreground">Folder</span>
                   </button>
                 </li>
@@ -270,7 +271,7 @@
                     onclick={() => pickFile(f)}
                   >
                     <FileText class="size-4 text-muted-foreground" />
-                    <span class="min-w-0 flex-1 truncate font-mono">{f.name}</span>
+                    <FileListItem name={f.name} path={f.path} isDir={false} />
                     <span class="text-xs text-muted-foreground">Select</span>
                   </button>
                 </li>

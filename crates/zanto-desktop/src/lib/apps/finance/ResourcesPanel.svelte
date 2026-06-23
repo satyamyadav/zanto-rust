@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { ipc, type FileEntry } from "$lib/ipc";
+  import FileListItem from "$lib/components/FileListItem.svelte";
   import { send } from "$lib/stores/session.svelte";
   import { Button } from "$lib/components/ui/button";
   import { Textarea } from "$lib/components/ui/textarea";
@@ -118,7 +119,7 @@
             onclick={() => openDir(d)}
           >
             <Folder class="size-4 text-muted-foreground" />
-            <span class="min-w-0 flex-1 truncate font-mono">{d.name}</span>
+            <FileListItem name={d.name} path={d.path} isDir={true} />
             <span class="text-xs text-muted-foreground">Folder</span>
           </button>
         </li>
@@ -126,7 +127,7 @@
       {#each files as f (f.path)}
         <li class="flex items-center gap-2 px-3 py-2 text-sm">
           <FileText class="size-4 text-muted-foreground" />
-          <span class="min-w-0 flex-1 truncate font-mono">{f.name}</span>
+          <FileListItem name={f.name} path={f.path} isDir={false} />
           <span class="font-mono text-xs text-muted-foreground">{kind(f.name)}</span>
           <Button variant="outline" size="xs" onclick={() => attach(f)}>
             <Paperclip /> Attach to chat

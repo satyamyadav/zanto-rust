@@ -16,6 +16,7 @@
   import { appStore } from "$lib/stores/app.svelte";
   import { openWorkspace } from "$lib/stores/workspace.svelte";
   import { ipc, type FileEntry } from "$lib/ipc";
+  import FileListItem from "$lib/components/FileListItem.svelte";
 
   // Active-context summary: enabled context sources + the project's base name.
   // Opens the Workspace dialog so it's obvious what's feeding the agent.
@@ -496,7 +497,7 @@
                   {:else}
                     <FileIcon class="size-4 shrink-0 text-muted-foreground" />
                   {/if}
-                  <span class="truncate font-mono">{e.name}</span>
+                  <FileListItem name={e.name} path={e.path} isDir={e.isDir} />
                 </button>
               {:else}
                 <div class="px-2 py-1.5 text-sm text-muted-foreground">No matches</div>

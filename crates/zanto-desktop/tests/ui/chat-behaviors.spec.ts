@@ -246,6 +246,9 @@ test("C-8: typing @ opens a file autocomplete and inserts the path", async ({ pa
   // Both seeded entries must be present.
   await expect(fileMenu.getByRole("option", { name: /README\.md/ })).toBeVisible();
 
+  // Each entry must show its absolute path subtitle.
+  await expect(page.getByText("/home/user/project/README.md", { exact: false })).toBeVisible();
+
   // Click the file entry (README.md) — this calls insertTag and inserts the @-token.
   await fileMenu.getByRole("option", { name: /README\.md/ }).click();
 
