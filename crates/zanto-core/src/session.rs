@@ -860,12 +860,17 @@ fn format_epoch_ymd_hm(secs: u64) -> String {
 
 /// Short single-line system-info block: OS, arch, cwd, shell, today's date.
 /// Pure function — reads env/cwd/clock, mutates nothing.
-pub fn system_info() -> String {
+/// When `cwd_override` is `Some`, uses it for the `cwd:` field; otherwise
+/// falls back to `std::env::current_dir()`.
+pub fn system_info(cwd_override: Option<&std::path::Path>) -> String {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
-    let cwd = std::env::current_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "?".to_string());
+    let cwd = match cwd_override {
+        Some(p) => p.display().to_string(),
+        None => std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "?".to_string()),
+    };
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "?".to_string());
     // Date portion ("YYYY-MM-DD") of the current local-naive timestamp.
     let date: String = format_ts_display(unix_now()).chars().take(10).collect();
@@ -1404,12 +1409,18 @@ mod tests {
 
     #[test]
     fn system_info_is_non_empty_and_dated() {
-        let info = system_info();
+        let info = system_info(None);
         assert!(!info.is_empty());
         let date: String = format_ts_display(unix_now()).chars().take(10).collect();
         assert!(
             info.contains(&date),
             "info {info:?} should contain date {date}"
         );
+    }
+
+    #[test]
+    fn system_info_uses_project_dir_as_cwd() {
+        let info = system_info(Some(std::path::Path::new("/home/me/proj")));
+        assert!(info.contains("cwd: /home/me/proj"), "got {info:?}");
     }
 }

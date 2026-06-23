@@ -352,7 +352,7 @@ pub async fn chat(
 
     let system_text = build_system_prompt(
         BASE_SYSTEM_PROMPT,
-        &crate::session::system_info(),
+        &crate::session::system_info(config.project_dir.as_deref()),
         config.context.as_deref(),
         config.skill.as_deref(),
     );
