@@ -407,6 +407,25 @@ test("C-11: scrolling to the top loads older messages and preserves position", a
 //   - "Copy link" button → navigator.clipboard.writeText
 //   - "Close" button (title="Close") to dismiss
 // page.url() must remain unchanged throughout (the webview never navigated).
+// C-13: User bubble carries data-role="user" so the CSS rule
+// `[data-role="user"] .prose-zanto a { color: var(--primary-foreground) }`
+// can target links inside it without affecting assistant-bubble links (#8).
+// User messages rarely produce rendered markdown links in practice (links
+// come from the assistant), so this is primarily a visual fix. We assert the
+// DOM hook deterministically: the user bubble wrapper has data-role="user".
+test("C-13: user bubble wrapper carries data-role=user for link-contrast CSS (#8)", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("hello");
+  await composer.press("Enter");
+
+  // The user message bubble wrapper must expose data-role="user".
+  const userBubble = page.locator('[data-role="user"]');
+  await expect(userBubble).toBeVisible();
+});
+
 test("C-12: clicking a link in a reply opens the link preview panel; the app does not navigate", async ({
   page,
   context,

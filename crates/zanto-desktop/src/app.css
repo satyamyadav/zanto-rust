@@ -213,6 +213,12 @@ html[data-density="relaxed"] { font-size: 17.5px; }
   text-underline-offset: 2px;
   text-decoration: underline;
 }
+/* #8: links inside the user bubble sit on bg-primary, so var(--primary) is
+   invisible. Override to the bubble's foreground color for legibility. */
+[data-role="user"] .prose-zanto a {
+  color: var(--primary-foreground);
+  text-decoration: underline;
+}
 .prose-zanto code {
   font-family: var(--font-mono);
   font-size: 0.85em;

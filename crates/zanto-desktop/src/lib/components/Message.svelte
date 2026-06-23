@@ -226,6 +226,7 @@
 {#if entry.role === "user"}
   <div class="flex justify-end">
     <div
+      data-role="user"
       class="flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm"
     >
       {#each items as item, i (i)}
