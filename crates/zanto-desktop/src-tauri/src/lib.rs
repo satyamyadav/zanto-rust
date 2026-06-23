@@ -56,6 +56,12 @@ pub fn run() {
             // and agent `ask` forms. Shared by the permission guard and dispatcher.
             let interactor = TauriInteractor::new(app.handle().clone());
             let permissions = Arc::new(PermissionGuard::new(&settings, interactor.clone()));
+            // Auto-allow the saved project directory so a returning session
+            // doesn't re-prompt for reads inside it. `set_project_dir` already
+            // does this when the dir is changed live; this covers app restart.
+            if let Some(p) = settings.project_dir_path() {
+                permissions.add_allowed(&p.to_string_lossy());
+            }
 
             let store = Store::open().expect("open sessions DB");
             let data = Arc::new(DataStore::open(WORKSPACE).expect("open data engine"));

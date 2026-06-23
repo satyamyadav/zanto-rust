@@ -1042,4 +1042,73 @@ mod tests {
         let s: Settings = serde_json::from_str("{}").unwrap();
         assert!(s.generation.temperature.is_none());
     }
+
+    // B4: verify that context_sources and project_dir persisted to a settings
+    // file are returned by load_file (the same read path used by
+    // load_project_settings in the desktop IPC layer and by Settings::load).
+    // This ensures get_config sees the latest state after any mutation.
+    #[test]
+    fn context_sources_and_project_dir_round_trip_via_load_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+
+        let original = Settings {
+            project_dir: Some("/home/user/myproject".to_string()),
+            context_sources: vec![
+                ContextSource {
+                    path: "/home/user/notes.md".to_string(),
+                    enabled: true,
+                },
+                ContextSource {
+                    path: "/home/user/refs".to_string(),
+                    enabled: false,
+                },
+            ],
+            ..Default::default()
+        };
+
+        // Simulate what the IPC mutations (add_context_source / set_project_dir)
+        // do: serialize via serde_json and write to disk.
+        let content = serde_json::to_string_pretty(&original).unwrap();
+        std::fs::write(&path, content).unwrap();
+
+        // Simulate what load_project_settings (and Settings::load_file) does:
+        // deserialize the file and return the settings.
+        let loaded = Settings::load_file(path).expect("load_file should succeed");
+
+        assert_eq!(
+            loaded.project_dir.as_deref(),
+            Some("/home/user/myproject"),
+            "project_dir must survive persist + read"
+        );
+        assert_eq!(
+            loaded.context_sources.len(),
+            2,
+            "both context sources must be present"
+        );
+        assert_eq!(loaded.context_sources[0].path, "/home/user/notes.md");
+        assert!(loaded.context_sources[0].enabled);
+        assert_eq!(loaded.context_sources[1].path, "/home/user/refs");
+        assert!(!loaded.context_sources[1].enabled);
+    }
+
+    // B2: project_dir_path() converts the stored string to a PathBuf so startup
+    // code can pass it to permissions.add_allowed.
+    #[test]
+    fn project_dir_path_returns_pathbuf_when_set() {
+        let s = Settings {
+            project_dir: Some("/tmp/myproject".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            s.project_dir_path(),
+            Some(std::path::PathBuf::from("/tmp/myproject"))
+        );
+    }
+
+    #[test]
+    fn project_dir_path_returns_none_when_unset() {
+        let s = Settings::default();
+        assert_eq!(s.project_dir_path(), None);
+    }
 }

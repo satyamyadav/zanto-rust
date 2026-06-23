@@ -138,6 +138,11 @@ async fn main() {
     };
 
     let permissions = Arc::new(PermissionGuard::new(&settings, StdinApprover));
+    // Auto-allow the saved project directory so a returning session doesn't
+    // re-prompt for reads inside it (mirrors desktop startup behaviour).
+    if let Some(p) = settings.project_dir_path() {
+        permissions.add_allowed(&p.to_string_lossy());
+    }
     let store = match Store::open() {
         Ok(s) => s,
         Err(e) => {
