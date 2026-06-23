@@ -255,7 +255,7 @@ pub async fn chat(
     // configured host. Build the override Endpoint once (it is `Arc<str>`-backed,
     // so cloning it into each resolver call is cheap) — no `'static` leak needed.
     let endpoint_override = (provider == Provider(AdapterKind::Ollama))
-        .then(|| Endpoint::from_owned(config.endpoint.clone()));
+        .then(|| Endpoint::from_owned(config::normalize_endpoint(&config.endpoint)));
     let target_resolver = ServiceTargetResolver::from_resolver_fn(
         move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
             match &endpoint_override {

@@ -83,7 +83,12 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
             new_providers.push(ProviderConfig {
                 provider: p,
                 model: pp.model,
-                endpoint: pp.endpoint,
+                // Canonicalize the stored base URL (trim + trailing slash) so the
+                // persisted/displayed value matches what genai needs.
+                endpoint: pp
+                    .endpoint
+                    .map(|e| zanto_core::config::normalize_endpoint(&e))
+                    .filter(|e| !e.is_empty()),
                 generation: pp.generation,
             });
         }
@@ -104,7 +109,11 @@ pub fn set_config(state: State<'_, DesktopState>, patch: ConfigPatch) -> Result<
     // active-provider values (which may be None for endpoint — leave None as
     // None rather than collapsing to "" to avoid persisting an empty base URL).
     let effective_model = patch.model.clone().unwrap_or(active_model);
-    let effective_endpoint = patch.endpoint.clone().or(active_endpoint);
+    let effective_endpoint = patch
+        .endpoint
+        .clone()
+        .or(active_endpoint)
+        .map(|e| zanto_core::config::normalize_endpoint(&e));
 
     *state.model.lock().unwrap() = effective_model.clone();
     *state.endpoint.lock().unwrap() = effective_endpoint.clone().unwrap_or_default();

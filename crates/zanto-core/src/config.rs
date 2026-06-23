@@ -572,6 +572,23 @@ impl Settings {
     }
 }
 
+/// Normalize a base endpoint URL for genai: trim surrounding whitespace and
+/// ensure exactly one trailing `/`. genai joins relative request paths onto the
+/// base URL, so a missing trailing slash produces an invalid request that
+/// reqwest rejects at build time ("builder error") — every call then fails even
+/// though the host is reachable. A blank string stays blank (meaning "use the
+/// provider default endpoint").
+pub fn normalize_endpoint(endpoint: &str) -> String {
+    let trimmed = endpoint.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else if trimmed.ends_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/")
+    }
+}
+
 // ---- Model listing ----
 
 /// List model names a provider exposes, using the saved key/endpoint.
@@ -651,6 +668,29 @@ pub fn has_api_key(p: Provider) -> bool {
 mod tests {
     use super::*;
     use genai::adapter::AdapterKind;
+
+    #[test]
+    fn normalize_endpoint_ensures_single_trailing_slash() {
+        // genai joins relative paths onto the base URL, so a missing trailing
+        // slash yields an invalid request (reqwest "builder error"). Normalize.
+        assert_eq!(
+            normalize_endpoint("http://192.168.1.66:11434"),
+            "http://192.168.1.66:11434/"
+        );
+        // Idempotent when already correct.
+        assert_eq!(
+            normalize_endpoint("http://192.168.1.66:11434/"),
+            "http://192.168.1.66:11434/"
+        );
+        // Surrounding whitespace is trimmed.
+        assert_eq!(
+            normalize_endpoint("  http://host:11434  "),
+            "http://host:11434/"
+        );
+        // Empty/blank stays empty (means "use the provider default").
+        assert_eq!(normalize_endpoint(""), "");
+        assert_eq!(normalize_endpoint("   "), "");
+    }
 
     #[test]
     fn provider_serde_roundtrips_lower_str() {
