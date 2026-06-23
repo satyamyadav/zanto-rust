@@ -1,5 +1,5 @@
 import type {
-  Config, AppManifest, ArtifactDef, SessionMeta, ChatTurn,
+  Config, AppManifest, ArtifactDef, SessionMeta, ChatTurn, SkillDto,
 } from "$lib/ipc";
 import { emit } from "./event";
 import { defaultScenario, pickScenario } from "./scenarios";
@@ -13,6 +13,7 @@ import listPinnedFx from "../../../contract/fixtures/list_pinned_artifacts.json"
 import loadSessionFx from "../../../contract/fixtures/load_session.json";
 
 let interrupted = false;
+let activeSkill: string | null = null;
 let interruptResolve: (() => void) | null = null;
 let errorArmed = true;
 let pinned: any[] = listPinnedFx.response.slice();
@@ -107,6 +108,12 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
     { name: "README.md", path: "/home/user/project/README.md", isDir: false },
   ],
   add_allowed_path: async (): Promise<void> => undefined,
+  list_skills: async (): Promise<SkillDto[]> => [
+    { name: "reviewer", preview: "Review code for bugs and clarity." },
+    { name: "researcher", preview: "Find and cite sources." },
+  ],
+  set_active_skill: async (a: { name: string | null }): Promise<void> => { activeSkill = a?.name ?? null; },
+  respond: async (_a: { requestId: string; value: unknown }): Promise<void> => {},
 };
 
 // Note: mock state (interrupted/errorArmed/pinned/nextPinId) resets naturally — each Playwright test loads a fresh page, re-evaluating this module.

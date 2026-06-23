@@ -86,6 +86,20 @@ export const scenarios: Scenario[] = [
       { event: "chat_chunk", payload: { text: "See https://example.com for details." } },
       { event: "chat_done", payload: null },
     ], response: { blocks: [{ kind: "markdown", text: "See https://example.com for details." }] } },
+  // hitl form: emits an interaction_request (kind "form") so HitlForm renders.
+  // Resolves with empty blocks; the respond mock handler records the submission.
+  { trigger: "hitl form", events: [
+      { event: "interaction_request", payload: {
+          id: "req-1",
+          kind: "form",
+          title: "Tell me about your project",
+          steps: [
+            { fields: [{ name: "name", label: "Project name", type: "text" }] },
+            { fields: [{ name: "lang", label: "Language", type: "select", options: ["rust", "ts"] }] },
+          ],
+        } },
+      { event: "chat_done", payload: null },
+    ], response: { blocks: [] } },
 ];
 
 /** Pick the first scenario whose trigger is a case-insensitive substring of the message, else default. */
