@@ -66,7 +66,9 @@
       <Block block={sessionStore.canvas} canPin={false} />
     </div>
   {:else if appStore.activeId === "finance"}
-    <Dashboard />
+    <div class="h-full min-h-0 overflow-y-auto">
+      <Dashboard />
+    </div>
   {:else}
     <div class="flex h-full items-center justify-center p-6">
       <div class="max-w-xs text-center font-sans">

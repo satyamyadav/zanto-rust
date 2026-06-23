@@ -262,7 +262,7 @@
   // Active tab gets the amber primary indicator; the rest are quiet.
   function tabClass(active: boolean): string {
     return [
-      "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+      "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
       active
         ? "bg-background text-foreground shadow-sm ring-1 ring-primary"
         : "text-muted-foreground hover:text-foreground",
@@ -322,7 +322,7 @@
         <div
           role="tablist"
           aria-label="Finance views"
-          class="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-0.5"
+          class="inline-flex items-center gap-1 overflow-x-auto rounded-lg border border-border bg-muted/40 p-0.5"
         >
           <button
             type="button"

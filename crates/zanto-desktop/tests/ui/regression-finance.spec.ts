@@ -52,3 +52,33 @@ test("R-6: monthly_summary renders inline as a block, no tool-call card", async 
   //    the count across the whole page — "monthly_summary" must not appear as visible text.
   await expect(page.getByText("monthly_summary")).toHaveCount(0);
 });
+
+// #11 + #13: canvas panel scrolls vertically; finance tablist scrolls horizontally.
+//
+// After switching to Finance the canvas panel hosts the Dashboard. Assert computed
+// overflow styles on the two containers without needing real overflow (deterministic).
+test("#11/#13: canvas vertical scroll + finance tablist horizontal scroll", async ({ page }) => {
+  await page.goto("/");
+
+  // Switch to Finance so the canvas panel renders <Dashboard />.
+  const financeBtn = page.getByRole("button", { name: "Finance" });
+  await expect(financeBtn).toBeVisible();
+  await financeBtn.click();
+  await expect(financeBtn).toBeEnabled();
+
+  // #11: the canvas scroll container wraps <Dashboard /> inside Canvas.svelte.
+  //      It carries the Tailwind class "overflow-y-auto" (applied in the fix).
+  //      Use the CSS class selector — it is unique in the canvas branch.
+  const canvasScroll = page.locator(".overflow-y-auto").first();
+  const canvasOverflowY = await canvasScroll.evaluate(
+    (el) => getComputedStyle(el).overflowY,
+  );
+  expect(["auto", "scroll"]).toContain(canvasOverflowY);
+
+  // #13: the finance tab bar uses role="tablist". Assert its overflowX.
+  const tablist = page.locator("[role=tablist]");
+  const tabsOverflowX = await tablist.evaluate(
+    (el) => getComputedStyle(el).overflowX,
+  );
+  expect(["auto", "scroll"]).toContain(tabsOverflowX);
+});
