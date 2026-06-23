@@ -163,6 +163,10 @@ pub struct ChatConfig {
     /// Optional project root for artifact scoping. When `None`, artifact tools
     /// operate without a project scope. Set from the loaded settings' `project_dir`.
     pub project_dir: Option<std::path::PathBuf>,
+    /// Optional metadata to attach to the user message when it is persisted.
+    /// Used by the desktop to carry attachment metadata (`attachments` array) so
+    /// it survives reopening the session. `None` means no extra metadata written.
+    pub user_metadata: Option<serde_json::Value>,
 }
 
 impl ChatConfig {
@@ -181,6 +185,7 @@ impl ChatConfig {
             images: Vec::new(),
             generation: crate::config::GenerationParams::default(),
             project_dir: None,
+            user_metadata: None,
         }
     }
 }
@@ -311,7 +316,7 @@ pub async fn chat(
         }
         ChatMessage::user(MessageContent::from_parts(parts))
     };
-    push_msg(store, session, user_msg).await?;
+    push_msg_meta(store, session, user_msg, config.user_metadata.as_ref()).await?;
 
     // Running-summary trigger: once per turn, fold the history that falls outside
     // the live window into the session's stored summary so `effective_messages` can

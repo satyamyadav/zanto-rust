@@ -1284,6 +1284,58 @@ mod tests {
     }
 
     #[test]
+    fn attachment_metadata_survives_round_trip() {
+        // Verifies that attachment metadata written via append_message_meta is
+        // faithfully recovered by load_message_meta and that display_messages_meta
+        // exposes it in the third element of each tuple (so RenderMsg::from_meta can
+        // extract it). This is the keystone contract for finding #7.
+        let (store, _dir) = temp_store();
+        let mut s = make_session("/ws");
+        store.save_session(&s).unwrap();
+
+        // Simulate what send_message does: user message with attachment metadata.
+        let attachment_meta = serde_json::json!({
+            "attachments": [
+                { "path": "/home/user/photo.png", "name": "photo.png", "is_image": true }
+            ]
+        });
+        let user_msg = ChatMessage::user("here is an image");
+        let pos = s.messages.len();
+        s.messages.push(user_msg.clone());
+        store
+            .append_message_meta(&s.id, pos, &user_msg, Some(&attachment_meta))
+            .unwrap();
+
+        let assistant_msg = ChatMessage::assistant("nice photo");
+        let pos2 = s.messages.len();
+        s.messages.push(assistant_msg.clone());
+        store.append_message(&s.id, pos2, &assistant_msg).unwrap();
+
+        // Round-trip: load metadata and check the attachments survive.
+        let loaded_meta = store.load_message_meta(&s.id).unwrap();
+        assert_eq!(loaded_meta.len(), 2);
+        let user_meta = loaded_meta[0].as_ref().expect("user message must have metadata");
+        let attachments = user_meta
+            .get("attachments")
+            .expect("attachments key must be present");
+        let arr = attachments.as_array().expect("attachments must be an array");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["path"], "/home/user/photo.png");
+        assert_eq!(arr[0]["name"], "photo.png");
+        assert_eq!(arr[0]["is_image"], true);
+        // Assistant message has no metadata.
+        assert!(loaded_meta[1].is_none());
+
+        // display_messages_meta passes the metadata through as the third tuple element.
+        let display = s.display_messages_meta(&loaded_meta);
+        assert_eq!(display.len(), 2);
+        let (role, _text, meta) = &display[0];
+        assert_eq!(role, "user");
+        let meta = meta.as_ref().expect("user display entry must carry metadata");
+        assert!(meta.get("attachments").is_some());
+    }
+
+    #[test]
     fn display_messages_meta_aligns_and_keeps_blocks_only_turn() {
         let mut s = make_session("/ws");
         // system (skipped), user, assistant-with-text, blocks-only assistant (empty

@@ -135,13 +135,23 @@ export type PersistedSegment =
 // `segments` carries the full ordered display-segment list of an assistant turn
 // (reasoning/tool_call/block/text) so it restores exactly as it rendered live;
 // `stopped` marks an interrupted turn. Both are absent for legacy sessions, where
-// the reopen path falls back to text + `blocks`.
+// the reopen path falls back to text + `blocks`. `attachments` carries any image
+// or file attachments on a user message (empty/absent for legacy sessions and
+// assistant messages — backward compatible). JSON key casing matches the Rust
+// serde field: `is_image` (snake_case).
+export type AttachmentMeta = {
+  path: string;
+  name: string;
+  is_image: boolean;
+};
+
 export type RenderMsg = {
   role: "user" | "assistant";
   text: string;
   blocks?: { blocks: ChatBlock[] } | null;
   segments?: PersistedSegment[] | null;
   stopped?: boolean | null;
+  attachments?: AttachmentMeta[];
 };
 
 // A filesystem entry from `browse_dir` (B1). `path = undefined` lists the

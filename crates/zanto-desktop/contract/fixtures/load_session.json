@@ -1,7 +1,16 @@
 {
   "request": { "id": "sess-test-0001" },
   "response": [
-    { "role": "user", "text": "write me a long essay", "blocks": null, "segments": null, "stopped": null },
+    {
+      "role": "user",
+      "text": "write me a long essay",
+      "blocks": null,
+      "segments": null,
+      "stopped": null,
+      "attachments": [
+        { "path": "/home/user/photo.png", "name": "photo.png", "is_image": true }
+      ]
+    },
     { "role": "assistant", "text": "", "blocks": null, "segments": [], "stopped": true }
   ]
 }

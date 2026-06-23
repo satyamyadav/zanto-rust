@@ -49,13 +49,23 @@ impl DesktopState {
     }
 }
 
+/// A single file attachment carried on a user message. Persisted in the
+/// per-message metadata JSON under `"attachments"`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct AttachmentMeta {
+    pub path: String,
+    pub name: String,
+    pub is_image: bool,
+}
+
 /// A past message rendered for the chat thread. `blocks` carries the persisted
 /// per-message metadata (D1: `{"blocks":[<Component ...>]}`) when present, so a
 /// reopened thread restores artifacts, not just text. `segments` carries the full
 /// ordered display-segment list (reasoning/tool_call/block/text) for a turn so it
 /// restores exactly as it rendered live; `stopped` marks an interrupted turn. Both
 /// are `None` for legacy sessions persisted before the segment metadata, where the
-/// frontend falls back to text + `blocks`.
+/// frontend falls back to text + `blocks`. `attachments` carries any image/file
+/// attachments on a user message, empty when absent (backward compatible).
 #[derive(Serialize, Deserialize)]
 pub struct RenderMsg {
     pub role: String,
@@ -63,12 +73,15 @@ pub struct RenderMsg {
     pub blocks: Option<serde_json::Value>,
     pub segments: Option<serde_json::Value>,
     pub stopped: Option<bool>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentMeta>,
 }
 
 impl RenderMsg {
     /// Build a `RenderMsg` from a `display_messages_meta` triple, decoding the
-    /// `segments` and `stopped` fields out of the raw per-message metadata. The
-    /// raw metadata is still carried in `blocks` for the back-compat path.
+    /// `segments`, `stopped`, and `attachments` fields out of the raw per-message
+    /// metadata. The raw metadata is still carried in `blocks` for the back-compat
+    /// path.
     pub fn from_meta(role: String, text: String, meta: Option<serde_json::Value>) -> Self {
         let segments = meta
             .as_ref()
@@ -79,12 +92,18 @@ impl RenderMsg {
             .as_ref()
             .and_then(|m| m.get("stopped"))
             .and_then(|s| s.as_bool());
+        let attachments: Vec<AttachmentMeta> = meta
+            .as_ref()
+            .and_then(|m| m.get("attachments"))
+            .and_then(|a| serde_json::from_value(a.clone()).ok())
+            .unwrap_or_default();
         RenderMsg {
             role,
             text,
             blocks: meta,
             segments,
             stopped,
+            attachments,
         }
     }
 }

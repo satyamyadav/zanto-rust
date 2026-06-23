@@ -1,6 +1,6 @@
 //! `send_message` — runs a chat turn in the active app's context.
 
-use super::DesktopState;
+use super::{AttachmentMeta, DesktopState};
 use crate::catalogue::{shared_tools, SharedDispatcher};
 use crate::interaction::TauriSink;
 use base64::Engine;
@@ -146,6 +146,30 @@ pub async fn send_message(
         }
     }
 
+    // Build attachment metadata from image_paths so it persists across reopen.
+    // Document attachments arrive as @path tokens in the text — only separately-
+    // threaded image_paths are available here, so doc attachments are not covered.
+    let user_metadata: Option<serde_json::Value> = if image_paths.is_empty() {
+        None
+    } else {
+        let attachments: Vec<AttachmentMeta> = image_paths
+            .iter()
+            .map(|p| {
+                let name = Path::new(p)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(p)
+                    .to_string();
+                AttachmentMeta {
+                    path: p.clone(),
+                    name,
+                    is_image: true,
+                }
+            })
+            .collect();
+        Some(serde_json::json!({ "attachments": attachments }))
+    };
+
     let mut session = state.session.lock().await;
     session.app_id = active.as_ref().map(|a| a.manifest().id.clone());
 
@@ -201,6 +225,7 @@ pub async fn send_message(
                 images,
                 generation: settings.effective_generation(),
                 project_dir: settings.project_dir_path(),
+                user_metadata: user_metadata.clone(),
             }
         }
         None => {
@@ -210,6 +235,7 @@ pub async fn send_message(
             c.images = images;
             c.generation = settings.effective_generation();
             c.project_dir = settings.project_dir_path();
+            c.user_metadata = user_metadata;
             c
         }
     };

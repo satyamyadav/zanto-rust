@@ -87,6 +87,13 @@ fn pin_artifact_cmd_response_matches_dto() {
 #[test]
 fn load_session_response_matches_dto() {
     let fx = fixture("load_session");
-    let _v: Vec<zanto_desktop_lib::ipc::RenderMsg> =
+    let msgs: Vec<zanto_desktop_lib::ipc::RenderMsg> =
         serde_json::from_value(fx["response"].clone()).expect("load_session → Vec<RenderMsg>");
+    // The fixture's first message carries an attachment; assert it is preserved.
+    assert_eq!(msgs[0].attachments.len(), 1);
+    assert_eq!(msgs[0].attachments[0].path, "/home/user/photo.png");
+    assert_eq!(msgs[0].attachments[0].name, "photo.png");
+    assert!(msgs[0].attachments[0].is_image);
+    // The second message (assistant) has no attachments (default empty vec).
+    assert!(msgs[1].attachments.is_empty());
 }
