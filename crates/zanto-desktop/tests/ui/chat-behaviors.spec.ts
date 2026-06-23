@@ -571,3 +571,54 @@ test("C-skill: /skill opens a skill picker and selecting sets the active skill",
   await clearBtn.click();
   await expect(skillChip).not.toBeVisible();
 });
+
+// C-skill-filter: Fix 1 + Fix 2 — typing in the open skill picker narrows skills
+// and does NOT destroy the picker.
+// Fix 1: typing characters (including `/`) while menu==="skill" must not call
+// openSlashMenu() and collapse the picker.
+// Fix 2: the filter must use only the typed fragment (not the full composer value),
+// so "reviewer" appears when typing "rev" and disappears for "res" (researcher only).
+test("C-skill-filter: typing in the open skill picker filters skills without destroying the picker", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+
+  // Open /skill menu from a non-empty composer (proves Fix 2: prior content won't pollute filter).
+  await composer.pressSequentially("/skill");
+  const slashMenu = page.getByRole("listbox");
+  await expect(slashMenu).toBeVisible();
+  const skillEntry = slashMenu.getByRole("option", { name: /\/skill/ });
+  await skillEntry.click();
+
+  // The skill picker must be open with both seeded skills.
+  await expect(slashMenu).toBeVisible();
+  await expect(slashMenu.getByRole("option", { name: /reviewer/ })).toBeVisible();
+  await expect(slashMenu.getByRole("option", { name: /researcher/ })).toBeVisible();
+
+  // Type a filter fragment — proves Fix 1 (picker stays open) and Fix 2 (filter works).
+  // Use pressSequentially so each character triggers oninput → syncMenu.
+  await composer.pressSequentially("rev");
+
+  // The picker must still be open (Fix 1: `/` in prior text didn't hijack it).
+  await expect(slashMenu).toBeVisible();
+
+  // "reviewer" matches "rev"; "researcher" does not — proves Fix 2 filter is working.
+  await expect(slashMenu.getByRole("option", { name: /reviewer/ })).toBeVisible();
+  await expect(slashMenu.getByRole("option", { name: /researcher/ })).not.toBeVisible();
+
+  // Clear the filter by pressing Backspace three times and type "res" — reverses the filter.
+  await composer.press("Backspace");
+  await composer.press("Backspace");
+  await composer.press("Backspace");
+
+  // Both skills visible again with empty filter.
+  await expect(slashMenu.getByRole("option", { name: /reviewer/ })).toBeVisible();
+  await expect(slashMenu.getByRole("option", { name: /researcher/ })).toBeVisible();
+
+  await composer.pressSequentially("res");
+
+  // "researcher" matches; "reviewer" does not.
+  await expect(slashMenu.getByRole("option", { name: /researcher/ })).toBeVisible();
+  await expect(slashMenu.getByRole("option", { name: /reviewer/ })).not.toBeVisible();
+});

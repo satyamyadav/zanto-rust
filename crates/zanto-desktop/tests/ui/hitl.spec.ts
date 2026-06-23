@@ -72,3 +72,63 @@ test("H-key: HITL form advances and submits with Enter", async ({ page }) => {
 // (step 1 Enter when stepIdx=0 and steps.length=2 → advance, not submit).
 // (No single-step text form is in the mock, so we skip the last-step Enter path
 // for now — the guard is covered by code-path analysis in HitlForm.svelte.)
+
+// H-focus: Fix 3 — after Enter advances to step 2, the step-2 first field is focused.
+// The 2-step "hitl form" scenario has step 2 with a Select trigger (#hitl-lang).
+// After advancing, HitlForm calls await tick(); focusFirst() which must move focus
+// to the Select trigger button (the first tabbable element in the new step).
+test("H-focus: advancing a HITL step moves keyboard focus to the new step's first field", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // Trigger the 2-step hitl form scenario.
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("hitl form please");
+  await composer.press("Enter");
+
+  // Step 1 must appear and auto-focus the name input.
+  const nameInput = page.locator("#hitl-name");
+  await expect(nameInput).toBeVisible();
+  await nameInput.fill("zanto");
+
+  // Press Enter — advances stepIdx from 0 to 1, then tick+focusFirst runs.
+  await nameInput.press("Enter");
+
+  // Step 2 must be visible.
+  const langTrigger = page.locator("#hitl-lang");
+  await expect(langTrigger).toBeVisible();
+
+  // Fix 3: the Select trigger (first tabbable element in step 2) must be focused.
+  await expect(langTrigger).toBeFocused();
+});
+
+// H-focus-back: Fix 3 — clicking Back also restores focus to the previous step's first field.
+test("H-focus-back: clicking Back moves keyboard focus to the previous step's first field", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const composer = page.getByRole("textbox").first();
+  await composer.fill("hitl form please");
+  await composer.press("Enter");
+
+  // Advance to step 2 via Enter.
+  const nameInput = page.locator("#hitl-name");
+  await expect(nameInput).toBeVisible();
+  await nameInput.fill("zanto");
+  await nameInput.press("Enter");
+
+  // Confirm we're on step 2.
+  const langTrigger = page.locator("#hitl-lang");
+  await expect(langTrigger).toBeVisible();
+
+  // Click Back — should return to step 1 and focus the name input.
+  const backBtn = page.getByRole("button", { name: "Back" });
+  await expect(backBtn).toBeVisible();
+  await backBtn.click();
+
+  // Step 1 name input must be visible and focused.
+  await expect(nameInput).toBeVisible();
+  await expect(nameInput).toBeFocused();
+});

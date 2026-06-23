@@ -97,6 +97,7 @@
           submitForm();
         } else {
           stepIdx += 1;
+          void tick().then(() => focusFirst());
         }
         return;
       }
@@ -225,12 +226,12 @@
         <Button size="sm" variant="ghost" onclick={() => close(req, null)}>Cancel</Button>
         <div class="ml-auto flex gap-2">
           {#if stepIdx > 0}
-            <Button size="sm" variant="secondary" onclick={() => (stepIdx -= 1)}>Back</Button>
+            <Button size="sm" variant="secondary" onclick={async () => { stepIdx -= 1; await tick(); focusFirst(); }}>Back</Button>
           {/if}
           {#if isLast}
             <Button size="sm" onclick={submitForm}>Submit</Button>
           {:else}
-            <Button size="sm" onclick={() => (stepIdx += 1)}>Next</Button>
+            <Button size="sm" onclick={async () => { stepIdx += 1; await tick(); focusFirst(); }}>Next</Button>
           {/if}
         </div>
       </div>

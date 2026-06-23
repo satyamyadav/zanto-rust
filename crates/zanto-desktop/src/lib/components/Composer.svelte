@@ -187,9 +187,11 @@
   let tagStart = -1; // index of the `@` that opened the file menu
   let query = $state(""); // text typed after `@` (or `/`)
   let loadingDir = $state(false); // a directory listing fetch is in flight
+  let loadSeq = 0; // monotonically-increasing counter; guards against stale loadDir responses
   // Skill-menu state
   let skills = $state<SkillDto[]>([]);
   let activeSkillName = $state<string | null>(null); // currently selected skill name
+  let skillQuery = $state(""); // text typed after opening the skill picker (separate from slash/file query)
 
   function clearInput() {
     input = "";
@@ -221,8 +223,8 @@
       : SLASH_COMMANDS,
   );
   const filteredSkills = $derived(
-    query
-      ? skills.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()))
+    skillQuery
+      ? skills.filter((s) => s.name.toLowerCase().includes(skillQuery.toLowerCase()))
       : skills,
   );
   const itemCount = $derived(
@@ -234,14 +236,19 @@
   );
 
   async function loadDir(path?: string) {
+    const seq = ++loadSeq;
     loadingDir = true;
     try {
-      entries = await ipc.browseDir(path);
+      const result = await ipc.browseDir(path);
+      // Only apply if no newer loadDir call has started since this one was dispatched.
+      if (seq === loadSeq) entries = result;
     } catch (e) {
-      toast.error(`${e}`);
-      closeMenu();
+      if (seq === loadSeq) {
+        toast.error(`${e}`);
+        closeMenu();
+      }
     } finally {
-      loadingDir = false;
+      if (seq === loadSeq) loadingDir = false;
     }
   }
 
@@ -290,7 +297,9 @@
     // hits the `!query.includes("/")` guard and returns before mutating state again.
     query = ""; // reset; syncMenu will re-derive the trailing fragment on next input
     active = 0;
-    loadDir(targetPath);
+    // loadDir is guarded by a sequence counter: if another call starts before this
+    // one resolves, the stale response is discarded and entries is not overwritten.
+    void loadDir(targetPath);
   });
 
   function openSlashMenu() {
@@ -313,6 +322,7 @@
     menu = "skill";
     active = 0;
     query = "";
+    skillQuery = "";
     try {
       skills = await ipc.listSkills();
     } catch (e) {
@@ -340,6 +350,24 @@
     const caret = el ? el.selectionStart : input.length;
     const before = input.slice(0, caret);
 
+    // Skill menu: already open — keep skillQuery in sync with whatever the user
+    // types. skillQuery tracks only the filter fragment, NOT the full composer
+    // value, so prior lines don't pollute the filter. We derive the trailing
+    // fragment as whatever was typed after the menu opened (the composer content
+    // since the skill picker was launched). The simplest invariant: the composer
+    // was empty (or cleared by runCommand) when the skill menu opened, so the
+    // full current input IS the filter fragment. Guard this branch BEFORE the
+    // slash-regex check so that typing characters while the skill menu is open
+    // doesn't accidentally trigger openSlashMenu() and destroy the picker.
+    if (menu === "skill") {
+      // Derive the trailing fragment after the last line-start to exclude any
+      // accidental multi-line composer content from poisoning the filter.
+      const lineStart = before.lastIndexOf("\n") + 1;
+      skillQuery = before.slice(lineStart);
+      active = 0;
+      return;
+    }
+
     // Slash menu: `/` as the first char of a line (e.g. an empty composer).
     const lineStart = before.lastIndexOf("\n") + 1;
     const lineToCaret = before.slice(lineStart);
@@ -351,14 +379,6 @@
     }
     if (menu === "slash") {
       closeMenu();
-      return;
-    }
-
-    // Skill menu: open and collecting a filter query — keep query in sync with
-    // whatever the user types until Esc/Enter closes it.
-    if (menu === "skill") {
-      query = input;
-      active = 0;
       return;
     }
 
@@ -430,9 +450,13 @@
     queueMicrotask(() => textarea?.focus());
   }
 
-  function clearActiveSkill() {
-    ipc.setActiveSkill(null).catch((e) => toast.error(`${e}`));
-    activeSkillName = null;
+  async function clearActiveSkill() {
+    try {
+      await ipc.setActiveSkill(null);
+      activeSkillName = null;
+    } catch (e) {
+      toast.error(`${e}`);
+    }
   }
 
   function queueFocus(pos: number) {
