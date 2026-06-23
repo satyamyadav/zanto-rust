@@ -9,6 +9,8 @@
   import ErrorSegment from "./segments/ErrorSegment.svelte";
   import CopyIcon from "@lucide/svelte/icons/copy";
   import CheckIcon from "@lucide/svelte/icons/check";
+  import FileIcon from "@lucide/svelte/icons/file";
+  import ImageIcon from "@lucide/svelte/icons/image";
   import { onDestroy } from "svelte";
 
   // `isLast` marks the trailing entry — the only one that can be the live,
@@ -232,6 +234,24 @@
       {#each items as item, i (i)}
         {@render renderItem(item)}
       {/each}
+      {#if entry.attachments && entry.attachments.length > 0}
+        <div class="flex flex-wrap gap-1.5 pt-0.5">
+          {#each entry.attachments as a (a.path)}
+            <span
+              class="inline-flex items-center gap-1.5 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground/80"
+              title={a.path}
+              data-attachment-chip
+            >
+              {#if a.isImage}
+                <ImageIcon class="size-3.5 shrink-0" />
+              {:else}
+                <FileIcon class="size-3.5 shrink-0" />
+              {/if}
+              <span class="max-w-40 truncate font-mono">{a.name}</span>
+            </span>
+          {/each}
+        </div>
+      {/if}
     </div>
   </div>
 {:else}

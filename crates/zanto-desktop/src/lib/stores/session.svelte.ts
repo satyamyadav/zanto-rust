@@ -23,11 +23,18 @@ export type ChatSegment =
   | { kind: "block"; block: ChatBlock }
   | { kind: "error"; message: string; retryText: string };
 
+export type ChatAttachment = {
+  path: string;
+  name: string;
+  isImage: boolean;
+};
+
 export type ChatEntry = {
   id: number;
   role: "user" | "assistant";
   segments: ChatSegment[];
   stopped?: boolean; // true when this assistant turn was interrupted (Stop)
+  attachments?: ChatAttachment[];
 };
 
 // Monotonic id for stable {#each} keying. Entry ids must survive both streaming
@@ -318,6 +325,9 @@ function toEntries(msgs: RenderMsg[]): ChatEntry[] {
         .filter((s): s is ChatSegment => s !== null);
       const e = entry(m.role, segments);
       if (m.stopped) e.stopped = true;
+      if (m.attachments && m.attachments.length > 0) {
+        e.attachments = m.attachments.map((a) => ({ path: a.path, name: a.name, isImage: a.is_image }));
+      }
       return e;
     }
     // Back-compat: legacy sessions without persisted segments — rebuild from
@@ -330,6 +340,9 @@ function toEntries(msgs: RenderMsg[]): ChatEntry[] {
     for (const block of m.blocks?.blocks ?? []) segments.push({ kind: "block", block });
     const e = entry(m.role, segments);
     if (m.stopped) e.stopped = true;
+    if (m.attachments && m.attachments.length > 0) {
+      e.attachments = m.attachments.map((a) => ({ path: a.path, name: a.name, isImage: a.is_image }));
+    }
     return e;
   });
 }
@@ -427,7 +440,7 @@ export async function unarchiveSession(id: string) {
  * `chat_done` via {@link initStreaming}); the awaited return is authoritative but
  * is not re-rendered to avoid duplication.
  */
-export async function send(text: string, imagePaths: string[] = []): Promise<void> {
+export async function send(text: string, imagePaths: string[] = [], attachments: ChatAttachment[] = []): Promise<void> {
   // Busy: queue the message (FIFO) and return without invoking. The running turn's
   // `finally` dispatches the next queued message when it frees up. The queue is
   // text-only; image attachments queued mid-turn are not carried (a rare edge —
@@ -440,7 +453,9 @@ export async function send(text: string, imagePaths: string[] = []): Promise<voi
   // the turn is in flight (interrupt + select/new), this turn's late-resolving
   // promise must NOT touch the new session's shared turn state or queue.
   const turnSessionId = sessionStore.activeSessionId;
-  sessionStore.convo.push(entry("user", [{ kind: "text", text }]));
+  const userEntry = entry("user", [{ kind: "text", text }]);
+  if (attachments.length > 0) userEntry.attachments = attachments;
+  sessionStore.convo.push(userEntry);
   sessionStore.busy = true;
   streamIdx = null;
   try {

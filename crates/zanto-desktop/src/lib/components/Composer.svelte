@@ -152,12 +152,14 @@
     // when the composed text is empty.
     const imagePaths = attachments.filter((a) => a.isImage).map((a) => a.path);
     if (!text && imagePaths.length === 0) return;
+    // Snapshot attachment metadata for the user bubble before clearing the composer.
+    const attachmentMeta = attachments.map((a) => ({ path: a.path, name: a.name, isImage: a.isImage }));
     input = "";
     pastes = [];
     attachments = [];
     closeMenu();
     try {
-      await send(text, imagePaths);
+      await send(text, imagePaths, attachmentMeta);
     } catch (e) {
       toast.error(`${e}`);
     }

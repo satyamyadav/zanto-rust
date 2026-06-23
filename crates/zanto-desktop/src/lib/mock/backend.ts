@@ -28,6 +28,25 @@ const longSession = Array.from({ length: 60 }, (_, i) => ({
   stopped: null,
 }));
 
+// Session with a user message that has a persisted attachment (D6 reopen test).
+const attachmentSession = [
+  {
+    role: "user",
+    text: "Here is the attached file",
+    blocks: null,
+    segments: null,
+    stopped: null,
+    attachments: [{ path: "/home/user/docs/report.pdf", name: "report.pdf", is_image: false }],
+  },
+  {
+    role: "assistant",
+    text: "Got it.",
+    blocks: null,
+    segments: null,
+    stopped: null,
+  },
+];
+
 // Each handler is keyed by the exact `invoke` command name used in ipc.ts.
 // Typed return values turn the fixture JSON into a compile-time contract.
 export const backend: Record<string, (args: any) => Promise<unknown>> = {
@@ -45,6 +64,16 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
       created_at: 1700000100,
       updated_at: 1700000200,
       message_count: 60,
+      archived: false,
+    } satisfies SessionMeta,
+    {
+      id: "sess-attachments",
+      title: "Attachment session",
+      workspace: "/home/user/project",
+      app_id: null,
+      created_at: 1700000300,
+      updated_at: 1700000400,
+      message_count: 2,
       archived: false,
     } satisfies SessionMeta,
   ],
@@ -83,8 +112,11 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
     interruptResolve?.();
     interruptResolve = null;
   },
-  load_session: async (a: { id?: string }): Promise<any> =>
-    a?.id === "sess-long" ? longSession : loadSessionFx.response,
+  load_session: async (a: { id?: string }): Promise<any> => {
+    if (a?.id === "sess-long") return longSession;
+    if (a?.id === "sess-attachments") return attachmentSession;
+    return loadSessionFx.response;
+  },
   load_session_page: async (a: { offset?: number; limit?: number }): Promise<any> => {
     const offset = a?.offset ?? 0;
     const limit = a?.limit ?? 20;
@@ -113,6 +145,10 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
       { name: "README.md", path: "/home/user/project/README.md", isDir: false },
     ];
   },
+  // Native file-picker dialog (used by ipc.pickFiles → `plugin:dialog|open`).
+  // Returns a single test file path so attachment tests can trigger pick without
+  // a real native dialog. The key must match the exact invoke command name.
+  "plugin:dialog|open": async (): Promise<string[]> => ["/home/user/docs/notes.txt"],
   add_allowed_path: async (): Promise<void> => undefined,
   list_skills: async (): Promise<SkillDto[]> => [
     { name: "reviewer", preview: "Review code for bugs and clarity." },
