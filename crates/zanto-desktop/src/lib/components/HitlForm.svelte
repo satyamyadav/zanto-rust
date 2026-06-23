@@ -86,7 +86,12 @@
     // <input>) and panel.contains(e.target) is false.
     if (e.key === "Enter" && !e.shiftKey && req.kind === "form") {
       const target = e.target as Element;
-      if (target instanceof HTMLInputElement && panel.contains(target)) {
+      // Exclude checkboxes (confirm fields): Enter there should toggle natively, not advance.
+      if (
+        target instanceof HTMLInputElement &&
+        target.type !== "checkbox" &&
+        panel.contains(target)
+      ) {
         e.preventDefault();
         if (isLast) {
           submitForm();
