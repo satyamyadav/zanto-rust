@@ -259,6 +259,65 @@ test("C-8: typing @ opens a file autocomplete and inserts the path", async ({ pa
   await expect(composer).toHaveValue(/\@\/home\/user\/project\/README\.md/);
 });
 
+// C-8b: @-picker full keyboard navigation: descend into a directory, ascend back, then insert a file.
+// The mock browse_dir seed: roots → [src (dir), README.md (file)]; src → [main.ts (file)].
+// Flow: type `@` → ArrowDown to `src` → Enter descends → breadcrumb updates → Backspace ascends
+// → breadcrumb returns to roots → ArrowDown to README.md → Enter inserts the @-token.
+test("C-8b: @ picker: keyboard descend/ascend + file selection", async ({ page }) => {
+  await page.goto("/");
+  const composer = page.getByRole("textbox").first();
+
+  // Open the file picker.
+  await composer.fill("check ");
+  await composer.pressSequentially("@");
+
+  const fileMenu = page.getByRole("listbox");
+  await expect(fileMenu).toBeVisible();
+
+  // Root listing must show both seeded entries: src (dir) and README.md (file).
+  await expect(fileMenu.getByRole("option", { name: /src/ })).toBeVisible();
+  await expect(fileMenu.getByRole("option", { name: /README\.md/ })).toBeVisible();
+
+  // The breadcrumb/header at the top of the picker shows "Allowed roots" at the root level.
+  await expect(fileMenu).toContainText("Allowed roots");
+
+  // ArrowDown: move highlight to first item (src dir, index 0 is already active — press once to confirm).
+  // The root listing order is: src (index 0), README.md (index 1).
+  // One ArrowDown → wraps back if already at 0, but active starts at 0, so this goes to index 1.
+  // Re-think: active starts at 0 (= src), so pressing Enter now descends into src directly.
+
+  // Enter to descend into `src` (active = 0 = the first entry = src dir).
+  await composer.press("Enter");
+
+  // Wait for the breadcrumb to update to the src path.
+  await expect(fileMenu).toContainText("/home/user/project/src");
+
+  // The child listing must show main.ts (seeded as the only child of src).
+  await expect(fileMenu.getByRole("option", { name: /main\.ts/ })).toBeVisible();
+
+  // Backspace with empty query ascends back to root.
+  await composer.press("Backspace");
+
+  // Wait for the breadcrumb to return to "Allowed roots".
+  await expect(fileMenu).toContainText("Allowed roots");
+
+  // Root entries are back.
+  await expect(fileMenu.getByRole("option", { name: /README\.md/ })).toBeVisible();
+
+  // Navigate to README.md: it's at index 1 (src=0, README.md=1).
+  // Active resets to 0 after ascend — press ArrowDown once to reach README.md.
+  await composer.press("ArrowDown");
+
+  // Press Enter to select README.md.
+  await composer.press("Enter");
+
+  // The listbox must close.
+  await expect(fileMenu).not.toBeVisible();
+
+  // The composer must contain the @<path> token for README.md.
+  await expect(composer).toHaveValue(/\@\/home\/user\/project\/README\.md/);
+});
+
 // C-10: A failed turn shows an inline error card with a Retry button; clicking Retry recovers.
 // The mock "trigger error" scenario has `throws: true`. The first attempt throws
 // "mock: simulated turn failure"; the store catches it and pushes an error segment

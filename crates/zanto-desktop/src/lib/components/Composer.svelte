@@ -204,9 +204,15 @@
     tagStart = -1;
   }
 
+  // When query contains `/`, the trailing segment after the last `/` is the filter;
+  // the leading segment(s) are directory names to descend into.
+  // `pathFilter` is what we actually filter entries by (the trailing segment or the full query).
+  const pathFilter = $derived(
+    menu === "file" && query.includes("/") ? query.split("/").pop()! : query,
+  );
   const filteredEntries = $derived(
-    query
-      ? entries.filter((e) => e.name.toLowerCase().includes(query.toLowerCase()))
+    pathFilter
+      ? entries.filter((e) => e.name.toLowerCase().includes(pathFilter.toLowerCase()))
       : entries,
   );
   const filteredCommands = $derived(
@@ -238,6 +244,52 @@
       loadingDir = false;
     }
   }
+
+  // Pop the top of dirStack and reload the parent directory (or roots if empty).
+  async function ascendDir() {
+    const next = dirStack.slice(0, -1);
+    dirStack = next;
+    query = "";
+    active = 0;
+    // Clear any typed fragment after `@` so the token stays clean.
+    const caret = textarea ? textarea.selectionStart : input.length;
+    if (tagStart >= 0 && caret > tagStart + 1) {
+      input = input.slice(0, tagStart + 1) + input.slice(caret);
+    }
+    await loadDir(next.length > 0 ? next[next.length - 1] : undefined);
+  }
+
+  // Path-segment autocomplete: when the user types `@dir/fragment` in the file menu,
+  // automatically descend into `dir` (if it matches a real entry) and filter by `fragment`.
+  // Guard: only descend when the leading segment(s) unambiguously match a directory entry;
+  // never descend mid-composition if already in that directory (prevents re-entry loops).
+  $effect(() => {
+    if (menu !== "file" || !query.includes("/")) return;
+    const slashIdx = query.indexOf("/");
+    const leadingName = query.slice(0, slashIdx);
+    if (!leadingName) return;
+    // Only descend if we're at root or the current dir doesn't already match the leading name.
+    const currentTop = dirStack.length > 0 ? dirStack[dirStack.length - 1] : null;
+    if (currentTop !== null) {
+      const currentName = currentTop.split("/").filter(Boolean).pop() ?? "";
+      if (currentName === leadingName) return; // already descended here
+    }
+    // Look for an exact (case-insensitive) directory match in the current listing.
+    const match = entries.find(
+      (e) => e.isDir && e.name.toLowerCase() === leadingName.toLowerCase(),
+    );
+    if (!match) return; // no match — just let filteredEntries handle the filter
+    // Descend: update dirStack and reload. Clear the typed fragment so the input stays clean.
+    const targetPath = match.path;
+    dirStack = [...dirStack, targetPath];
+    const caret = textarea ? textarea.selectionStart : input.length;
+    if (tagStart >= 0 && caret > tagStart + 1) {
+      input = input.slice(0, tagStart + 1) + input.slice(caret);
+    }
+    query = ""; // reset; syncMenu will re-derive the trailing fragment on next input
+    active = 0;
+    loadDir(targetPath);
+  });
 
   function openSlashMenu() {
     menu = "slash";
@@ -425,6 +477,12 @@
         closeMenu();
         // Return focus to the composer so typing can resume immediately.
         queueMicrotask(() => textarea?.focus());
+        return;
+      }
+      // Backspace with an empty query ascends one directory level in the file picker.
+      if (menu === "file" && e.key === "Backspace" && query === "" && dirStack.length > 0) {
+        e.preventDefault();
+        ascendDir();
         return;
       }
     }

@@ -103,10 +103,16 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   query_app: async (): Promise<any> => ({ income: 2000, spent: 12.5, net: 1987.5, by_category: { dining: 12.5 } }),
   run_app_action: async (): Promise<any> => ({}),
   // Minimal seed so the @-tag autocomplete (C-8) has entries to display.
-  browse_dir: async (): Promise<{ name: string; path: string; isDir: boolean }[]> => [
-    { name: "src", path: "/home/user/project/src", isDir: true },
-    { name: "README.md", path: "/home/user/project/README.md", isDir: false },
-  ],
+  // When descending into "src", returns a child file so keyboard descend is testable.
+  browse_dir: async (a: { path?: string }): Promise<{ name: string; path: string; isDir: boolean }[]> => {
+    if (a?.path === "/home/user/project/src") {
+      return [{ name: "main.ts", path: "/home/user/project/src/main.ts", isDir: false }];
+    }
+    return [
+      { name: "src", path: "/home/user/project/src", isDir: true },
+      { name: "README.md", path: "/home/user/project/README.md", isDir: false },
+    ];
+  },
   add_allowed_path: async (): Promise<void> => undefined,
   list_skills: async (): Promise<SkillDto[]> => [
     { name: "reviewer", preview: "Review code for bugs and clarity." },
