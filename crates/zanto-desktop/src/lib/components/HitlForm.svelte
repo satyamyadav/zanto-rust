@@ -71,6 +71,31 @@
       close(req, req.kind === "approval" ? "deny" : null);
       return;
     }
+    // Enter in a text field: advance step or submit.
+    // IMPORTANT: check e.target (where the event ORIGINATED), not document.activeElement.
+    // By the time the event bubbles to the window, focus may have moved elsewhere
+    // (e.g. Svelte/focusFirst() just focused a HITL input synchronously after the
+    // interaction_request event fired — so activeElement is the HITL input even though
+    // the keydown originated in the composer textarea). Using e.target is the correct
+    // source-of-truth: it never changes as the event bubbles.
+    // Guard: only when Enter originated from an <input> inside this panel (text fields).
+    // Skip Shift+Enter (multiline intent). Select trigger buttons are <button> elements,
+    // not <input>, so they are naturally excluded — pressing Enter on a closed Select
+    // trigger opens the dropdown instead. When a Select listbox is open, the listbox
+    // is portaled outside the panel, so e.target would be inside the listbox (not an
+    // <input>) and panel.contains(e.target) is false.
+    if (e.key === "Enter" && !e.shiftKey && req.kind === "form") {
+      const target = e.target as Element;
+      if (target instanceof HTMLInputElement && panel.contains(target)) {
+        e.preventDefault();
+        if (isLast) {
+          submitForm();
+        } else {
+          stepIdx += 1;
+        }
+        return;
+      }
+    }
     if (e.key !== "Tab") return;
     // When focus is inside a portaled Select listbox (outside `panel`), let the
     // Select own its keyboard nav rather than fighting it from here.
