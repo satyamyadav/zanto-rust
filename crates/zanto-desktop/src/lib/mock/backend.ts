@@ -145,6 +145,11 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
       { name: "README.md", path: "/home/user/project/README.md", isDir: false },
     ];
   },
+  // Return a tiny 1×1 transparent PNG as a data-URL (for image-viewer tests).
+  read_image_data_url: async (_a: { path: string }): Promise<string> =>
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+  // Open a path with the OS default app — no-op in the mock.
+  open_path: async (_a: { path: string }): Promise<void> => undefined,
   // Native file-picker dialog (used by ipc.pickFiles → `plugin:dialog|open`).
   // Returns a single test file path so attachment tests can trigger pick without
   // a real native dialog. The key must match the exact invoke command name.

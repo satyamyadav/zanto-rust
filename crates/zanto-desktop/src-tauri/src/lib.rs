@@ -124,6 +124,8 @@ pub fn run() {
             ipc::skills::list_skills,
             ipc::skills::set_active_skill,
             ipc::files::browse_dir,
+            ipc::files::read_image_data_url,
+            ipc::files::open_path,
             ipc::artifacts::list_stored_artifacts_cmd,
             ipc::artifacts::read_stored_artifact_cmd,
             ipc::artifacts::list_pinned_artifacts,

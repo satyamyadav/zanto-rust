@@ -283,6 +283,11 @@ export const ipc = {
   listSkills: () => invoke<SkillDto[]>("list_skills"),
   setActiveSkill: (name: string | null) => invoke<void>("set_active_skill", { name }),
 
+  // Read an image file as a data-URL (permission-checked, capped at 10 MiB).
+  readImageDataUrl: (path: string) => invoke<string>("read_image_data_url", { path }),
+  // Open a file with the OS default application (permission-checked).
+  openPath: (path: string) => invoke<void>("open_path", { path }),
+
   // Open a url in the system browser via the bundled opener plugin (the single seam for plugin-opener).
   openExternal: (url: string): Promise<void> => openUrl(url),
 

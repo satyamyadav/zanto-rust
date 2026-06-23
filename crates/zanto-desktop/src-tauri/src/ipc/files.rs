@@ -1,6 +1,7 @@
-//! File-system browsing IPC command.
+//! File-system browsing IPC commands.
 
 use super::DesktopState;
+use base64::Engine;
 use serde::Serialize;
 use tauri::State;
 use zanto_core::config::Settings;
@@ -87,5 +88,73 @@ pub async fn browse_dir(
             dirs.extend(files);
             Ok(dirs)
         }
+    }
+}
+
+/// Return a `data:<mime>;base64,…` URL for an image file.
+///
+/// Permission-checked via `Op::Read`. Rejects files larger than 10 MiB.
+#[tauri::command]
+pub async fn read_image_data_url(
+    state: State<'_, DesktopState>,
+    path: String,
+) -> Result<String, String> {
+    let resolved = state
+        .permissions
+        .check(&path, Op::Read)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let bytes = std::fs::read(&resolved).map_err(|e| format!("read error: {e}"))?;
+
+    const MAX_BYTES: usize = 10 * 1024 * 1024;
+    if bytes.len() > MAX_BYTES {
+        return Err(format!(
+            "image too large ({} bytes > 10 MiB limit)",
+            bytes.len()
+        ));
+    }
+
+    let mime = mime_for_image(&resolved.to_string_lossy());
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
+/// Open a file with the OS default application.
+///
+/// Permission-checked via `Op::Read`.
+#[tauri::command]
+pub async fn open_path(
+    state: State<'_, DesktopState>,
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let resolved = state
+        .permissions
+        .check(&path, Op::Read)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.opener()
+        .open_path(resolved.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// Best-effort MIME type from an image file extension.
+fn mime_for_image(path: &str) -> &'static str {
+    match std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("bmp") => "image/bmp",
+        _ => "application/octet-stream",
     }
 }

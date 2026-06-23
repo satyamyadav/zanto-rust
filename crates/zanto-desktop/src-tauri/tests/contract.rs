@@ -97,3 +97,21 @@ fn load_session_response_matches_dto() {
     // The second message (assistant) has no attachments (default empty vec).
     assert!(msgs[1].attachments.is_empty());
 }
+
+#[test]
+fn read_image_data_url_response_matches_dto() {
+    let fx = fixture("read_image_data_url");
+    let data_url: String = serde_json::from_value(fx["response"].clone())
+        .expect("read_image_data_url response deserializes into String");
+    assert!(data_url.starts_with("data:"), "response must be a data-URL");
+}
+
+#[test]
+fn open_path_response_matches_dto() {
+    let fx = fixture("open_path");
+    // open_path returns () — the fixture response is null (JSON null → unit).
+    assert!(
+        fx["response"].is_null(),
+        "open_path response must be null (unit)"
+    );
+}
