@@ -286,6 +286,8 @@
     if (tagStart >= 0 && caret > tagStart + 1) {
       input = input.slice(0, tagStart + 1) + input.slice(caret);
     }
+    // Setting query to "" is what breaks the effect's re-entry cycle: the next run
+    // hits the `!query.includes("/")` guard and returns before mutating state again.
     query = ""; // reset; syncMenu will re-derive the trailing fragment on next input
     active = 0;
     loadDir(targetPath);
