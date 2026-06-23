@@ -66,10 +66,9 @@ test("#11/#13: canvas vertical scroll + finance tablist horizontal scroll", asyn
   await financeBtn.click();
   await expect(financeBtn).toBeEnabled();
 
-  // #11: the canvas scroll container wraps <Dashboard /> inside Canvas.svelte.
-  //      It carries the Tailwind class "overflow-y-auto" (applied in the fix).
-  //      Use the CSS class selector — it is unique in the canvas branch.
-  const canvasScroll = page.locator(".overflow-y-auto").first();
+  // #11: the canvas scroll container wraps <Dashboard /> inside Canvas.svelte,
+  //      tagged data-testid="canvas-scroll" so this targets exactly that element.
+  const canvasScroll = page.locator('[data-testid="canvas-scroll"]');
   const canvasOverflowY = await canvasScroll.evaluate(
     (el) => getComputedStyle(el).overflowY,
   );

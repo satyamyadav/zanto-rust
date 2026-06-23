@@ -66,7 +66,7 @@
       <Block block={sessionStore.canvas} canPin={false} />
     </div>
   {:else if appStore.activeId === "finance"}
-    <div class="h-full min-h-0 overflow-y-auto">
+    <div data-testid="canvas-scroll" class="h-full min-h-0 overflow-y-auto">
       <Dashboard />
     </div>
   {:else}
