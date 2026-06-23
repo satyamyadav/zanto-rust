@@ -9,6 +9,9 @@ path = "src/lib.rs"
 
 [dependencies]
 async-trait = "0.1"
+# Local timezone offset for display timestamps (std exposes no local-time API).
+# Already in the tree transitively; "clock" enables the system-tz reader.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 genai = "0.6"
 rmcp = "1.7.0"
 schemars = "1.2.1"

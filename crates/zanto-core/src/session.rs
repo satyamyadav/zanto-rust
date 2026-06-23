@@ -791,7 +791,32 @@ fn is_leap(y: u32) -> bool {
 }
 
 /// Format unix seconds as "YYYY-MM-DD HH:MM" for display.
+/// System (IANA) local UTC offset in seconds, e.g. `+14400` for `+04:00`.
+/// Read from the OS timezone via chrono (std exposes no local-time API).
+fn local_offset_secs() -> i64 {
+    chrono::Local::now().offset().local_minus_utc() as i64
+}
+
+/// Format a UTC timestamp for display in the user's **local** timezone as
+/// `YYYY-MM-DD HH:MM`. A UTC-based calendar date runs a day behind local
+/// wall-clock near midnight in `+offset` zones, so the model's "today",
+/// finance's notion of today/this-month, and session-list timestamps all use
+/// local time via this one formatter.
 pub fn format_ts_display(secs: u64) -> String {
+    format_ts_display_at_offset(secs, local_offset_secs())
+}
+
+/// Apply a fixed UTC offset (seconds) to a UTC epoch, then format as
+/// `YYYY-MM-DD HH:MM`. Pure (offset is supplied) — unit-testable. A pre-epoch
+/// result clamps to the epoch rather than wrapping.
+fn format_ts_display_at_offset(secs: u64, offset_secs: i64) -> String {
+    let shifted = (secs as i64 + offset_secs).max(0) as u64;
+    format_epoch_ymd_hm(shifted)
+}
+
+/// Format a UTC epoch-seconds value as a naive `YYYY-MM-DD HH:MM`, with no
+/// timezone shift. Pure.
+fn format_epoch_ymd_hm(secs: u64) -> String {
     let tod = secs % 86400;
     let mut days = secs / 86400;
     let h = tod / 3600;
@@ -1355,6 +1380,26 @@ mod tests {
 
         // Unpaginated list still returns all rows.
         assert_eq!(store.list_sessions(Some("/ws"), None).unwrap().len(), 25);
+    }
+
+    #[test]
+    fn local_offset_shifts_display_across_midnight() {
+        // No offset: unchanged from the UTC formatter.
+        assert_eq!(format_ts_display_at_offset(0, 0), "1970-01-01 00:00");
+        assert_eq!(format_ts_display_at_offset(0, 3600), "1970-01-01 01:00");
+        // +04:00 just before UTC midnight rolls the LOCAL date forward a day:
+        // 1970-01-01 22:00 UTC (79200s) + 4h → 1970-01-02 02:00 local.
+        assert_eq!(
+            format_ts_display_at_offset(79200, 4 * 3600),
+            "1970-01-02 02:00"
+        );
+        // Negative offset rolls back: 1970-01-02 02:00 UTC (93600s) - 4h → 1970-01-01 22:00.
+        assert_eq!(
+            format_ts_display_at_offset(93600, -4 * 3600),
+            "1970-01-01 22:00"
+        );
+        // Pre-epoch underflow clamps to the epoch rather than wrapping.
+        assert_eq!(format_ts_display_at_offset(0, -3600), "1970-01-01 00:00");
     }
 
     #[test]
