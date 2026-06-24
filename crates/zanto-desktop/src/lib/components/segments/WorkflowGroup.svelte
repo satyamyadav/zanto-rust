@@ -21,22 +21,22 @@
   let open = $state(false);
 </script>
 
-<div class="rounded-md border border-border bg-card">
+<div class="rounded-md border border-border/60">
   <button
     type="button"
     aria-expanded={open}
     onclick={() => (open = !open)}
-    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
   >
     <ChevronRight size={12} class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
     <Workflow size={13} class="shrink-0 text-muted-foreground" />
     <span class="font-display font-medium text-foreground">Workflow ({total} steps)</span>
     {#if pill === "error"}
-      <span class="ml-auto rounded-full bg-destructive px-2 py-0.5 font-mono text-destructive-foreground">{done}/{total} done</span>
+      <span class="ml-auto rounded-full bg-destructive-soft px-2 py-0.5 font-mono text-destructive-soft-foreground">{done}/{total} done</span>
     {:else if pill === "done"}
-      <span class="ml-auto rounded-full bg-success px-2 py-0.5 font-mono text-success-foreground">{done}/{total} done</span>
+      <span class="ml-auto rounded-full bg-success-soft px-2 py-0.5 font-mono text-success-soft-foreground">{done}/{total} done</span>
     {:else}
-      <span class="ml-auto rounded-full bg-muted px-2 py-0.5 font-mono text-muted-foreground">{done}/{total} done</span>
+      <span class="ml-auto rounded-full bg-warning-soft px-2 py-0.5 font-mono text-warning-soft-foreground">{done}/{total} done</span>
     {/if}
   </button>
 
