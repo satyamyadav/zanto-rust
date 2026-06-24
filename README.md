@@ -1,11 +1,15 @@
-# zanto
+# zanto — your private, local-first AI workspace
 
-**A local-first AI workspace for your desktop — bring your own model and keys; your files never leave your machine.**
+**A private AI assistant you own — bring your own model (Claude, GPT, Gemini) or run fully offline with Ollama. Your files and keys never leave your machine.**
 
-zanto is a desktop AI assistant (and CLI) built in Rust + Tauri. Point it at your
-own provider key or a local Ollama model, give it consented access to your files,
-shell, and the web, and get answers rendered as real artifacts — charts, tables,
-and documents — not just text.
+[![Release](https://img.shields.io/github/v/release/satyamyadav/zanto-rust)](https://github.com/satyamyadav/zanto-rust/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-informational)
+
+zanto is an open-source, local-first AI assistant (desktop **and** CLI) built in Rust + Tauri — a
+private alternative to cloud AI apps. Point it at your own provider key or a local **Ollama**
+model, give it consented access to your files, shell, and the web, and get answers rendered as
+real artifacts — charts, tables, and documents — not just text. **No cloud account. No telemetry.**
 
 > **v1.0.0 is an early, unsigned release.** Builds are not code-signed or
 > notarized yet, so macOS and Windows will show a security prompt on first run
@@ -25,6 +29,8 @@ and documents — not just text.
   inline or on a side canvas; pin the ones worth keeping.
 - **Sessions that survive.** SQLite-backed, crash-safe, resumable, with automatic
   context summarization for long conversations.
+- **Micro-apps.** Focused tools on the same engine — starting with a private
+  **Personal Finance** app (transactions, budgets, accounts, net worth), fully local.
 - **Also a CLI.** `zanto` runs in the terminal for one-shot and interactive use.
 
 ## Install
@@ -88,6 +94,13 @@ crates/
 Multi-provider model access is via the [`genai`](https://crates.io/crates/genai)
 crate; sessions persist to SQLite; tools run behind a permission guard.
 
+## Roadmap
+
+Signed macOS/Windows builds · Mac App Store & Microsoft Store listings · prebuilt Linux packages.
+⭐ Star the repo if you'd use this — interest drives what ships next.
+
 ## License
 
 [MIT](LICENSE) © 2026 Satyam Yadav
+
+<sub>Keywords: local-first AI, private AI assistant, offline AI app, bring-your-own-model, Ollama desktop app, open-source ChatGPT alternative, AI agent with file &amp; shell tools, Rust + Tauri AI, private personal finance AI.</sub>
