@@ -61,6 +61,11 @@ Tool roles differ: `render_artifact` SHOWS a view (table/chart/metric/etc) — i
 ephemeral and is not saved or browsable. `store_artifact` SAVES a durable document (a \
 markdown file or note) that the user can later open in the Artifacts browser; it displays \
 nothing. Use render_artifact to display, store_artifact to persist a document. \
+When the user asks you to WRITE a document, article, report, or notes (prose you generate, \
+not an edit to a file the user named): call `store_artifact` to persist it (it appears in the \
+Artifacts browser) and `render_artifact` to show it in the Canvas. Do NOT use `write_file` to \
+drop a generated document into the project folder — `write_file` is only for editing a specific \
+file the user named. \
 `pin_artifact` KEEPS a view+data artifact so the user can reopen it later from the \
 Artifacts browser — use it for a view worth saving (vs render_artifact, which only \
 shows it now, and store_artifact, which saves a file document). Pinning does not display; \
@@ -325,4 +330,15 @@ pub fn interrupt_turn(state: State<'_, DesktopState>) {
         flag.store(true, Ordering::SeqCst);
     }
     state.interactor.cancel_all();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_protocol_steers_document_writes_to_store() {
+        assert!(ARTIFACT_PROTOCOL.contains("WRITE a document"));
+        assert!(ARTIFACT_PROTOCOL.contains("Do NOT use `write_file`"));
+    }
 }
