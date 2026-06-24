@@ -6,8 +6,7 @@ type SettingsSection =
   | "project"
   | "context-sources"
   | "theme"
-  | "folders"
-  | "context";
+  | "folders";
 
 export const settingsStore = $state<{ open: boolean; section: SettingsSection | undefined }>({
   open: false,

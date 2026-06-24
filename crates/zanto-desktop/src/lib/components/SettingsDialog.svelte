@@ -16,7 +16,6 @@
   import CpuIcon from "@lucide/svelte/icons/cpu";
   import PaletteIcon from "@lucide/svelte/icons/palette";
   import FolderIcon from "@lucide/svelte/icons/folder";
-  import LayersIcon from "@lucide/svelte/icons/layers";
   import CheckIcon from "@lucide/svelte/icons/check";
   import XIcon from "@lucide/svelte/icons/x";
   import FolderGitIcon from "@lucide/svelte/icons/folder-git-2";
@@ -26,10 +25,6 @@
   // chip opens Settings on "context-sources"). Applied each time the dialog opens.
   let { open = $bindable(false), initialSection = undefined }:
     { open?: boolean; initialSection?: SectionId } = $props();
-
-  // Turns kept verbatim before older ones are LLM-summarized into context.
-  // 0 = off (default truncation, no summarization). Applies on the next turn.
-  let contextTurns = $state(0);
 
   let activeProvider = $state("");
   let providers = $state<ProviderPatch[]>([]);
@@ -69,7 +64,6 @@
       }));
       ensureProviderPatch(activeProvider);
       resetKeyState();
-      contextTurns = cfg.max_context_turns ?? 0;
       gen = { ...(cfg.generation ?? {}) };
     });
   });
@@ -82,16 +76,6 @@
     const target = untrack(() => initialSection);
     if (target) section = target;
   });
-
-  async function saveContext() {
-    try {
-      await ipc.setConfig({ max_context_turns: Math.max(0, Math.floor(contextTurns || 0)) });
-      await refreshConfig();
-      toast.success(contextTurns > 0 ? `Summarizing beyond ${contextTurns} turns` : "Summarization off");
-    } catch (e) {
-      toast.error("Could not save context settings", { description: `${e}` });
-    }
-  }
 
   // Never carry one provider's key field, revealed state, or confirm banner
   // into another provider.
@@ -315,8 +299,7 @@
     | "project"
     | "context-sources"
     | "theme"
-    | "folders"
-    | "context";
+    | "folders";
   let section = $state<SectionId>("providers");
 
   // Grouped nav: heading → items (id, label, icon component). Rendered in the
@@ -336,7 +319,6 @@
       items: [
         { id: "theme", label: "Theme", icon: PaletteIcon },
         { id: "folders", label: "Folder access", icon: FolderIcon },
-        { id: "context", label: "Context", icon: LayersIcon },
       ],
     },
   ];
@@ -711,36 +693,6 @@
           <FolderPlusIcon class="size-3.5" />
           Add folder…
         </Button>
-      </div>
-      {/if}
-
-      <!-- Context -->
-      {#if section === "context"}
-      <div class="space-y-4">
-        <div class="space-y-1">
-          <h2 class="font-display text-lg font-semibold tracking-tight">Context</h2>
-          <p class="text-sm text-muted-foreground">How much conversation history is kept verbatim before older turns are summarized.</p>
-        </div>
-        <div class="space-y-1.5">
-          <label class="text-xs text-muted-foreground" for="cfg-context-turns">
-            Summarize beyond (turns)
-          </label>
-          <div class="flex items-center gap-2">
-            <Input
-              id="cfg-context-turns"
-              type="number"
-              min="0"
-              step="1"
-              bind:value={contextTurns}
-              class="w-28 font-mono focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <Button size="sm" onclick={saveContext}>Save</Button>
-          </div>
-          <p class="text-xs text-muted-foreground">
-            Keep the last N turns verbatim and LLM-summarize older ones into context.
-            <span class="font-medium">0 = off</span> (default: keep the last 20, no summary). Applies on your next message.
-          </p>
-        </div>
       </div>
       {/if}
     </div>
