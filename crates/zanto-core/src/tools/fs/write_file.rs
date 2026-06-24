@@ -24,7 +24,14 @@ impl ToolBase for WriteFile {
     }
 
     fn description() -> Option<Cow<'static, str>> {
-        Some("Write content to a file, creating it and any missing parent directories".into())
+        Some(
+            "Write content to a specific file the user named or that you are editing \
+             (source code, a config file, an existing file at a known path). Do NOT use \
+             this to save a document, article, report, or notes you generated — persist \
+             those with store_artifact (durable, browsable in Artifacts) and show them \
+             with render_artifact. Creates any missing parent directories."
+                .into(),
+        )
     }
 
     fn output_schema() -> Option<std::sync::Arc<rmcp::model::JsonObject>> {
@@ -54,5 +61,20 @@ impl AsyncTool<super::FsTools> for WriteFile {
             args.content.len(),
             resolved.display()
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn description_steers_generated_docs_to_artifacts() {
+        let d = WriteFile::description().expect("description present");
+        assert!(
+            d.contains("store_artifact"),
+            "should redirect generated docs to store_artifact: {d}"
+        );
+        assert!(d.contains("Do NOT"), "should discourage doc drops: {d}");
     }
 }
