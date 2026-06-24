@@ -45,29 +45,29 @@
   </div>
 {/snippet}
 
-<div class="rounded-md border border-border bg-card text-xs">
+<div class="rounded-md border border-border/60 text-xs">
   <!-- Header row: collapse toggle for the whole card — tool name + status pill -->
   <button
     type="button"
     aria-expanded={cardOpen}
     onclick={() => (cardOpen = !cardOpen)}
-    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
   >
     <ChevronRight size={12} class={cn("shrink-0 text-muted-foreground transition-transform", cardOpen && "rotate-90")} />
     <span class="font-mono font-medium text-foreground">{name}</span>
 
     {#if status === "running"}
-      <span class="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 font-display text-muted-foreground">
+      <span class="flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 font-display text-warning-soft-foreground">
         <Loader size={10} class="animate-spin" />
         running
       </span>
     {:else if status === "ok"}
-      <span class="flex items-center gap-1 rounded-full bg-success px-2 py-0.5 font-display text-success-foreground">
+      <span class="flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 font-display text-success-soft-foreground">
         <CheckCircle size={10} />
         done
       </span>
     {:else}
-      <span class="flex items-center gap-1 rounded-full bg-destructive px-2 py-0.5 font-display text-destructive-foreground">
+      <span class="flex items-center gap-1 rounded-full bg-destructive-soft px-2 py-0.5 font-display text-destructive-soft-foreground">
         <XCircle size={10} />
         error
       </span>
