@@ -235,6 +235,17 @@ html[data-density="relaxed"] { font-size: 17.5px; }
   text-underline-offset: 2px;
   text-decoration: underline;
 }
+/* The user bubble sits on bg-primary. .prose-zanto hard-sets color to
+   var(--foreground) (dark in light theme), which renders near-black text on
+   the violet bubble. Re-assert the bubble's foreground for prose and inline
+   code so the message is legible on the accent in both themes. */
+[data-role="user"] .prose-zanto {
+  color: var(--primary-foreground);
+}
+[data-role="user"] .prose-zanto code {
+  background: color-mix(in oklch, var(--primary-foreground) 18%, transparent);
+  color: var(--primary-foreground);
+}
 /* #8: links inside the user bubble sit on bg-primary, so var(--primary) is
    invisible. Override to the bubble's foreground color for legibility. */
 [data-role="user"] .prose-zanto a {
