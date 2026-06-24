@@ -86,6 +86,12 @@ export const scenarios: Scenario[] = [
       { event: "chat_chunk", payload: { text: "See https://example.com for details." } },
       { event: "chat_done", payload: null },
     ], response: { blocks: [{ kind: "markdown", text: "See https://example.com for details." }] } },
+  // file-path: assistant text with backticked absolute path, relative path, and bare prose slash.
+  // Used by C-14 tests to verify path-linkification rules.
+  { trigger: "file path test", events: [
+      { event: "chat_chunk", payload: { text: "See `/home/user/project/src/main.rs` for details. Also `src/relative.rs` and /bare/prose/path." } },
+      { event: "chat_done", payload: null },
+    ], response: { blocks: [{ kind: "markdown", text: "See `/home/user/project/src/main.rs` for details. Also `src/relative.rs` and /bare/prose/path." }] } },
   // hitl form: emits an interaction_request (kind "form") so HitlForm renders.
   // Resolves with empty blocks; the respond mock handler records the submission.
   { trigger: "hitl form", events: [
