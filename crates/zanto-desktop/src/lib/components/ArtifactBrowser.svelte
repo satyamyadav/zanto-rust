@@ -4,7 +4,7 @@
   import { FolderOpen, Download, X as XIcon } from "@lucide/svelte";
   import Markdown from "$lib/blocks/Markdown.svelte";
   import Block from "$lib/Block.svelte";
-  import { openWorkspace } from "$lib/stores/workspace.svelte";
+  import { openSettings } from "$lib/stores/settings.svelte";
   import {
     ipc,
     type StoredArtifactRef,
@@ -162,7 +162,7 @@
         <p class="flex-1 text-foreground">
           Documents save to the global store. Set a project folder to keep them with this project.
         </p>
-        <Button size="sm" variant="outline" onclick={openWorkspace}>Set project folder</Button>
+        <Button size="sm" variant="outline" onclick={() => openSettings("project")}>Set project folder</Button>
       </div>
     {/if}
 

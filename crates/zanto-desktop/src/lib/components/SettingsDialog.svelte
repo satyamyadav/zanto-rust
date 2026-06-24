@@ -18,8 +18,14 @@
   import FolderIcon from "@lucide/svelte/icons/folder";
   import LayersIcon from "@lucide/svelte/icons/layers";
   import CheckIcon from "@lucide/svelte/icons/check";
+  import XIcon from "@lucide/svelte/icons/x";
+  import FolderGitIcon from "@lucide/svelte/icons/folder-git-2";
+  import FileStackIcon from "@lucide/svelte/icons/file-stack";
 
-  let { open = $bindable(false) }: { open?: boolean } = $props();
+  // `initialSection` lets callers deep-link to a tab (e.g. the composer context
+  // chip opens Settings on "context-sources"). Applied each time the dialog opens.
+  let { open = $bindable(false), initialSection = undefined }:
+    { open?: boolean; initialSection?: SectionId } = $props();
 
   // Turns kept verbatim before older ones are LLM-summarized into context.
   // 0 = off (default truncation, no summarization). Applies on the next turn.
@@ -66,6 +72,15 @@
       contextTurns = cfg.max_context_turns ?? 0;
       gen = { ...(cfg.generation ?? {}) };
     });
+  });
+
+  // Deep-link: when a caller opens the dialog with `initialSection`, jump to it.
+  // Tracks `open` so each fresh open honors the requested tab; reads
+  // `initialSection` untracked so changing the prop alone doesn't yank the user.
+  $effect(() => {
+    if (!open) return;
+    const target = untrack(() => initialSection);
+    if (target) section = target;
   });
 
   async function saveContext() {
@@ -179,6 +194,58 @@
     }
   }
 
+  // ── Workspace: project dir + context sources (moved here from the Workspace
+  // dialog). Project is where outputs are written/read; context sources are
+  // files/folders injected into every turn, each toggleable without removing.
+  const projectDir = $derived(appStore.config?.project_dir ?? null);
+  const contextSources = $derived(appStore.config?.context_sources ?? []);
+  const outputPath = $derived(
+    projectDir ? `${projectDir}/.zanto/artifacts` : "the global store",
+  );
+
+  async function setProject() {
+    try {
+      const f = await ipc.pickFolder();
+      if (!f) return;
+      await ipc.setProjectDir(f);
+      await refreshConfig();
+      toast.success("Project set", { description: f });
+    } catch (e) {
+      toast.error("Could not set the project", { description: `${e}` });
+    }
+  }
+
+  async function addSource() {
+    try {
+      const f = await ipc.pickFolder();
+      if (!f) return;
+      await ipc.addContextSource(f);
+      await refreshConfig();
+      toast.success("Context source added", { description: f });
+    } catch (e) {
+      toast.error("Could not add the context source", { description: `${e}` });
+    }
+  }
+
+  async function toggleSource(path: string, enabled: boolean) {
+    try {
+      await ipc.toggleContextSource(path, enabled);
+      await refreshConfig();
+    } catch (e) {
+      toast.error("Could not update the context source", { description: `${e}` });
+    }
+  }
+
+  async function removeSource(path: string) {
+    try {
+      await ipc.removeContextSource(path);
+      await refreshConfig();
+      toast.success("Context source removed", { description: path });
+    } catch (e) {
+      toast.error("Could not remove the context source", { description: `${e}` });
+    }
+  }
+
   async function refreshModels() {
     if (!activeProvider) return;
     modelsLoading = true;
@@ -243,7 +310,13 @@
   // ── Two-pane nav ──────────────────────────────────────────────────────────
   // Which section the right pane shows. Pure presentation; all form state below
   // is shared across sections and persists when switching.
-  type SectionId = "providers" | "theme" | "folders" | "context";
+  type SectionId =
+    | "providers"
+    | "project"
+    | "context-sources"
+    | "theme"
+    | "folders"
+    | "context";
   let section = $state<SectionId>("providers");
 
   // Grouped nav: heading → items (id, label, icon component). Rendered in the
@@ -251,6 +324,13 @@
   // below the per-provider config); skills are chosen from the composer, not here.
   const NAV: { heading: string; items: { id: SectionId; label: string; icon: typeof CpuIcon }[] }[] = [
     { heading: "Models", items: [{ id: "providers", label: "Providers", icon: CpuIcon }] },
+    {
+      heading: "Workspace",
+      items: [
+        { id: "project", label: "Project", icon: FolderGitIcon },
+        { id: "context-sources", label: "Context sources", icon: FileStackIcon },
+      ],
+    },
     {
       heading: "App",
       items: [
@@ -452,6 +532,96 @@
           <GenerationFields bind:params={gen} />
           <Button size="sm" onclick={saveGeneration}>Save generation</Button>
         </div>
+      </div>
+      {/if}
+
+      <!-- Project -->
+      {#if section === "project"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Project</h2>
+          <p class="text-sm text-muted-foreground">
+            Where outputs are written and read. Saved artifacts land in
+            <code class="font-mono text-xs">{outputPath}</code>.
+          </p>
+        </div>
+        {#if projectDir}
+          <div class="flex items-center gap-2 rounded-md bg-muted px-2.5 py-1.5">
+            <FolderIcon class="size-4 shrink-0 text-muted-foreground" />
+            <span class="flex-1 truncate font-mono text-xs text-foreground" title={projectDir}>
+              {projectDir}
+            </span>
+          </div>
+        {:else}
+          <p class="text-xs text-muted-foreground">
+            No project — outputs go to the global store.
+          </p>
+        {/if}
+        <Button size="sm" variant="outline" onclick={setProject}>
+          <FolderPlusIcon class="size-3.5" />
+          {projectDir ? "Change project…" : "Set project…"}
+        </Button>
+      </div>
+      {/if}
+
+      <!-- Context sources -->
+      {#if section === "context-sources"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Context sources</h2>
+          <p class="text-sm text-muted-foreground">
+            Files and folders fed to every turn. Toggle to silence a source without removing it.
+          </p>
+        </div>
+        {#if contextSources.length === 0}
+          <p class="text-xs text-muted-foreground">
+            No context sources yet. Add a folder of notes to inject into every turn.
+          </p>
+        {:else}
+          <ul class="space-y-1">
+            {#each contextSources as src (src.path)}
+              <li class="flex items-center gap-2 rounded-md bg-muted px-2.5 py-1.5">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={src.enabled}
+                  aria-label={src.enabled ? "Disable source" : "Enable source"}
+                  title={src.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                  onclick={() => toggleSource(src.path, !src.enabled)}
+                  class="relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {src.enabled
+                    ? 'bg-primary'
+                    : 'bg-input'}"
+                >
+                  <span
+                    class="inline-block size-3 rounded-full bg-background shadow transition-transform {src.enabled
+                      ? 'translate-x-3.5'
+                      : 'translate-x-0.5'}"
+                  ></span>
+                </button>
+                <span
+                  class="flex-1 truncate font-mono text-xs {src.enabled
+                    ? 'text-foreground'
+                    : 'text-muted-foreground line-through'}"
+                  title={src.path}
+                >
+                  {src.path}
+                </span>
+                <button
+                  type="button"
+                  class="grid size-5 place-items-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onclick={() => removeSource(src.path)}
+                  aria-label="Remove context source"
+                >
+                  <XIcon class="size-3.5" />
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <Button size="sm" variant="outline" onclick={addSource}>
+          <FolderPlusIcon class="size-3.5" />
+          Add source…
+        </Button>
       </div>
       {/if}
 

@@ -9,10 +9,7 @@
   import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
   import ArchiveRestoreIcon from "@lucide/svelte/icons/archive-restore";
   import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
-  import LayersIcon from "@lucide/svelte/icons/layers";
   import LoaderIcon from "@lucide/svelte/icons/loader";
-  import Workspace from "./Workspace.svelte";
-  import { workspaceStore } from "$lib/stores/workspace.svelte";
   import { appStore, mountApp } from "$lib/stores/app.svelte";
   import {
     sessionStore,
@@ -293,14 +290,9 @@
   <div class="flex items-center justify-between gap-2 border-t border-sidebar-border p-2">
     <span class="truncate px-1 font-mono text-xs text-muted-foreground">{appStore.config?.model ?? ""}</span>
     <div class="flex shrink-0 items-center gap-1">
-      <Button variant="ghost" size="icon" class="size-7" onclick={() => (workspaceStore.open = true)} title="Workspace">
-        <LayersIcon class="size-4" />
-      </Button>
       <Button variant="ghost" size="icon" class="size-7" onclick={onOpenSettings} title="Settings">
         <SettingsIcon class="size-4" />
       </Button>
     </div>
   </div>
 </div>
-
-<Workspace bind:open={workspaceStore.open} />

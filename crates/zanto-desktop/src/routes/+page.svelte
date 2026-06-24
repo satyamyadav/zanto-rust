@@ -8,8 +8,7 @@
   import { appStore, loadApps, mountApp } from "$lib/stores/app.svelte";
   import { newSession, initStreaming } from "$lib/stores/session.svelte";
   import { loadCatalogue } from "$lib/stores/artifacts.svelte";
-
-  let settingsOpen = $state(false);
+  import { settingsStore, openSettings } from "$lib/stores/settings.svelte";
 
   onMount(async () => {
     initStreaming();
@@ -26,7 +25,7 @@
 <div class="h-screen w-screen bg-background text-foreground overflow-hidden">
   <Resizable.PaneGroup direction="horizontal" class="h-full">
     <Resizable.Pane defaultSize={20} minSize={14} maxSize={32}>
-      <Sidebar onOpenSettings={() => (settingsOpen = true)} />
+      <Sidebar onOpenSettings={() => openSettings()} />
     </Resizable.Pane>
     <Resizable.Handle />
     <Resizable.Pane defaultSize={52} minSize={30}>
@@ -39,4 +38,4 @@
   </Resizable.PaneGroup>
 </div>
 
-<SettingsDialog bind:open={settingsOpen} />
+<SettingsDialog bind:open={settingsStore.open} initialSection={settingsStore.section} />

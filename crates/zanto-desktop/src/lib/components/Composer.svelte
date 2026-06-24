@@ -15,7 +15,7 @@
   import { onMount } from "svelte";
   import { sessionStore, send, newSession, interrupt } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
-  import { openWorkspace } from "$lib/stores/workspace.svelte";
+  import { openSettings } from "$lib/stores/settings.svelte";
   import { ipc, type FileEntry, type SkillDto } from "$lib/ipc";
   import FileListItem from "$lib/components/FileListItem.svelte";
 
@@ -582,8 +582,8 @@
   <div class="flex items-center gap-2">
     <button
       type="button"
-      onclick={openWorkspace}
-      title="Open the Workspace"
+      onclick={() => openSettings("context-sources")}
+      title="Manage context sources"
       class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span class="text-primary" aria-hidden="true">◇</span>
