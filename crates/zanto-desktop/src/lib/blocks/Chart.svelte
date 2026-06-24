@@ -45,12 +45,27 @@
     };
 
     if (isArc) {
-      return { ...base, series: (datasets[0]?.data ?? []).map((n) => (Number.isFinite(n) ? n : 0)), labels };
+      return {
+        ...base,
+        series: (datasets[0]?.data ?? []).map((n) => (Number.isFinite(n) ? n : 0)),
+        labels,
+        legend: { position: "bottom" as const, horizontalAlign: "center" as const },
+      };
     }
     return {
       ...base,
       series: datasets.map((ds, i) => ({ name: ds.label ?? `Series ${i + 1}`, data: ds.data ?? [] })),
       xaxis: { categories: labels },
+      yaxis: {
+        labels: {
+          formatter: (v: number) => {
+            if (!Number.isFinite(v)) return "";
+            const abs = Math.abs(v);
+            if (abs >= 1000) return `${(v / 1000).toFixed(abs % 1000 === 0 ? 0 : 1)}k`;
+            return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100);
+          },
+        },
+      },
     };
   }
 
