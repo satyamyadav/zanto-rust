@@ -264,7 +264,7 @@
   <div class="flex justify-end">
     <div
       data-role="user"
-      class="flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm"
+      class="flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-br-sm bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-sm"
     >
       {#each items as item, i (i)}
         {@render renderItem(item)}
@@ -277,7 +277,7 @@
               <button
                 type="button"
                 onclick={() => openViewer(imgIdx >= 0 ? imgIdx : 0)}
-                class="inline-flex items-center gap-1.5 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-1.5 py-1 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                class="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/50 px-1.5 py-1 text-xs text-muted-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 title={a.path}
                 aria-label="View image {a.name}"
                 data-attachment-chip
@@ -297,7 +297,7 @@
               </button>
             {:else}
               <span
-                class="inline-flex items-center gap-1.5 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground/80"
+                class="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/50 px-2 py-1 text-xs text-muted-foreground"
                 title={a.path}
                 data-attachment-chip
               >
