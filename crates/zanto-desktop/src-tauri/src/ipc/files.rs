@@ -105,15 +105,16 @@ pub async fn read_image_data_url(
         .await
         .map_err(|e| e.to_string())?;
 
-    let bytes = std::fs::read(&resolved).map_err(|e| format!("read error: {e}"))?;
-
-    const MAX_BYTES: usize = 10 * 1024 * 1024;
-    if bytes.len() > MAX_BYTES {
-        return Err(format!(
-            "image too large ({} bytes > 10 MiB limit)",
-            bytes.len()
-        ));
+    const MAX_BYTES: u64 = 10 * 1024 * 1024;
+    // Pre-check the size from metadata so an oversized file is rejected without
+    // first reading it all into memory.
+    let size = std::fs::metadata(&resolved)
+        .map_err(|e| format!("stat error: {e}"))?
+        .len();
+    if size > MAX_BYTES {
+        return Err(format!("image too large ({size} bytes > 10 MiB limit)"));
     }
+    let bytes = std::fs::read(&resolved).map_err(|e| format!("read error: {e}"))?;
 
     let mime = mime_for_image(&resolved.to_string_lossy());
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
