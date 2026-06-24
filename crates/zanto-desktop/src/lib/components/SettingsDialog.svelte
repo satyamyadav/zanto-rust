@@ -9,23 +9,17 @@
   import { density, setDensity, type Density } from "$lib/stores/theme.svelte";
   import { untrack } from "svelte";
   import { appStore, refreshConfig } from "$lib/stores/app.svelte";
-  import { ipc, type ProviderPatch, type SkillDto, type GenerationParams } from "$lib/ipc";
+  import { ipc, type ProviderPatch, type GenerationParams } from "$lib/ipc";
   import EyeIcon from "@lucide/svelte/icons/eye";
   import EyeOffIcon from "@lucide/svelte/icons/eye-off";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
   import CpuIcon from "@lucide/svelte/icons/cpu";
   import PaletteIcon from "@lucide/svelte/icons/palette";
   import FolderIcon from "@lucide/svelte/icons/folder";
-  import SlidersIcon from "@lucide/svelte/icons/sliders-horizontal";
-  import BookOpenIcon from "@lucide/svelte/icons/book-open";
   import LayersIcon from "@lucide/svelte/icons/layers";
   import CheckIcon from "@lucide/svelte/icons/check";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
-
-  const NO_SKILL = "__none__";
-  let skills = $state<SkillDto[]>([]);
-  let activeSkill = $state(NO_SKILL);
 
   // Turns kept verbatim before older ones are LLM-summarized into context.
   // 0 = off (default truncation, no summarization). Applies on the next turn.
@@ -69,10 +63,8 @@
       }));
       ensureProviderPatch(activeProvider);
       resetKeyState();
-      activeSkill = cfg.selected_skill ?? NO_SKILL;
       contextTurns = cfg.max_context_turns ?? 0;
       gen = { ...(cfg.generation ?? {}) };
-      loadSkills();
     });
   });
 
@@ -83,15 +75,6 @@
       toast.success(contextTurns > 0 ? `Summarizing beyond ${contextTurns} turns` : "Summarization off");
     } catch (e) {
       toast.error("Could not save context settings", { description: `${e}` });
-    }
-  }
-
-  async function loadSkills() {
-    try {
-      skills = await ipc.listSkills();
-    } catch (e) {
-      skills = [];
-      toast.error("Could not load skills", { description: `${e}` });
     }
   }
 
@@ -196,15 +179,6 @@
     }
   }
 
-  async function selectSkill(name: string) {
-    activeSkill = name;
-    try {
-      await ipc.setActiveSkill(name === NO_SKILL ? null : name);
-    } catch (e) {
-      toast.error("Could not set the active skill", { description: `${e}` });
-    }
-  }
-
   async function refreshModels() {
     if (!activeProvider) return;
     modelsLoading = true;
@@ -260,9 +234,6 @@
   };
 
   const allowedPaths = $derived(appStore.config?.allowed_paths ?? []);
-  const activeSkillLabel = $derived(
-    activeSkill === NO_SKILL ? "None" : activeSkill
-  );
 
   // The active provider's per-provider override object (created on demand by
   // ensureProviderPatch). Bound into the per-provider GenerationFields.
@@ -272,11 +243,12 @@
   // ── Two-pane nav ──────────────────────────────────────────────────────────
   // Which section the right pane shows. Pure presentation; all form state below
   // is shared across sections and persists when switching.
-  type SectionId = "providers" | "theme" | "folders" | "context" | "generation" | "skill";
+  type SectionId = "providers" | "theme" | "folders" | "context";
   let section = $state<SectionId>("providers");
 
   // Grouped nav: heading → items (id, label, icon component). Rendered in the
-  // left sidebar. Order mirrors the previous single-column section order.
+  // left sidebar. Generation lives inside the Providers pane (global defaults
+  // below the per-provider config); skills are chosen from the composer, not here.
   const NAV: { heading: string; items: { id: SectionId; label: string; icon: typeof CpuIcon }[] }[] = [
     { heading: "Models", items: [{ id: "providers", label: "Providers", icon: CpuIcon }] },
     {
@@ -285,19 +257,9 @@
         { id: "theme", label: "Theme", icon: PaletteIcon },
         { id: "folders", label: "Folder access", icon: FolderIcon },
         { id: "context", label: "Context", icon: LayersIcon },
-        { id: "generation", label: "Generation", icon: SlidersIcon },
-        { id: "skill", label: "Skill", icon: BookOpenIcon },
       ],
     },
   ];
-
-  // Deterministic avatar tint for a provider id: hash → hue, rendered as an
-  // oklch background. Stable per id, no hardcoded brand colors.
-  function avatarTint(id: string): string {
-    let h = 0;
-    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
-    return `oklch(0.65 0.15 ${h})`;
-  }
 </script>
 
 <Dialog.Root bind:open>
@@ -347,39 +309,20 @@
         </div>
 
         <div class="space-y-1.5">
-          <span class="text-xs text-muted-foreground">Active provider</span>
-          <div class="flex flex-col gap-2" role="radiogroup" aria-label="Active provider">
-            {#each registry as r (r.id)}
-              {@const isActive = r.id === activeProvider}
-              <button
-                type="button"
-                role="radio"
-                aria-checked={isActive}
-                onclick={() => { activeProvider = r.id; ensureProviderPatch(r.id); }}
-                class="flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {isActive
-                  ? 'border-primary/50 bg-accent/40'
-                  : 'border-border hover:bg-muted/40'}"
-              >
-                <span
-                  class="grid size-8 shrink-0 place-items-center rounded-md font-display text-sm font-semibold text-white"
-                  style="background: {avatarTint(r.id)}"
-                  aria-hidden="true"
-                >
-                  {r.label.slice(0, 2)}
-                </span>
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium text-foreground">{r.label}</span>
-                  <span class="block truncate font-mono text-xs text-muted-foreground">{r.default_endpoint ?? "—"}</span>
-                </span>
-                {#if isActive}
-                  <span class="flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 font-display text-xs text-success-soft-foreground">
-                    <span class="size-1.5 rounded-full bg-success-soft-foreground"></span>
-                    Active
-                  </span>
-                {/if}
-              </button>
-            {/each}
-          </div>
+          <span class="text-xs text-muted-foreground" id="cfg-provider-label">Active provider</span>
+          <Select.Root type="single" value={activeProvider} onValueChange={(v) => { if (v) { activeProvider = v; ensureProviderPatch(v); } }}>
+            <Select.Trigger
+              class="w-full focus-visible:ring-2 focus-visible:ring-ring"
+              aria-labelledby="cfg-provider-label"
+            >
+              {activeProviderLabel || "Choose a provider"}
+            </Select.Trigger>
+            <Select.Content>
+              {#each registry as r (r.id)}
+                <Select.Item value={r.id} label={r.label} />
+              {/each}
+            </Select.Content>
+          </Select.Root>
         </div>
 
         {#if activeProvider}
@@ -494,6 +437,21 @@
         {/if}
 
         <Button size="sm" onclick={saveProviders}>Save changes</Button>
+
+        <!-- Global generation defaults (apply to every turn; per-provider
+             overrides above take precedence). Folded in here so all generation
+             settings live in one place. -->
+        <div class="space-y-3 border-t border-border pt-4">
+          <div class="space-y-1">
+            <h3 class="font-display text-sm font-semibold tracking-tight">Generation defaults</h3>
+            <p class="text-xs text-muted-foreground">
+              Applied to every turn. A provider's overrides above take precedence.
+              Empty fields use the provider default; unsupported options are ignored per provider.
+            </p>
+          </div>
+          <GenerationFields bind:params={gen} />
+          <Button size="sm" onclick={saveGeneration}>Save generation</Button>
+        </div>
       </div>
       {/if}
 
@@ -612,55 +570,6 @@
             Keep the last N turns verbatim and LLM-summarize older ones into context.
             <span class="font-medium">0 = off</span> (default: keep the last 20, no summary). Applies on your next message.
           </p>
-        </div>
-      </div>
-      {/if}
-
-      <!-- Generation (global defaults) -->
-      {#if section === "generation"}
-      <div class="space-y-4">
-        <div class="space-y-1">
-          <h2 class="font-display text-lg font-semibold tracking-tight">Generation</h2>
-          <p class="text-sm text-muted-foreground">Defaults applied to every turn. A provider's overrides take precedence.</p>
-        </div>
-        <p class="text-xs text-muted-foreground">
-          Applied to every turn. A provider's overrides (in Providers) take
-          precedence. Empty fields use the provider default; unsupported options are
-          ignored per provider.
-        </p>
-        <GenerationFields bind:params={gen} />
-        <Button size="sm" onclick={saveGeneration}>Save generation</Button>
-      </div>
-      {/if}
-
-      <!-- Skill -->
-      {#if section === "skill"}
-      <div class="space-y-4">
-        <div class="space-y-1">
-          <h2 class="font-display text-lg font-semibold tracking-tight">Skill</h2>
-          <p class="text-sm text-muted-foreground">Load a markdown skill to steer how the assistant works.</p>
-        </div>
-        <div class="space-y-1.5">
-          <span class="text-xs text-muted-foreground" id="cfg-skill-label">Active skill</span>
-          <Select.Root type="single" value={activeSkill} onValueChange={selectSkill}>
-            <Select.Trigger
-              class="w-full focus-visible:ring-2 focus-visible:ring-ring"
-              aria-labelledby="cfg-skill-label"
-            >
-              {activeSkillLabel}
-            </Select.Trigger>
-            <Select.Content>
-              <Select.Item value={NO_SKILL} label="None" />
-              {#each skills as s (s.name)}
-                <Select.Item value={s.name} label={s.name} />
-              {/each}
-            </Select.Content>
-          </Select.Root>
-          {#if skills.length === 0}
-            <p class="text-xs text-muted-foreground">
-              No skills found. Add markdown files under <code class="font-mono">.zanto/skills</code>.
-            </p>
-          {/if}
         </div>
       </div>
       {/if}
