@@ -34,13 +34,13 @@
   const hasText = $derived(text.trim().length > 0);
 </script>
 
-<div class="rounded-md border border-border bg-card text-xs">
+<div class="rounded-md border border-border/60 text-xs">
   <button
     type="button"
     aria-expanded={open}
     disabled={!hasText}
     onclick={() => hasText && (open = !open)}
-    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-transparent"
   >
     <ChevronRight
       size={12}
