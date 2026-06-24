@@ -13,6 +13,13 @@
   import EyeIcon from "@lucide/svelte/icons/eye";
   import EyeOffIcon from "@lucide/svelte/icons/eye-off";
   import FolderPlusIcon from "@lucide/svelte/icons/folder-plus";
+  import CpuIcon from "@lucide/svelte/icons/cpu";
+  import PaletteIcon from "@lucide/svelte/icons/palette";
+  import FolderIcon from "@lucide/svelte/icons/folder";
+  import SlidersIcon from "@lucide/svelte/icons/sliders-horizontal";
+  import BookOpenIcon from "@lucide/svelte/icons/book-open";
+  import LayersIcon from "@lucide/svelte/icons/layers";
+  import CheckIcon from "@lucide/svelte/icons/check";
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -261,35 +268,118 @@
   // ensureProviderPatch). Bound into the per-provider GenerationFields.
   const activeGeneration = $derived(activeProviderPatch()?.generation);
   let showOverrides = $state(false);
+
+  // ── Two-pane nav ──────────────────────────────────────────────────────────
+  // Which section the right pane shows. Pure presentation; all form state below
+  // is shared across sections and persists when switching.
+  type SectionId = "providers" | "theme" | "folders" | "context" | "generation" | "skill";
+  let section = $state<SectionId>("providers");
+
+  // Grouped nav: heading → items (id, label, icon component). Rendered in the
+  // left sidebar. Order mirrors the previous single-column section order.
+  const NAV: { heading: string; items: { id: SectionId; label: string; icon: typeof CpuIcon }[] }[] = [
+    { heading: "Models", items: [{ id: "providers", label: "Providers", icon: CpuIcon }] },
+    {
+      heading: "App",
+      items: [
+        { id: "theme", label: "Theme", icon: PaletteIcon },
+        { id: "folders", label: "Folder access", icon: FolderIcon },
+        { id: "context", label: "Context", icon: LayersIcon },
+        { id: "generation", label: "Generation", icon: SlidersIcon },
+        { id: "skill", label: "Skill", icon: BookOpenIcon },
+      ],
+    },
+  ];
+
+  // Deterministic avatar tint for a provider id: hash → hue, rendered as an
+  // oklch background. Stable per id, no hardcoded brand colors.
+  function avatarTint(id: string): string {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
+    return `oklch(0.65 0.15 ${h})`;
+  }
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-[80vw] max-h-[80vh] flex flex-col">
-    <Dialog.Header>
-      <Dialog.Title class="font-display">Settings</Dialog.Title>
-    </Dialog.Header>
+  <Dialog.Content class="sm:max-w-[860px] h-[80vh] p-0 gap-0 overflow-hidden flex flex-row">
+    <!-- Left nav -->
+    <nav class="flex w-[190px] shrink-0 flex-col border-r border-border bg-sidebar p-3" aria-label="Settings sections">
+      <p class="px-2 pb-3 font-display text-sm font-semibold">Settings</p>
+      <div class="flex flex-1 flex-col gap-4 overflow-y-auto">
+        {#each NAV as group (group.heading)}
+          <div class="flex flex-col gap-0.5">
+            <p class="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{group.heading}</p>
+            {#each group.items as item (item.id)}
+              <button
+                type="button"
+                aria-current={section === item.id ? "page" : undefined}
+                onclick={() => (section = item.id)}
+                class="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {section === item.id
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'}"
+              >
+                <item.icon class="size-4 shrink-0" />
+                {item.label}
+              </button>
+            {/each}
+          </div>
+        {/each}
+      </div>
+      <button
+        type="button"
+        onclick={() => (open = false)}
+        class="mt-3 flex items-center justify-between rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        Close
+        <kbd class="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">esc</kbd>
+      </button>
+    </nav>
 
-    <div class="min-h-0 flex-1 space-y-6 overflow-y-auto py-1 pr-1">
+    <!-- Right pane -->
+    <div class="min-h-0 flex-1 overflow-y-auto p-6">
 
-      <!-- Provider & model -->
-      <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Provider &amp; model</h3>
+      <!-- Providers -->
+      {#if section === "providers"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Providers</h2>
+          <p class="text-sm text-muted-foreground">Choose where zanto gets its intelligence. API keys are stored in your system keychain.</p>
+        </div>
 
         <div class="space-y-1.5">
-          <span class="text-xs text-muted-foreground" id="cfg-provider-label">Active provider</span>
-          <Select.Root type="single" value={activeProvider} onValueChange={(v) => { if (v) { activeProvider = v; ensureProviderPatch(v); } }}>
-            <Select.Trigger
-              class="w-full focus-visible:ring-2 focus-visible:ring-ring"
-              aria-labelledby="cfg-provider-label"
-            >
-              {activeProviderLabel || "Choose a provider"}
-            </Select.Trigger>
-            <Select.Content>
-              {#each registry as r (r.id)}
-                <Select.Item value={r.id} label={r.label} />
-              {/each}
-            </Select.Content>
-          </Select.Root>
+          <span class="text-xs text-muted-foreground">Active provider</span>
+          <div class="flex flex-col gap-2" role="radiogroup" aria-label="Active provider">
+            {#each registry as r (r.id)}
+              {@const isActive = r.id === activeProvider}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onclick={() => { activeProvider = r.id; ensureProviderPatch(r.id); }}
+                class="flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {isActive
+                  ? 'border-primary/50 bg-accent/40'
+                  : 'border-border hover:bg-muted/40'}"
+              >
+                <span
+                  class="grid size-8 shrink-0 place-items-center rounded-md font-display text-sm font-semibold text-white"
+                  style="background: {avatarTint(r.id)}"
+                  aria-hidden="true"
+                >
+                  {r.label.slice(0, 2)}
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm font-medium text-foreground">{r.label}</span>
+                  <span class="block truncate font-mono text-xs text-muted-foreground">{r.default_endpoint ?? "—"}</span>
+                </span>
+                {#if isActive}
+                  <span class="flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 font-display text-xs text-success-soft-foreground">
+                    <span class="size-1.5 rounded-full bg-success-soft-foreground"></span>
+                    Active
+                  </span>
+                {/if}
+              </button>
+            {/each}
+          </div>
         </div>
 
         {#if activeProvider}
@@ -404,20 +494,45 @@
         {/if}
 
         <Button size="sm" onclick={saveProviders}>Save changes</Button>
-      </section>
+      </div>
+      {/if}
 
-      <!-- Appearance -->
-      <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Appearance</h3>
+      <!-- Theme -->
+      {#if section === "theme"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Theme</h2>
+          <p class="text-sm text-muted-foreground">Pick a color scheme and how dense the layout feels. Changes apply instantly.</p>
+        </div>
         <div class="space-y-1.5">
           <span class="text-xs text-muted-foreground" id="cfg-theme-label">Theme</span>
-          <div class="flex gap-2" role="group" aria-labelledby="cfg-theme-label">
-            <Button variant={mode.current === "light" ? "default" : "outline"} size="sm" onclick={() => setMode("light")}>
-              Light
-            </Button>
-            <Button variant={mode.current === "dark" ? "default" : "outline"} size="sm" onclick={() => setMode("dark")}>
-              Dark
-            </Button>
+          <div class="grid grid-cols-2 gap-3" role="radiogroup" aria-labelledby="cfg-theme-label">
+            {#each [
+              { id: "light", name: "Paper", desc: "Bright light theme with a violet accent.", swatch: ["#f7f7f5", "#ffffff", "#ececef", "#6d5ef0"] },
+              { id: "dark", name: "Midnight", desc: "Deep dark theme with a violet accent.", swatch: ["#23232b", "#2b2b35", "#34343f", "#8b7cff"] },
+            ] as t (t.id)}
+              {@const isActive = mode.current === t.id}
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onclick={() => setMode(t.id as "light" | "dark")}
+                class="flex flex-col gap-2 rounded-lg border p-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {isActive
+                  ? 'border-primary ring-1 ring-primary/40'
+                  : 'border-border hover:bg-muted/40'}"
+              >
+                <span class="flex h-12 overflow-hidden rounded-md border border-border" aria-hidden="true">
+                  {#each t.swatch as c (c)}
+                    <span class="flex-1" style="background: {c}"></span>
+                  {/each}
+                </span>
+                <span class="flex items-center justify-between">
+                  <span class="text-sm font-medium text-foreground">{t.name}</span>
+                  {#if isActive}<CheckIcon class="size-4 text-primary" />{/if}
+                </span>
+                <span class="text-xs text-muted-foreground">{t.desc}</span>
+              </button>
+            {/each}
           </div>
         </div>
         <div class="space-y-1.5">
@@ -441,11 +556,16 @@
             {/each}
           </div>
         </div>
-      </section>
+      </div>
+      {/if}
 
       <!-- Folder access -->
-      <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Folder access</h3>
+      {#if section === "folders"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Folder access</h2>
+          <p class="text-sm text-muted-foreground">Folders the assistant may read and write. Add one to grant access.</p>
+        </div>
         {#if allowedPaths.length === 0}
           <p class="text-xs text-muted-foreground">
             No folders yet. Add one to let the assistant read and write files there.
@@ -463,11 +583,16 @@
           <FolderPlusIcon class="size-3.5" />
           Add folder…
         </Button>
-      </section>
+      </div>
+      {/if}
 
       <!-- Context -->
-      <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Context</h3>
+      {#if section === "context"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Context</h2>
+          <p class="text-sm text-muted-foreground">How much conversation history is kept verbatim before older turns are summarized.</p>
+        </div>
         <div class="space-y-1.5">
           <label class="text-xs text-muted-foreground" for="cfg-context-turns">
             Summarize beyond (turns)
@@ -488,23 +613,33 @@
             <span class="font-medium">0 = off</span> (default: keep the last 20, no summary). Applies on your next message.
           </p>
         </div>
-      </section>
+      </div>
+      {/if}
 
       <!-- Generation (global defaults) -->
-      <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Generation (defaults)</h3>
+      {#if section === "generation"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Generation</h2>
+          <p class="text-sm text-muted-foreground">Defaults applied to every turn. A provider's overrides take precedence.</p>
+        </div>
         <p class="text-xs text-muted-foreground">
-          Applied to every turn. A provider's overrides (in Provider &amp; model) take
+          Applied to every turn. A provider's overrides (in Providers) take
           precedence. Empty fields use the provider default; unsupported options are
           ignored per provider.
         </p>
         <GenerationFields bind:params={gen} />
         <Button size="sm" onclick={saveGeneration}>Save generation</Button>
-      </section>
+      </div>
+      {/if}
 
       <!-- Skill -->
-      <section class="space-y-3">
-        <h3 class="font-display text-sm font-semibold tracking-tight">Skill</h3>
+      {#if section === "skill"}
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <h2 class="font-display text-lg font-semibold tracking-tight">Skill</h2>
+          <p class="text-sm text-muted-foreground">Load a markdown skill to steer how the assistant works.</p>
+        </div>
         <div class="space-y-1.5">
           <span class="text-xs text-muted-foreground" id="cfg-skill-label">Active skill</span>
           <Select.Root type="single" value={activeSkill} onValueChange={selectSkill}>
@@ -527,7 +662,8 @@
             </p>
           {/if}
         </div>
-      </section>
+      </div>
+      {/if}
     </div>
   </Dialog.Content>
 </Dialog.Root>
