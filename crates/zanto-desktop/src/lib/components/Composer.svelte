@@ -542,7 +542,7 @@
     <div class="flex flex-wrap gap-1.5">
       {#each pastes as p (p.id)}
         <span
-          class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
+          class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs text-muted-foreground"
         >
           <PaperclipIcon class="size-3.5" />
           pasted {p.lines} {p.lines === 1 ? "line" : "lines"}
@@ -558,7 +558,7 @@
       {/each}
       {#each attachments as a (a.id)}
         <span
-          class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-xs text-muted-foreground"
+          class="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-1 text-xs text-muted-foreground"
           title={a.path}
         >
           {#if a.isImage}
@@ -591,7 +591,7 @@
     </button>
     {#if activeSkillName}
       <span
-        class="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+        class="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-1.5 py-0.5 text-xs text-muted-foreground"
         aria-label="Active skill: {activeSkillName}"
       >
         <BookOpenIcon class="size-3" />
