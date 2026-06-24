@@ -12,6 +12,8 @@
   import FileIcon from "@lucide/svelte/icons/file";
   import ImageIcon from "@lucide/svelte/icons/image";
   import { onDestroy } from "svelte";
+  import ImageViewer from "$lib/components/ImageViewer.svelte";
+  import { ipc } from "$lib/ipc";
 
   // `isLast` marks the trailing entry — the only one that can be the live,
   // streaming turn whose trailing reasoning animates.
@@ -125,6 +127,39 @@
   let copied = $state(false);
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Image viewer state.
+  let viewerOpen = $state(false);
+  let viewerIndex = $state(0);
+
+  // Derived list of image attachments for the current entry.
+  const imageAttachments = $derived(
+    (entry.attachments ?? [])
+      .filter((a) => a.isImage)
+      .map((a) => ({ path: a.path, name: a.name })),
+  );
+
+  // Thumbnail data-URLs, keyed by path. Loaded lazily on first render.
+  let thumbnails = $state<Record<string, string>>({});
+
+  // Load thumbnails for all image attachments whenever the set changes.
+  $effect(() => {
+    for (const img of imageAttachments) {
+      if (thumbnails[img.path]) continue;
+      ipc.readImageDataUrl(img.path).then((url) => {
+        thumbnails = { ...thumbnails, [img.path]: url };
+      }).catch(() => {});
+    }
+  });
+
+  function openViewer(idx: number) {
+    viewerIndex = idx;
+    viewerOpen = true;
+  }
+
+  function closeViewer() {
+    viewerOpen = false;
+  }
+
   async function copyMessage() {
     try {
       await navigator.clipboard.writeText(copyText);
@@ -236,19 +271,40 @@
       {/each}
       {#if entry.attachments && entry.attachments.length > 0}
         <div class="flex flex-wrap gap-1.5 pt-0.5">
-          {#each entry.attachments as a (a.path)}
-            <span
-              class="inline-flex items-center gap-1.5 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground/80"
-              title={a.path}
-              data-attachment-chip
-            >
-              {#if a.isImage}
-                <ImageIcon class="size-3.5 shrink-0" />
-              {:else}
+          {#each entry.attachments as a, chipIdx (a.path)}
+            {#if a.isImage}
+              {@const imgIdx = imageAttachments.findIndex((i) => i.path === a.path)}
+              <button
+                type="button"
+                onclick={() => openViewer(imgIdx >= 0 ? imgIdx : 0)}
+                class="inline-flex items-center gap-1.5 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-1.5 py-1 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                title={a.path}
+                aria-label="View image {a.name}"
+                data-attachment-chip
+                data-image-chip
+              >
+                {#if thumbnails[a.path]}
+                  <img
+                    src={thumbnails[a.path]}
+                    alt={a.name}
+                    class="size-5 rounded object-cover"
+                    data-thumbnail
+                  />
+                {:else}
+                  <ImageIcon class="size-3.5 shrink-0" />
+                {/if}
+                <span class="max-w-40 truncate font-mono">{a.name}</span>
+              </button>
+            {:else}
+              <span
+                class="inline-flex items-center gap-1.5 rounded-md border border-primary-foreground/30 bg-primary-foreground/10 px-2 py-1 text-xs text-primary-foreground/80"
+                title={a.path}
+                data-attachment-chip
+              >
                 <FileIcon class="size-3.5 shrink-0" />
-              {/if}
-              <span class="max-w-40 truncate font-mono">{a.name}</span>
-            </span>
+                <span class="max-w-40 truncate font-mono">{a.name}</span>
+              </span>
+            {/if}
           {/each}
         </div>
       {/if}
@@ -280,4 +336,8 @@
       {/if}
     </div>
   </div>
+{/if}
+
+{#if viewerOpen && imageAttachments.length > 0}
+  <ImageViewer images={imageAttachments} activeIndex={viewerIndex} onclose={closeViewer} />
 {/if}

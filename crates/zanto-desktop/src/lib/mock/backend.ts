@@ -47,6 +47,25 @@ const attachmentSession = [
   },
 ];
 
+// Session with a user message that has a persisted IMAGE attachment (D7 image-viewer test).
+const imageSession = [
+  {
+    role: "user",
+    text: "Check this screenshot",
+    blocks: null,
+    segments: null,
+    stopped: null,
+    attachments: [{ path: "/home/user/pics/screenshot.png", name: "screenshot.png", is_image: true }],
+  },
+  {
+    role: "assistant",
+    text: "Looks good.",
+    blocks: null,
+    segments: null,
+    stopped: null,
+  },
+];
+
 // Each handler is keyed by the exact `invoke` command name used in ipc.ts.
 // Typed return values turn the fixture JSON into a compile-time contract.
 export const backend: Record<string, (args: any) => Promise<unknown>> = {
@@ -73,6 +92,16 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
       app_id: null,
       created_at: 1700000300,
       updated_at: 1700000400,
+      message_count: 2,
+      archived: false,
+    } satisfies SessionMeta,
+    {
+      id: "sess-images",
+      title: "Image session",
+      workspace: "/home/user/project",
+      app_id: null,
+      created_at: 1700000500,
+      updated_at: 1700000600,
       message_count: 2,
       archived: false,
     } satisfies SessionMeta,
@@ -115,6 +144,7 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   load_session: async (a: { id?: string }): Promise<any> => {
     if (a?.id === "sess-long") return longSession;
     if (a?.id === "sess-attachments") return attachmentSession;
+    if (a?.id === "sess-images") return imageSession;
     return loadSessionFx.response;
   },
   load_session_page: async (a: { offset?: number; limit?: number }): Promise<any> => {
