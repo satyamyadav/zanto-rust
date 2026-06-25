@@ -239,6 +239,28 @@ impl ArtifactStore {
         }
         Err(ArtifactError::NotFound(id.to_string()))
     }
+
+    /// Delete an artifact (blob + index entry) by id, searching both scopes.
+    /// A missing blob file is tolerated as long as the index entry is removed;
+    /// `NotFound` if no entry matches.
+    pub fn delete(&self, id: &str) -> Result<()> {
+        let (root, art) = self.locate(id)?;
+
+        // Remove the blob; a missing file is fine — the index entry is the
+        // source of truth and is removed below.
+        match std::fs::remove_file(root.join(&art.rel_path)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+
+        let index: Vec<ArtifactRef> = read_index(&root)?
+            .into_iter()
+            .filter(|a| a.id != id)
+            .collect();
+        write_index_atomic(&root, &index)?;
+        Ok(())
+    }
 }
 
 // ---- Helpers ----
@@ -363,6 +385,20 @@ mod tests {
             "list must be sorted by created_at descending: {:?}",
             listed.iter().map(|a| a.created_at).collect::<Vec<_>>(),
         );
+    }
+
+    #[test]
+    fn delete_removes_blob_and_index_entry() {
+        let (store, _dir) = global_store();
+        let art = store
+            .save(ArtifactKind::Markdown, "Doc", b"body", Scope::Global)
+            .unwrap();
+        store.delete(&art.id).unwrap();
+        assert!(store.list(Some(Scope::Global)).unwrap().is_empty());
+        assert!(matches!(
+            store.read(&art.id),
+            Err(ArtifactError::NotFound(_))
+        ));
     }
 
     #[test]
