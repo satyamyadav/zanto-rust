@@ -5,6 +5,7 @@
   import Markdown from "$lib/blocks/Markdown.svelte";
   import Block from "$lib/Block.svelte";
   import { openSettings } from "$lib/stores/settings.svelte";
+  import { sessionStore } from "$lib/stores/session.svelte";
   import {
     ipc,
     type StoredArtifactRef,
@@ -92,6 +93,7 @@
   $effect(() => {
     void backend; // track the backend tab
     void scope; // track the document filter
+    void sessionStore.artifactsTick; // reload when a doc is saved while open
     selectedDoc = null;
     selectedView = null;
     refresh();

@@ -22,6 +22,14 @@
   function closeLink() {
     sessionStore.promotedLink = null;
   }
+
+  // When a rendered canvas view AND the Artifacts browser both exist, the panel
+  // tabs between them. Opening the browser focuses its tab; closing it (or having
+  // no browser) falls back to the rendered View.
+  let panelTab = $state<"view" | "artifacts">("view");
+  $effect(() => {
+    panelTab = sessionStore.panelMode === "browser" ? "artifacts" : "view";
+  });
 </script>
 
 <div class="h-full bg-background p-4">
@@ -54,6 +62,38 @@
             Copy link
           </Button>
         </div>
+      </div>
+    </div>
+  {:else if sessionStore.canvas && sessionStore.panelMode === "browser"}
+    <!-- Both a rendered view and the Artifacts browser exist: tab between them so
+         opening Artifacts never destroys the rendered canvas. -->
+    <div class="flex h-full flex-col">
+      <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panelTab === "view"}
+          onclick={() => (panelTab = "view")}
+          class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {panelTab === 'view'
+            ? 'bg-accent text-accent-foreground'
+            : 'text-muted-foreground hover:text-foreground'}"
+        >View</button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panelTab === "artifacts"}
+          onclick={() => (panelTab = "artifacts")}
+          class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring {panelTab === 'artifacts'
+            ? 'bg-accent text-accent-foreground'
+            : 'text-muted-foreground hover:text-foreground'}"
+        >Artifacts</button>
+      </div>
+      <div class="min-h-0 flex-1 overflow-auto">
+        {#if panelTab === "view"}
+          <div class="h-full overflow-auto p-4"><Block block={sessionStore.canvas} canPin={false} /></div>
+        {:else}
+          <ArtifactBrowser onClose={() => (sessionStore.panelMode = null)} />
+        {/if}
       </div>
     </div>
   {:else if sessionStore.panelMode === "browser"}

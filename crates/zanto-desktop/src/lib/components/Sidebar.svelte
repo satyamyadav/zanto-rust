@@ -29,8 +29,9 @@
   // Open the artifact browser in the canvas panel (A-4); clears the sibling
   // panel views so it isn't shadowed by a link / agent block.
   function openArtifacts() {
+    // Keep any rendered canvas view alive so the panel can tab between it and the
+    // Artifacts browser (Canvas.svelte) — opening Artifacts must not destroy it.
     sessionStore.promotedLink = null;
-    sessionStore.canvas = null;
     sessionStore.panelMode = "browser";
   }
 
