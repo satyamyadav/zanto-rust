@@ -11,9 +11,11 @@
   import CheckIcon from "@lucide/svelte/icons/check";
   import FileIcon from "@lucide/svelte/icons/file";
   import ImageIcon from "@lucide/svelte/icons/image";
+  import SaveIcon from "@lucide/svelte/icons/save";
   import { onDestroy } from "svelte";
   import ImageViewer from "$lib/components/ImageViewer.svelte";
   import { ipc } from "$lib/ipc";
+  import { toast } from "svelte-sonner";
 
   // `isLast` marks the trailing entry — the only one that can be the live,
   // streaming turn whose trailing reasoning animates.
@@ -171,6 +173,40 @@
     }
   }
 
+  // A "document" worth saving: an assistant message whose markdown is substantial
+  // — has a heading, or is long enough not to be a throwaway reply. Keeps the
+  // Save action off every one-line answer.
+  const isDocument = $derived(
+    entry.role === "assistant" &&
+      (/^#{1,6}\s/m.test(copyText) || copyText.length >= 600),
+  );
+
+  // Default filename from the document's first heading, else "document". Kebab,
+  // capped, always `.md`.
+  function suggestedName(text: string): string {
+    const heading = text.split("\n").find((l) => /^#{1,6}\s/.test(l));
+    const base =
+      (heading ?? "document")
+        .replace(/^#+\s*/, "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || "document";
+    return `${base}.md`;
+  }
+
+  // Deliberate, deterministic save of the message's document text to a
+  // user-chosen path (defaulting into the project dir).
+  async function saveMessageDocument() {
+    try {
+      const saved = await ipc.saveDocumentToProject(copyText, suggestedName(copyText));
+      if (saved) toast.success("Document saved");
+    } catch (e) {
+      toast.error("Could not save the document", { description: `${e}` });
+    }
+  }
+
   onDestroy(() => clearTimeout(copyTimer));
 
   // Per-code-block copy: a small copy button is overlaid on each rendered <pre>
@@ -317,7 +353,7 @@
         {@render assistantBody()}
       </div>
       {#if copyText.length > 0}
-        <div class="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div class="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <button
             type="button"
             onclick={copyMessage}
@@ -332,6 +368,17 @@
               Copy
             {/if}
           </button>
+          {#if isDocument}
+            <button
+              type="button"
+              onclick={saveMessageDocument}
+              aria-label="Save document to project"
+              class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <SaveIcon class="size-3.5" />
+              Save to project…
+            </button>
+          {/if}
         </div>
       {/if}
     </div>
