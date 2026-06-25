@@ -7,7 +7,7 @@
 - **Landing site** (`zanto-site`, GitHub Pages): value + 30-sec demo + "nothing leaves your machine" up top.
 - **macOS / Windows:** **unsigned** builds, downloaded from **GitHub Releases**.
 - **Mac App Store / Microsoft Store:** listed as **"coming soon"** — follow via **⭐ Star / Watch**.
-- **Linux:** **self-serve** — build from source.
+- **Linux:** **prebuilt** `.AppImage` / `.deb`, built per release (alongside macOS/Windows).
 - **GitHub repo:** the hub *and* the dial.
 
 ## Audience — broad, no narrowing
@@ -22,14 +22,14 @@ Rely on **GitHub stars** as the primary interest dial, backed by what GitHub alr
 No event-tracking service, no Cloudflare Worker, no Google Form. In-app telemetry stays **off** ("no telemetry" is a selling point).
 
 ## Read the signal honestly
-- The listing is friction-heavy (unsigned builds, self-build Linux) → **downloads ≠ demand**; don't over-read low download counts.
+- The listing is friction-heavy (unsigned builds) → **downloads ≠ demand**; don't over-read low download counts.
 - **Stars lean vanity** (drive-by interest). Within GitHub, weight **issues/discussions with real intent** and **non-GitHub referrer traffic** higher than the raw star count — those mean someone actually wants it or shared it beyond the dev bubble.
 
 ## Gates — invest only when the signal trips (numbers are a starting bar; tune to taste)
 - **Stage 0 — Listed (now).** Site + Releases downloads + public repo. Cost ≈ 0. **Measure 4–6 weeks.**
 - **Gate 1 → kill the friction (code signing + notarization).** Trigger: organic interest — e.g. **≥ 50 stars** *or* **first unsolicited issues/discussions**. Highest-ROI step; prerequisite for the stores.
 - **Gate 2 → distribution (Mac App Store / Microsoft Store).** Trigger: sustained star + traffic growth after signing.
-- **Gate 3 → reach (prebuilt Linux: AppImage/deb/flatpak).** Trigger: explicit Linux demand — issues asking + repo clones.
+- **Gate 3 → broader reach (flatpak / AUR / Homebrew, mobile).** Trigger: explicit demand in issues. _(Base macOS/Windows/Linux installers already ship every release.)_
 - **Gate 4 → depth (roadmap features, e.g. the finance inbox).** Trigger: real **usage feedback** in issues, not vanity stars.
 
 ## Cadence & timebox
