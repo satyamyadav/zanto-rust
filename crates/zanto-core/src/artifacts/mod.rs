@@ -129,9 +129,24 @@ impl ArtifactStore {
         scope: Scope,
     ) -> Result<ArtifactRef> {
         let root = self.root(scope)?;
-        let id = new_id();
-        let ext = ext_for(kind, title);
-        let rel_path = format!("files/{id}.{ext}");
+        let mut index = read_index(&root)?;
+
+        // Upsert by (title, scope): if a same-title entry already exists in this
+        // scope, reuse its id + rel_path, overwrite the blob, and refresh
+        // created_at so it sorts as most-recent. Otherwise create a fresh entry.
+        let existing = index
+            .iter()
+            .position(|a| a.title == title && a.scope == scope);
+
+        let (id, rel_path) = match existing {
+            Some(i) => (index[i].id.clone(), index[i].rel_path.clone()),
+            None => {
+                let id = new_id();
+                let ext = ext_for(kind, title);
+                let rel_path = format!("files/{id}.{ext}");
+                (id, rel_path)
+            }
+        };
 
         let file_path = root.join(&rel_path);
         if let Some(parent) = file_path.parent() {
@@ -148,13 +163,15 @@ impl ArtifactStore {
             created_at: unix_now_pub(),
         };
 
-        let mut index = read_index(&root)?;
-        index.push(art.clone());
+        match existing {
+            Some(i) => index[i] = art.clone(),
+            None => index.push(art.clone()),
+        }
         write_index_atomic(&root, &index)?;
         Ok(art)
     }
 
-    /// List artifacts. `None` lists every scope (project first), `Some` one scope.
+    /// List artifacts, newest first. `None` lists every scope, `Some` one scope.
     /// Missing roots list as empty rather than erroring.
     pub fn list(&self, scope: Option<Scope>) -> Result<Vec<ArtifactRef>> {
         let mut out = Vec::new();
@@ -166,6 +183,8 @@ impl ArtifactStore {
                 out.extend(self.list_root(Scope::Global)?);
             }
         }
+        // Newest first across whatever scopes were collected.
+        out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(out)
     }
 
@@ -305,6 +324,45 @@ mod tests {
         let (read_ref, bytes) = store.read(&art.id).unwrap();
         assert_eq!(read_ref.id, art.id);
         assert_eq!(bytes, b"# hello");
+    }
+
+    #[test]
+    fn save_upserts_same_title_in_scope() {
+        let (store, _dir) = global_store();
+        store
+            .save(ArtifactKind::Markdown, "Doc", b"v1", Scope::Global)
+            .unwrap();
+        store
+            .save(ArtifactKind::Markdown, "Doc", b"v2", Scope::Global)
+            .unwrap();
+        let listed = store.list(Some(Scope::Global)).unwrap();
+        let docs: Vec<_> = listed.iter().filter(|a| a.title == "Doc").collect();
+        assert_eq!(docs.len(), 1, "same-title save should upsert, not duplicate");
+        let (_, bytes) = store.read(&docs[0].id).unwrap();
+        assert_eq!(bytes, b"v2", "content should be the latest save");
+    }
+
+    #[test]
+    fn list_is_sorted_newest_first() {
+        let (store, _dir) = global_store();
+        // Three entries; their created_at may tie at 1s resolution, so assert the
+        // invariant that holds regardless of ties: the returned list is ordered
+        // by created_at descending (newest first).
+        store
+            .save(ArtifactKind::Markdown, "A", b"a", Scope::Global)
+            .unwrap();
+        store
+            .save(ArtifactKind::Markdown, "B", b"b", Scope::Global)
+            .unwrap();
+        store
+            .save(ArtifactKind::Markdown, "C", b"c", Scope::Global)
+            .unwrap();
+        let listed = store.list(Some(Scope::Global)).unwrap();
+        assert!(
+            listed.windows(2).all(|w| w[0].created_at >= w[1].created_at),
+            "list must be sorted by created_at descending: {:?}",
+            listed.iter().map(|a| a.created_at).collect::<Vec<_>>(),
+        );
     }
 
     #[test]
