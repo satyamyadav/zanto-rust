@@ -3,7 +3,7 @@
   import { sessionStore } from "$lib/stores/session.svelte";
   import { appStore, activeApp } from "$lib/stores/app.svelte";
   import Dashboard from "$lib/apps/finance/Dashboard.svelte";
-  import ArtifactBrowser from "$lib/components/ArtifactBrowser.svelte";
+  import ArtifactHub from "$lib/components/ArtifactHub.svelte";
   import { openExternal, copyLink } from "$lib/links.svelte";
   import { Button } from "$lib/components/ui/button";
   import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
@@ -92,13 +92,13 @@
         {#if panelTab === "view"}
           <div class="h-full overflow-auto p-4"><Block block={sessionStore.canvas} canPin={false} /></div>
         {:else}
-          <ArtifactBrowser onClose={() => (sessionStore.panelMode = null)} />
+          <ArtifactHub onClose={() => (sessionStore.panelMode = null)} />
         {/if}
       </div>
     </div>
   {:else if sessionStore.panelMode === "browser"}
-    <!-- A-4: artifact browser hosted in the panel. -->
-    <ArtifactBrowser onClose={() => (sessionStore.panelMode = null)} />
+    <!-- A-4: artifact hub hosted in the panel. -->
+    <ArtifactHub onClose={() => (sessionStore.panelMode = null)} />
   {:else if sessionStore.canvas}
     <div class="h-full overflow-auto p-4">
       <!-- Agent-chosen canvas view: not user-pinnable (no Pin overlay/wrapper),

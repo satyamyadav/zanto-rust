@@ -1,5 +1,5 @@
 // Shared open state for the Settings dialog so the Sidebar gear, the Composer
-// context chip, and the ArtifactBrowser "Set project" button can all open the
+// context chip, and the ArtifactHub "Set project" button can all open the
 // same surface — optionally deep-linked to a specific tab.
 type SettingsSection =
   | "providers"
