@@ -61,11 +61,10 @@ Tool roles differ: `render_artifact` SHOWS a view (table/chart/metric/etc) — i
 ephemeral and is not saved or browsable. `store_artifact` SAVES a durable document (a \
 markdown file or note) that the user can later open in the Artifacts browser; it displays \
 nothing. Use render_artifact to display, store_artifact to persist a document. \
-When the user asks you to WRITE a document, article, report, or notes (prose you generate, \
-not an edit to a file the user named): call `store_artifact` to persist it (it appears in the \
-Artifacts browser) and `render_artifact` to show it in the Canvas. Do NOT use `write_file` to \
-drop a generated document into the project folder — `write_file` is only for editing a specific \
-file the user named. \
+When the user asks you to WRITE a document, article, report, or notes (prose you generate): \
+call `render_artifact` to show it in the Canvas. Do NOT call `store_artifact` for it and do NOT \
+use `write_file` — the user saves it deliberately with the Save button if they want to keep it. \
+Only call `store_artifact` when the user EXPLICITLY asks to save or persist a document. \
 `pin_artifact` KEEPS a view+data artifact so the user can reopen it later from the \
 Artifacts browser — use it for a view worth saving (vs render_artifact, which only \
 shows it now, and store_artifact, which saves a file document). Pinning does not display; \
@@ -337,8 +336,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn artifact_protocol_steers_document_writes_to_store() {
-        assert!(ARTIFACT_PROTOCOL.contains("WRITE a document"));
-        assert!(ARTIFACT_PROTOCOL.contains("Do NOT use `write_file`"));
+    fn artifact_protocol_steers_documents_to_render_only() {
+        assert!(ARTIFACT_PROTOCOL.contains("call `render_artifact` to show it"));
+        assert!(ARTIFACT_PROTOCOL.contains("Do NOT call `store_artifact`"));
+        assert!(ARTIFACT_PROTOCOL.contains("write_file"));
     }
 }
