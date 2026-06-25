@@ -244,10 +244,10 @@ export const ipc = {
   // Save a copy of a stored document via a native save dialog. Resolves `true`
   // when a file was written, `false` if the user cancelled.
   saveArtifactCopy: (id: string) => invoke<boolean>("save_artifact_copy", { id }),
-  // Save arbitrary document text (e.g. the markdown shown in the Canvas) via a
-  // native save dialog defaulted into the project dir. `true` when written.
-  saveDocumentToProject: (text: string, suggestedName: string) =>
-    invoke<boolean>("save_document_to_project", { text, suggestedName }),
+  // Persist a generated markdown document to the project artifact store
+  // (deliberate Save). Upserts by title. Returns the stored artifact ref.
+  storeDocumentArtifact: (title: string, text: string) =>
+    invoke<unknown>("store_document_artifact", { title, text }),
   // Reveal a stored document's file in the OS file manager.
   revealArtifact: (id: string) => invoke<void>("reveal_artifact", { id }),
 

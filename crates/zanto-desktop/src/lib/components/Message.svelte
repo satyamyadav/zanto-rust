@@ -181,27 +181,23 @@
       (/^#{1,6}\s/m.test(copyText) || copyText.length >= 600),
   );
 
-  // Default filename from the document's first heading, else "document". Kebab,
-  // capped, always `.md`.
-  function suggestedName(text: string): string {
+  // Title from the document's first heading, else "Untitled document".
+  function documentTitle(text: string): string {
     const heading = text.split("\n").find((l) => /^#{1,6}\s/.test(l));
-    const base =
-      (heading ?? "document")
-        .replace(/^#+\s*/, "")
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 60) || "document";
-    return `${base}.md`;
+    return (
+      (heading ?? "Untitled document").replace(/^#+\s*/, "").trim().slice(0, 80) ||
+      "Untitled document"
+    );
   }
 
-  // Deliberate, deterministic save of the message's document text to a
-  // user-chosen path (defaulting into the project dir).
+  // Deliberate save: persist the message's document to the artifact store so it
+  // appears (and upserts) in the Artifacts panel. Bumps the refresh signal so an
+  // open browser reflects it.
   async function saveMessageDocument() {
     try {
-      const saved = await ipc.saveDocumentToProject(copyText, suggestedName(copyText));
-      if (saved) toast.success("Document saved");
+      await ipc.storeDocumentArtifact(documentTitle(copyText), copyText);
+      sessionStore.artifactsTick++;
+      toast.success("Saved to Artifacts");
     } catch (e) {
       toast.error("Could not save the document", { description: `${e}` });
     }
@@ -372,11 +368,11 @@
             <button
               type="button"
               onclick={saveMessageDocument}
-              aria-label="Save document to project"
+              aria-label="Save document to Artifacts"
               class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <SaveIcon class="size-3.5" />
-              Save to project…
+              Save
             </button>
           {/if}
         </div>

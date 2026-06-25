@@ -140,6 +140,24 @@ fn store() -> ArtifactStore {
     ArtifactStore::new(settings.project_dir.as_deref().map(Path::new))
 }
 
+/// Persist a generated markdown document to the artifact store (the deliberate
+/// "Save" action from a chat message). Upserts by title (see
+/// `ArtifactStore::save`), so re-saving the same document updates it in place.
+/// Saves to the project scope when a project dir is set, else the global store
+/// (project scope errors without a project root).
+#[tauri::command]
+pub fn store_document_artifact(title: String, text: String) -> Result<Value, String> {
+    let scope = if Settings::load().project_dir.is_some() {
+        Scope::Project
+    } else {
+        Scope::Global
+    };
+    let art = store()
+        .save(ArtifactKind::Markdown, &title, text.as_bytes(), scope)
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(&art).map_err(|e| e.to_string())
+}
+
 fn parse_scope(scope: Option<String>) -> Result<Option<Scope>, String> {
     match scope.as_deref() {
         None => Ok(None),

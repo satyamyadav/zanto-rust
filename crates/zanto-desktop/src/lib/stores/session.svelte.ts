@@ -53,6 +53,7 @@ export const sessionStore = $state({
   canvas: null as ChatBlock | null, // right-panel view (agent component block)
   promotedLink: null as string | null, // a link promoted to the canvas panel
   panelMode: null as "browser" | null, // non-block panel view (artifact browser)
+  artifactsTick: 0, // bump to make an open ArtifactBrowser reload its lists
   queue: [] as string[], // messages typed while busy, dispatched FIFO when free
   busy: false,
   streaming: false, // assistant tokens currently arriving
