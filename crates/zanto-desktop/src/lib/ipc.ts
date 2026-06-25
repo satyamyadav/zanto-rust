@@ -244,10 +244,12 @@ export const ipc = {
   // Save a copy of a stored document via a native save dialog. Resolves `true`
   // when a file was written, `false` if the user cancelled.
   saveArtifactCopy: (id: string) => invoke<boolean>("save_artifact_copy", { id }),
+  // Delete a stored document artifact (blob + index entry).
+  deleteStoredArtifact: (id: string) => invoke<void>("delete_stored_artifact", { id }),
   // Persist a generated markdown document to the project artifact store
   // (deliberate Save). Upserts by title. Returns the stored artifact ref.
   storeDocumentArtifact: (title: string, text: string) =>
-    invoke<unknown>("store_document_artifact", { title, text }),
+    invoke<{ id: string; title: string }>("store_document_artifact", { title, text }),
   // Reveal a stored document's file in the OS file manager.
   revealArtifact: (id: string) => invoke<void>("reveal_artifact", { id }),
 

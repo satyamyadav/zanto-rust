@@ -158,6 +158,12 @@ pub fn store_document_artifact(title: String, text: String) -> Result<Value, Str
     serde_json::to_value(&art).map_err(|e| e.to_string())
 }
 
+/// Delete a stored document artifact (blob + index entry) by id.
+#[tauri::command]
+pub fn delete_stored_artifact(id: String) -> Result<(), String> {
+    store().delete(&id).map_err(|e| e.to_string())
+}
+
 fn parse_scope(scope: Option<String>) -> Result<Option<Scope>, String> {
     match scope.as_deref() {
         None => Ok(None),
