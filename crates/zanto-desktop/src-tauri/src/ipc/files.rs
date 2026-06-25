@@ -159,3 +159,37 @@ fn mime_for_image(path: &str) -> &'static str {
         _ => "application/octet-stream",
     }
 }
+
+/// Save a rendered document (e.g. the markdown shown in the Canvas) to a file
+/// the user picks via a native save dialog. Defaults the dialog into the
+/// project dir when one is set, so the common "save to project" path is one
+/// click. Writes `text` verbatim. Returns Ok(false) if the user cancels.
+///
+/// The native save dialog IS the user's consent, so this does not go through
+/// the permission guard — the user chose the destination explicitly.
+#[tauri::command]
+pub async fn save_document_to_project(
+    app: tauri::AppHandle,
+    text: String,
+    suggested_name: String,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let project_dir = Settings::load().project_dir;
+
+    let mut dialog = app
+        .dialog()
+        .file()
+        .set_file_name(&suggested_name)
+        .set_title("Save document");
+    if let Some(dir) = project_dir.as_deref() {
+        dialog = dialog.set_directory(dir);
+    }
+
+    let Some(chosen) = dialog.blocking_save_file() else {
+        return Ok(false);
+    };
+    let dest = chosen.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&dest, text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(true)
+}

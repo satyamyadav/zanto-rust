@@ -126,6 +126,7 @@ pub fn run() {
             ipc::files::browse_dir,
             ipc::files::read_image_data_url,
             ipc::files::open_path,
+            ipc::files::save_document_to_project,
             ipc::artifacts::list_stored_artifacts_cmd,
             ipc::artifacts::read_stored_artifact_cmd,
             ipc::artifacts::list_pinned_artifacts,
