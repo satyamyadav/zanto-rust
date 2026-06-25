@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Button } from "$lib/components/ui/button";
   import { toast } from "svelte-sonner";
-  import { FolderOpen, Download, X as XIcon } from "@lucide/svelte";
+  import { FolderOpen, Download, Trash2, X as XIcon } from "@lucide/svelte";
   import Markdown from "$lib/blocks/Markdown.svelte";
   import Block from "$lib/Block.svelte";
   import { openSettings } from "$lib/stores/settings.svelte";
@@ -27,6 +27,7 @@
   let scope = $state<ArtifactScope | "all">("all");
   let docItems = $state<StoredArtifactRef[]>([]);
   let selectedDoc = $state<StoredArtifact | null>(null);
+  let confirmingDelete = $state(false);
 
   // Pinned views (DB) state.
   let viewItems = $state<PinnedArtifact[]>([]);
@@ -51,6 +52,7 @@
   }
 
   async function previewDoc(id: string) {
+    confirmingDelete = false;
     try {
       selectedDoc = await ipc.readStoredArtifact(id);
     } catch (e) {
@@ -79,6 +81,19 @@
     }
   }
 
+  // Delete a document (blob + index entry). Confirmed inline before this runs.
+  async function deleteDoc(id: string) {
+    try {
+      await ipc.deleteStoredArtifact(id);
+      selectedDoc = null;
+      confirmingDelete = false;
+      sessionStore.artifactsTick++; // reload the list
+      toast.success("Deleted");
+    } catch (e) {
+      toast.error("Could not delete the document", { description: `${e}` });
+    }
+  }
+
   async function refreshProjectDir() {
     try {
       hasProjectDir = Boolean((await ipc.getConfig()).project_dir);
@@ -96,6 +111,7 @@
     void sessionStore.artifactsTick; // reload when a doc is saved while open
     selectedDoc = null;
     selectedView = null;
+    confirmingDelete = false;
     refresh();
   });
 
@@ -258,6 +274,15 @@
               <FolderOpen class="size-4" />
               Reveal in folder
             </Button>
+            {#if confirmingDelete}
+              <Button size="sm" variant="destructive" onclick={() => deleteDoc(docId)}>Delete</Button>
+              <Button size="sm" variant="ghost" onclick={() => (confirmingDelete = false)}>Cancel</Button>
+            {:else}
+              <Button size="sm" variant="outline" onclick={() => (confirmingDelete = true)}>
+                <Trash2 class="size-4" />
+                Delete
+              </Button>
+            {/if}
           </div>
         {/if}
         <div class="flex-1 overflow-auto p-3">
