@@ -12,6 +12,9 @@
   import FileIcon from "@lucide/svelte/icons/file";
   import ImageIcon from "@lucide/svelte/icons/image";
   import SaveIcon from "@lucide/svelte/icons/save";
+  import Trash2Icon from "@lucide/svelte/icons/trash-2";
+  import DownloadIcon from "@lucide/svelte/icons/download";
+  import FolderOpenIcon from "@lucide/svelte/icons/folder-open";
   import { onDestroy } from "svelte";
   import ImageViewer from "$lib/components/ImageViewer.svelte";
   import { ipc } from "$lib/ipc";
@@ -129,6 +132,11 @@
   let copied = $state(false);
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // Once a document is saved, its artifact id unlocks the file action bar
+  // (Save a copy / Reveal / Delete). Local to this message component.
+  let savedArtifactId = $state<string | null>(null);
+  let confirmingDelete = $state(false);
+
   // Image viewer state.
   let viewerOpen = $state(false);
   let viewerIndex = $state(0);
@@ -195,11 +203,45 @@
   // open browser reflects it.
   async function saveMessageDocument() {
     try {
-      await ipc.storeDocumentArtifact(documentTitle(copyText), copyText);
+      const ref = await ipc.storeDocumentArtifact(documentTitle(copyText), copyText);
+      savedArtifactId = ref?.id ?? null;
       sessionStore.artifactsTick++;
       toast.success("Saved to Artifacts");
     } catch (e) {
       toast.error("Could not save the document", { description: `${e}` });
+    }
+  }
+
+  // File actions on the saved document (id known after Save).
+  async function saveCopyOfDocument() {
+    if (!savedArtifactId) return;
+    try {
+      const saved = await ipc.saveArtifactCopy(savedArtifactId);
+      if (saved) toast.success("Saved a copy");
+    } catch (e) {
+      toast.error("Could not save a copy", { description: `${e}` });
+    }
+  }
+
+  async function revealDocument() {
+    if (!savedArtifactId) return;
+    try {
+      await ipc.revealArtifact(savedArtifactId);
+    } catch (e) {
+      toast.error("Could not reveal the file", { description: `${e}` });
+    }
+  }
+
+  async function deleteSavedDocument() {
+    if (!savedArtifactId) return;
+    try {
+      await ipc.deleteStoredArtifact(savedArtifactId);
+      savedArtifactId = null;
+      confirmingDelete = false;
+      sessionStore.artifactsTick++;
+      toast.success("Deleted");
+    } catch (e) {
+      toast.error("Could not delete the document", { description: `${e}` });
     }
   }
 
@@ -365,15 +407,65 @@
             {/if}
           </button>
           {#if isDocument}
-            <button
-              type="button"
-              onclick={saveMessageDocument}
-              aria-label="Save document to Artifacts"
-              class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <SaveIcon class="size-3.5" />
-              Save
-            </button>
+            {#if savedArtifactId === null}
+              <button
+                type="button"
+                onclick={saveMessageDocument}
+                aria-label="Save document to Artifacts"
+                class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <SaveIcon class="size-3.5" />
+                Save
+              </button>
+            {:else}
+              <button
+                type="button"
+                onclick={saveCopyOfDocument}
+                aria-label="Save a copy"
+                class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <DownloadIcon class="size-3.5" />
+                Save a copy…
+              </button>
+              <button
+                type="button"
+                onclick={revealDocument}
+                aria-label="Reveal in folder"
+                class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <FolderOpenIcon class="size-3.5" />
+                Reveal in folder
+              </button>
+              {#if confirmingDelete}
+                <button
+                  type="button"
+                  onclick={deleteSavedDocument}
+                  aria-label="Confirm delete"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-destructive hover:bg-destructive/10 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Trash2Icon class="size-3.5" />
+                  Delete?
+                </button>
+                <button
+                  type="button"
+                  onclick={() => (confirmingDelete = false)}
+                  aria-label="Cancel delete"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Cancel
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  onclick={() => (confirmingDelete = true)}
+                  aria-label="Delete document"
+                  class="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Trash2Icon class="size-3.5" />
+                  Delete
+                </button>
+              {/if}
+            {/if}
           {/if}
         </div>
       {/if}
