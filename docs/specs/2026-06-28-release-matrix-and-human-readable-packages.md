@@ -110,6 +110,9 @@ Restructure `.github/workflows/release.yml` into a build→publish pipeline that
      { echo "tag=$TAG"; echo "version=$VERSION"; echo "prerelease=$PRE"; } >> "$GITHUB_OUTPUT"
      ```
 
+6a. **`publish` job — checkout** (`.github/workflows/release.yml`)
+   - First step: `actions/checkout@v4`. **Required:** `gh release create` shells out to `git` for repo context; without a checkout the publish job fails with `fatal: not a git repository`. (Caught in CI run #3; orbit's publish job checks out too.)
+
 7. **`publish` job — download artifacts** (`.github/workflows/release.yml`)
    - `actions/download-artifact@v4` with `path: artifacts` (downloads all `bundle-*` into `artifacts/<name>/...`).
 

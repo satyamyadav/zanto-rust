@@ -117,6 +117,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # gh release create shells out to git for repo context — needs a checkout.
+      - uses: actions/checkout@v4
+
       - name: Resolve version, tag, and prerelease flag from the tag
         id: meta
         run: |
