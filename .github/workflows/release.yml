@@ -39,7 +39,7 @@ jobs:
             args: "--target x86_64-apple-darwin"
             rust-targets: "x86_64-apple-darwin"
             name: macos-x64
-          - platform: ubuntu-22.04
+          - platform: ubuntu-24.04
             args: ""
             rust-targets: ""
             name: linux
@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux build dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -108,6 +108,7 @@ jobs:
           path: |
             target/**/release/bundle/**/*.dmg
             target/**/release/bundle/**/*.deb
+            target/**/release/bundle/**/*.rpm
             target/**/release/bundle/**/*.AppImage
             target/**/release/bundle/**/*.msi
             target/**/release/bundle/**/*.exe
@@ -163,6 +164,7 @@ jobs:
                 fi ;;
               *.appimage) dest="zanto-$VERSION-Linux-x86_64.AppImage" ;;
               *.deb)      dest="zanto-$VERSION-Linux-x86_64.deb" ;;
+              *.rpm)      dest="zanto-$VERSION-Linux-x86_64.rpm" ;;
               *setup.exe) dest="zanto-$VERSION-Windows-x64-setup.exe" ;;
               *.msi)      dest="zanto-$VERSION-Windows-x64.msi" ;;
               # Bare .exe (raw binary, not the NSIS installer) — skip.
@@ -171,7 +173,7 @@ jobs:
             esac
             cp "$f" "release-files/$dest"
           done < <(find artifacts -type f \
-            \( -name '*.dmg' -o -name '*.deb' \
+            \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \
             -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \) -print0)
           ls -la release-files
 
@@ -185,9 +187,19 @@ jobs:
             --draft \
             ${PRERELEASE:+--prerelease} \
             --title "zanto $TAG" \
-            --notes "Unsigned/ad-hoc builds — installation notes:
+            --notes "Ad-hoc signed builds (not notarized by Apple) — installation notes:
 
-          - macOS: right-click zanto.app → **Open** → **Open** the first time (ad-hoc signed; no Terminal command needed).
-          - Windows: SmartScreen → \"More info\" → \"Run anyway\".
-          - Linux: \`chmod +x zanto-*.AppImage\` and run, or \`sudo dpkg -i\` the .deb." \
+          **Linux**
+          - Ubuntu/Debian: \`sudo dpkg -i zanto-*.deb\`
+          - Fedora: \`sudo rpm -i zanto-*.rpm\`
+          - Arch / others: \`chmod +x zanto-*.AppImage && ./zanto-*.AppImage\`
+          - If the AppImage shows a blank window on an older distro, try \`WEBKIT_DISABLE_DMABUF_RENDERER=1 ./zanto-*.AppImage\` or use the .deb/.rpm.
+
+          **macOS** (unsigned by Apple)
+          - First launch is blocked. Click **Done**, then go to **System Settings → Privacy & Security → scroll down → Open Anyway**.
+          - Or in Terminal: \`xattr -dr com.apple.quarantine /Applications/zanto.app\`
+          - The older right-click → Open trick no longer works on macOS 15.
+
+          **Windows**
+          - SmartScreen → **More info** → **Run anyway**." \
             release-files/*
