@@ -1,0 +1,18 @@
+# zanto
+
+> Local-first, privacy-first AI workspace for macOS, Windows and Linux. Bring your own model (Claude, GPT, Gemini, …) or run fully offline with Ollama. Consented file, shell, web and document tools. Data never leaves the user's machine. Open source, MIT.
+
+## Summary
+zanto is an open-source desktop app (Tauri + Rust) and CLI that gives you a private AI assistant you own end-to-end: your model, your API keys (stored in the OS keychain) or local Ollama, and local SQLite session storage with no telemetry. It can read/write files, run shell commands, fetch the web and parse documents — each behind a per-action permission prompt — and render charts, tables and artifacts. Includes a Personal Finance micro-app.
+
+## Key facts
+- Platforms: macOS, Windows (download), Linux (build from source)
+- Models: Anthropic, OpenAI, Gemini, Groq, xAI, DeepSeek, Together, Fireworks, Cohere, Ollama (offline)
+- Privacy: local-first, no cloud account, no telemetry
+- License: MIT
+- Built with: Rust, Tauri, Svelte, SQLite
+
+## Links
+- Site: https://satyamyadav.github.io/zanto-site/
+- Repository: https://github.com/satyamyadav/zanto-rust
+- Releases / downloads: https://github.com/satyamyadav/zanto-rust/releases
