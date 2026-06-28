@@ -1,8 +1,20 @@
 name: release
 
-# Build unsigned desktop installers for macOS, Windows, and Linux and attach
-# them to a GitHub Release. Trigger by pushing a version tag (e.g. v1.0.0), or
-# run manually for a dry build.
+# Build → publish release pipeline (tag-triggered).
+#
+#   1. build   — per-OS matrix (macOS split into Apple-Silicon + Intel, plus
+#                Linux and Windows). tauri-action builds ONLY (no tagName), and
+#                each leg uploads its installers as workflow artifacts.
+#   2. publish — after all builds: derive the version/title/prerelease flag from
+#                the pushed tag, download every artifact, rename the bundles to
+#                human-readable `zanto-<version>-<os>-<arch>` files, and create a
+#                DRAFT GitHub Release with them attached.
+#
+# The pushed tag is authoritative: `v1.0.0-beta.0` → title `zanto v1.0.0-beta.0`,
+# flagged as a pre-release (any `-suffix` version). Plain `vX.Y.Z` → full release.
+# Trigger by pushing a `v*` tag, or run manually (workflow_dispatch) for a dry
+# build that produces a draft `v0.0.0-dev`. Uses only the built-in GITHUB_TOKEN.
+
 on:
   push:
     tags:
@@ -13,20 +25,28 @@ permissions:
   contents: write
 
 jobs:
+  # ── 1. Build installers per OS/arch (no release; upload artifacts) ───────────
   build:
     strategy:
-      fail-fast: false
+      fail-fast: true # if one OS fails, don't publish a partial release
       matrix:
         include:
           - platform: macos-latest
-            args: "--target universal-apple-darwin"
-            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            args: "--target aarch64-apple-darwin"
+            rust-targets: "aarch64-apple-darwin"
+            name: macos-arm64
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+            rust-targets: "x86_64-apple-darwin"
+            name: macos-x64
           - platform: ubuntu-22.04
             args: ""
             rust-targets: ""
+            name: linux
           - platform: windows-latest
             args: ""
             rust-targets: ""
+            name: windows
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -70,24 +90,101 @@ jobs:
         working-directory: crates/zanto-desktop
         run: pnpm install --frozen-lockfile
 
-      - name: Build app + create release (unsigned)
+      # Build only — no tagName, so tauri-action does NOT create a release here.
+      - name: Build app (unsigned/ad-hoc)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: crates/zanto-desktop
-          # Draft so you can review artifacts and notes before publishing.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v0.0.0-dev' }}
-          releaseName: "zanto __VERSION__"
-          releaseDraft: true
-          prerelease: false
-          releaseBody: |
-            Unsigned builds — installation notes:
-
-            - macOS: right-click zanto.app → **Open** → **Open** the first time
-              (ad-hoc signed; no Terminal command needed).
-            - Windows: SmartScreen → "More info" → "Run anyway".
-            - Linux: `chmod +x zanto_*.AppImage` and run, or `sudo dpkg -i` the .deb.
-
-            See the full notes and checksums below.
           args: ${{ matrix.args }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.name }}
+          if-no-files-found: ignore
+          # Workspace target is at the repo root (not src-tauri/target).
+          path: |
+            target/**/release/bundle/**/*.dmg
+            target/**/release/bundle/**/*.deb
+            target/**/release/bundle/**/*.AppImage
+            target/**/release/bundle/**/*.msi
+            target/**/release/bundle/**/*.exe
+
+  # ── 2. Rename to human-readable names and create the draft Release ───────────
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve version, tag, and prerelease flag from the tag
+        id: meta
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            TAG="v0.0.0-dev"
+            VERSION="0.0.0-dev"
+          fi
+          case "$VERSION" in
+            *-*) PRE=true ;;
+            *)   PRE=false ;;
+          esac
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "prerelease=$PRE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved: tag=$TAG version=$VERSION prerelease=$PRE"
+
+      - name: Download built installers
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage installers with human-readable names
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          mkdir -p release-files
+          while IFS= read -r -d '' f; do
+            base="$(basename "$f")"
+            lower="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
+            case "$lower" in
+              *.dmg)
+                if [[ "$lower" == *aarch64* || "$lower" == *arm64* ]]; then
+                  dest="zanto-$VERSION-macOS-Apple-Silicon.dmg"
+                else
+                  dest="zanto-$VERSION-macOS-Intel.dmg"
+                fi ;;
+              *.appimage) dest="zanto-$VERSION-Linux-x86_64.AppImage" ;;
+              *.deb)      dest="zanto-$VERSION-Linux-x86_64.deb" ;;
+              *setup.exe) dest="zanto-$VERSION-Windows-x64-setup.exe" ;;
+              *.msi)      dest="zanto-$VERSION-Windows-x64.msi" ;;
+              # Bare .exe (raw binary, not the NSIS installer) — skip.
+              *.exe)      continue ;;
+              *)          dest="$base" ;;
+            esac
+            cp "$f" "release-files/$dest"
+          done < <(find artifacts -type f \
+            \( -name '*.dmg' -o -name '*.deb' \
+            -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \) -print0)
+          ls -la release-files
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease == 'true' && '1' || '' }}
+        run: |
+          gh release create "$TAG" \
+            --draft \
+            ${PRERELEASE:+--prerelease} \
+            --title "zanto $TAG" \
+            --notes "Unsigned/ad-hoc builds — installation notes:
+
+          - macOS: right-click zanto.app → **Open** → **Open** the first time (ad-hoc signed; no Terminal command needed).
+          - Windows: SmartScreen → \"More info\" → \"Run anyway\".
+          - Linux: \`chmod +x zanto-*.AppImage\` and run, or \`sudo dpkg -i\` the .deb." \
+            release-files/*
