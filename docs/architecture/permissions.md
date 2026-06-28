@@ -31,7 +31,7 @@ and the frontend decides how to ask. The only implementor today is
 **stderr** (so stdout stays pipeable) and reads one line: `a`/`s`/`f`/`d`.
 
 > Known issue (P3): any input that isn't exactly `f`/`s`/`a` is treated as `Deny`.
-> A typo like `a\` silently denies. See `known_issues.md`.
+> A typo like `a\` silently denies.
 
 ## PermissionGuard.check — decision order
 
@@ -95,4 +95,4 @@ Because read-only tools run concurrently ([stack-flow.md](stack-flow.md)),
 multiple `check` calls can hit the approver at the same time. If two target the
 same un-granted path they can race on stdin (duplicate prompts). Partially
 mitigated by writing grants before the approver returns; full fix (per-path async
-lock) is filed P3 in `known_issues.md`.
+lock) is a known P3 (per-path async lock would fix it).

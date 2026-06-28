@@ -18,7 +18,7 @@ classification. Sources: [tools/mod.rs](../../crates/zanto-core/src/tools/mod.rs
 
 `run_command` is classed write because the tool can't know statically whether an
 arbitrary `sh -c` string mutates. This over-prompts on read-only commands
-(`git status`, `pacman -Qi`) — filed P2 in `known_issues.md`.
+(`git status`, `pacman -Qi`) — a known P2 (read-only commands still gated).
 
 ## The tool contract (one file per tool)
 
@@ -100,7 +100,7 @@ shell::dispatch(&self.shell, name, args).await
 > Known issue (P2): this fallthrough relies on fs returning `Err` only for unknown
 > names. If an fs tool ever returned a real `Err`, it would be wrongly retried
 > against shell. Fix: explicit name-based routing per category. See
-> `known_issues.md`.
+
 
 ## Read/write classification
 

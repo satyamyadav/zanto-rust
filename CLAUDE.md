@@ -8,11 +8,17 @@ Short sentences. Plain language.
 
 ## Process
 
+The canonical flow is in [docs/working-flows.md](docs/working-flows.md). Read it.
+
 **Never write implementation code before the spec is approved.**
 
-For non-trivial changes: use `/dev <request>` to spec → review → implement. Present the plan and wait for explicit go-ahead before touching source files.
+For non-trivial changes: use `/dev <request>` to spec → review → implement. Present the spec and wait for explicit go-ahead before touching source files.
 
 For small, self-contained edits (typos, one-liner fixes, doc updates): proceed directly.
+
+**Do not use the superpowers or context7 plugins.** One flow only: the native `/dev`, `/spec`, `/execute`. See working-flows.md.
+
+**Cross-project:** this repo stores no context for other repos (e.g. zanto-site). If a change is needed there, output the requirements as a copy-pasteable block — do not create files for it here.
 
 ## Build & verify
 
@@ -36,7 +42,7 @@ cargo run -p zanto-cli -- sessions list
 | `/execute <spec-path>` | Implement a spec'd change | sonnet |
 | `/dev <request>` | Full loop: spec → review → execute | opus (spec), sonnet (impl) |
 
-Specs live in `docs/specs/YYYY-MM-DD-<slug>.md`.
+Specs live in `docs/specs/YYYY-MM-DD-<slug>.md`. Shipped specs move to `docs/archive/`. Do not use superpowers/context7 (see [docs/working-flows.md](docs/working-flows.md)).
 
 ## Architecture
 
@@ -69,8 +75,11 @@ crates/
 
 | File | Purpose |
 |---|---|
-| `trd.md` | Full technical reference |
-| `known_issues.md` | Known bugs and mitigations |
-| `docs/specs/` | Dated spec files (`YYYY-MM-DD-<slug>.md`) |
+| `docs/working-flows.md` | How work is done here (the canonical flow) |
+| `docs/architecture/` | Technical reference (overview, modules, data-model, permissions, tools, llm, stack-flow) |
+| `docs/test/` | Testing reference (`testing.md`) + manual QA checklist (`qa-checklist.csv`) |
+| `docs/product.md` | Product vision, micro-app architecture, directions |
+| `docs/specs/` | Active dated spec files (`YYYY-MM-DD-<slug>.md`) |
+| `docs/archive/` | Completed/shipped specs, plans, reviews (history only) |
 | `.zanto/settings.json` | Project-level config (auto-created) |
 | `~/.config/zanto/settings.json` | User-level config |
