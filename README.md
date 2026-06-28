@@ -11,8 +11,9 @@ private alternative to cloud AI apps. Point it at your own provider key or a loc
 model, give it consented access to your files, shell, and the web, and get answers rendered as
 real artifacts — charts, tables, and documents — not just text. **No cloud account. No telemetry.**
 
-> **v1.0.0 is an early, unsigned release.** Builds are not code-signed or
-> notarized yet, so macOS and Windows will show a security prompt on first run
+> **v1.0.0 is an early release.** The macOS build is ad-hoc signed (not yet
+> notarized), so it opens with a one-time right-click → **Open** — no Terminal
+> command. Windows is unsigned and shows a SmartScreen prompt on first run
 > (see [Install](#install)).
 
 ## Why zanto
@@ -40,12 +41,12 @@ Download the latest build for your OS from the
 
 | OS | Artifact | First-run note |
 |----|----------|----------------|
-| macOS | `.dmg` (universal) | Unsigned: right-click the app → **Open**, or run `xattr -dr com.apple.quarantine /Applications/zanto.app` |
+| macOS | `.dmg` (universal) | Right-click the app → **Open** → **Open** (ad-hoc signed — no Terminal command) |
 | Windows | `.msi` / `.exe` (NSIS) | Unsigned: SmartScreen → **More info** → **Run anyway** |
 | Linux | `.AppImage` / `.deb` | `chmod +x zanto_*.AppImage` and run, or `sudo dpkg -i zanto_*.deb` |
 
-These prompts appear because the binaries aren't signed yet — signing and
-notarization are the top post-launch item.
+These prompts appear because the builds aren't notarized (macOS) or signed
+(Windows) yet — Developer-ID signing and notarization are the top post-launch item.
 
 ## Quickstart
 

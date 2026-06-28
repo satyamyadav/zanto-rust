@@ -84,8 +84,8 @@ jobs:
           releaseBody: |
             Unsigned builds — installation notes:
 
-            - macOS: right-click the app → Open the first time, or run
-              `xattr -dr com.apple.quarantine /Applications/zanto.app`.
+            - macOS: right-click zanto.app → **Open** → **Open** the first time
+              (ad-hoc signed; no Terminal command needed).
             - Windows: SmartScreen → "More info" → "Run anyway".
             - Linux: `chmod +x zanto_*.AppImage` and run, or `sudo dpkg -i` the .deb.
 
