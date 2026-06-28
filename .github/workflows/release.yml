@@ -109,7 +109,6 @@ jobs:
             target/**/release/bundle/**/*.dmg
             target/**/release/bundle/**/*.deb
             target/**/release/bundle/**/*.rpm
-            target/**/release/bundle/**/*.AppImage
             target/**/release/bundle/**/*.msi
             target/**/release/bundle/**/*.exe
 
@@ -162,7 +161,6 @@ jobs:
                 else
                   dest="zanto-$VERSION-macOS-Intel.dmg"
                 fi ;;
-              *.appimage) dest="zanto-$VERSION-Linux-x86_64.AppImage" ;;
               *.deb)      dest="zanto-$VERSION-Linux-x86_64.deb" ;;
               *.rpm)      dest="zanto-$VERSION-Linux-x86_64.rpm" ;;
               *setup.exe) dest="zanto-$VERSION-Windows-x64-setup.exe" ;;
@@ -174,7 +172,68 @@ jobs:
             cp "$f" "release-files/$dest"
           done < <(find artifacts -type f \
             \( -name '*.dmg' -o -name '*.deb' -o -name '*.rpm' \
-            -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \) -print0)
+            -o -name '*.msi' -o -name '*.exe' \) -print0)
+          ls -la release-files
+
+      - name: Build portable Linux tarball
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          DEB="$(ls release-files/zanto-*-Linux-x86_64.deb 2>/dev/null || true)"
+          if [ -z "$DEB" ]; then
+            echo "No .deb to repack into a tarball; skipping."
+            exit 0
+          fi
+          work="$(mktemp -d)"
+          ar x "$DEB" --output="$work"
+          mkdir -p "$work/payload"
+          # Tauri's bundler writes data.tar.gz (gzip); detect defensively anyway.
+          data="$(ls "$work"/data.tar.* | head -1)"
+          tar -xf "$data" -C "$work/payload"
+
+          pkg="zanto-$VERSION-Linux-x86_64"
+          root="$work/$pkg"
+          mkdir -p "$root"
+          cp -r "$work/payload/usr" "$root/usr"
+
+          cat > "$root/install.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          PREFIX="$HOME/.local"; SUDO=""
+          [ "${1:-}" = "--system" ] && { PREFIX="/usr"; SUDO="sudo"; }
+          here="$(cd "$(dirname "$0")" && pwd)"
+          if ! ldconfig -p 2>/dev/null | grep -q "libwebkit2gtk-4.1.so.0"; then
+            echo "WARNING: libwebkit2gtk-4.1 not found. Install it first:"
+            echo "  Arch:          sudo pacman -S webkit2gtk-4.1"
+            echo "  Fedora:        sudo dnf install webkit2gtk4.1"
+            echo "  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-0"
+            echo "Continuing anyway — the app will not start until it is installed."
+          fi
+          $SUDO install -Dm755 "$here/usr/bin/zanto-desktop" "$PREFIX/bin/zanto-desktop"
+          $SUDO install -Dm644 "$here/usr/share/applications/zanto.desktop" "$PREFIX/share/applications/zanto.desktop"
+          for png in "$here"/usr/share/icons/hicolor/*/apps/zanto-desktop.png; do
+            rel="${png#"$here"/usr/share/}"
+            $SUDO install -Dm644 "$png" "$PREFIX/share/$rel"
+          done
+          echo "Installed to $PREFIX. Launch: zanto-desktop  (ensure $PREFIX/bin is on PATH)"
+          EOF
+
+          cat > "$root/README.txt" <<'EOF'
+          zanto — portable Linux build (uses your system libraries)
+
+          Requires (already installed): webkit2gtk-4.1 (GTK3 WebKit) and glibc >= 2.39.
+            Arch:                 sudo pacman -S webkit2gtk-4.1
+            Fedora:               sudo dnf install webkit2gtk4.1
+            Debian/Ubuntu 24.04+: sudo apt install libwebkit2gtk-4.1-0
+
+          Install:  ./install.sh            (to ~/.local, no sudo)
+                    ./install.sh --system   (to /usr, needs sudo)
+          Or run in place:  ./usr/bin/zanto-desktop
+          EOF
+
+          chmod +x "$root/install.sh" "$root/usr/bin/zanto-desktop"
+          tar -czf "release-files/$pkg.tar.gz" -C "$work" "$pkg"
           ls -la release-files
 
       - name: Create draft GitHub Release
@@ -189,11 +248,11 @@ jobs:
             --title "zanto $TAG" \
             --notes "Ad-hoc signed builds (not notarized by Apple) — installation notes:
 
-          **Linux**
+          **Linux** (needs system \`webkit2gtk-4.1\` + glibc ≥ 2.39)
+          - One line (any distro): \`curl -fsSL https://raw.githubusercontent.com/satyamyadav/zanto-rust/main/install.sh | bash\`
           - Ubuntu/Debian: \`sudo dpkg -i zanto-*.deb\`
           - Fedora: \`sudo rpm -i zanto-*.rpm\`
-          - Arch / others: \`chmod +x zanto-*.AppImage && ./zanto-*.AppImage\`
-          - If the AppImage shows a blank window on an older distro, try \`WEBKIT_DISABLE_DMABUF_RENDERER=1 ./zanto-*.AppImage\` or use the .deb/.rpm.
+          - Arch / portable (manual): extract \`zanto-*-Linux-x86_64.tar.gz\` and run \`./install.sh\` (or \`./install.sh --system\`), or run \`./usr/bin/zanto-desktop\` directly.
 
           **macOS** (unsigned by Apple)
           - First launch is blocked. Click **Done**, then go to **System Settings → Privacy & Security → scroll down → Open Anyway**.
