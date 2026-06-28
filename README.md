@@ -16,6 +16,12 @@ real artifacts — charts, tables, and documents — not just text. **No cloud a
 > command. Windows is unsigned and shows a SmartScreen prompt on first run
 > (see [Install](#install)).
 
+## Screenshots
+
+| Chat + artifacts | Personal Finance — import | Finance dashboard |
+|---|---|---|
+| ![Chat answering with a chart and summary table](docs/images/chat-chart.png) | ![Personal Finance importing and categorizing a statement](docs/images/finance-import.png) | ![Finance dashboard with net worth, spending chart, and top categories](docs/images/dashboard.png) |
+
 ## Why zanto
 
 - **You own the stack.** Bring-your-own API key (stored in the OS keychain), or
