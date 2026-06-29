@@ -11,7 +11,7 @@ have specs).
 | # | Feature | Size | Risk | Spec | Notes |
 |---|---|---|---|---|---|
 | 1 | Token counter | M | low | ✅ **shipped** | full-stack; per-message label + session gauge |
-| 2 | Loader at end of message | S | low | ✅ written | UI only |
+| 2 | Loader at end of message | S | low | ✅ **shipped** | tail loader persists whole turn |
 | 3 | User chat-bubble restyle + spacing | S | low | ✅ written | UI/CSS only |
 | 4 | Skills editor | M | med | — | UI over `.zanto/skills` markdown |
 | 5 | Svelte/HTML-page artifacts | M-L | **high** | — | renders arbitrary HTML → security |
@@ -27,9 +27,9 @@ Small, low-risk, high-visibility. Do them back-to-back to build momentum.
 - **1. Token counter** ✅ shipped — captures genai usage (chars/4 fallback), shows
   a per-message label + a session total/context gauge in the composer. Spec
   archived: `docs/archive/2026-06-28-token-counter.md`.
-- **2. Loader at end of message** — a persistent "responding" indicator at the
-  thread tail while a turn is busy, complementing the thinking-block spinner.
-  Spec: `docs/specs/2026-06-29-message-loader.md`.
+- **2. Loader at end of message** ✅ shipped — a "responding…" indicator at the
+  thread tail that persists the whole busy turn, complementing the thinking-block
+  spinner. Spec archived: `docs/archive/2026-06-29-message-loader.md`.
 - **3. Chat-bubble restyle + spacing** — restyle the user bubble and rework
   inter-turn spacing/rhythm (assistant stays plain text). Spec:
   `docs/specs/2026-06-29-chat-bubble-restyle.md`.

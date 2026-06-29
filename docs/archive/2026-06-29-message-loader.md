@@ -1,6 +1,10 @@
 # Persistent message loader
 
 - **Date:** 2026-06-29
+- **Status:** ✅ Shipped (2026-06-29). One-file change (`MessageList.svelte`): the
+  tail dots now show for the whole `busy` turn, with the label switching
+  "thinking" → "responding…" once the live turn has content. Reduced-motion is
+  already handled by the global rule in `app.css`.
 
 ## Summary
 

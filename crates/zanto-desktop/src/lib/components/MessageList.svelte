@@ -103,17 +103,24 @@
             </div>
           {/if}
         {/each}
-        <!-- Dots are a pre-content placeholder ONLY: shown while busy until the
-             live assistant turn has any segment. Once it does, the hoisted
-             ThinkingBlock takes over (so the two never show at once). -->
-        {#if sessionStore.busy && !(sessionStore.convo.at(-1)?.role === "assistant" && (sessionStore.convo.at(-1)?.segments.length ?? 0) > 0)}
+        <!-- Thread-level "working" cue: a low-key bouncing-dots row at the tail,
+             visible for the WHOLE busy turn (before the first token, through
+             streaming, and across tool-call gaps) — so there's always a signal the
+             assistant is active, complementing (not duplicating) the ThinkingBlock's
+             inline spinner. The label reads "thinking" before any content lands and
+             "responding…" once the live turn is producing output. Reduced-motion is
+             handled globally in app.css (animate-* is neutralized → static dots). -->
+        {#if sessionStore.busy}
+          {@const hasContent =
+            sessionStore.convo.at(-1)?.role === "assistant" &&
+            (sessionStore.convo.at(-1)?.segments.length ?? 0) > 0}
           <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
             <span class="inline-flex gap-1">
               <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]"></span>
               <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]"></span>
               <span class="size-1.5 animate-bounce rounded-full bg-current"></span>
             </span>
-            <span>thinking</span>
+            <span>{hasContent ? "responding…" : "thinking"}</span>
           </div>
         {/if}
         {#each sessionStore.queue as q, i (i)}
