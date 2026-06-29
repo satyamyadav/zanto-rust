@@ -436,12 +436,15 @@ pub async fn chat(
         let mut send_messages = vec![system_prompt.clone()];
         send_messages.extend(session.effective_messages(policy));
 
-        // For the estimate fallback: approximate the prompt size this iteration
-        // sent (the latest iteration's prompt is what the model last saw).
-        sent_chars = send_messages
+        // For the estimate fallback: ACCUMULATE the prompt chars sent across all
+        // tool-loop iterations (each iteration re-sends the growing context), so
+        // the estimate matches how the provider path sums prompt_tokens across
+        // iterations. `answer_chars` likewise accumulates — both cover the whole
+        // turn, so the chars/4 estimate is internally consistent.
+        sent_chars += send_messages
             .iter()
             .map(|m| message_text_len(m))
-            .sum();
+            .sum::<usize>();
 
         let req = ChatRequest::new(send_messages).with_tools(request_tools.clone());
         let res = client
@@ -1298,6 +1301,15 @@ mod tests {
         assert_eq!(est.completion_tokens, Some(4)); // 16/4
         assert_eq!(est.total_tokens, Some(14));
         assert!(est.estimated);
+
+        // Multi-iteration estimate: sent_chars accumulates across iterations (the
+        // loop does `sent_chars += …`), matching how the provider path sums
+        // prompt_tokens — so both halves cover the whole turn. e.g. two iterations
+        // of 40 prompt chars + 16 answer chars each → 80/4 prompt, 32/4 completion.
+        let multi = finalize_usage(&TurnUsage::default(), false, 40 + 40, 16 + 16);
+        assert_eq!(multi.prompt_tokens, Some(20)); // 80/4 — not 10 (last-iter only)
+        assert_eq!(multi.completion_tokens, Some(8)); // 32/4
+        assert!(multi.estimated);
     }
 
     #[test]
