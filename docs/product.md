@@ -56,6 +56,13 @@ Live directions (not committed scope — captured so they're not lost):
 - New apps: File Manager, Video Editor.
 - Skills editor; Svelte/HTML-page artifacts.
 
+**Packaging polish** (deferred from the beta.2 install work — non-blocking):
+- Harden `install.sh`'s webkit2gtk-4.1 check — it false-warns "not found" even
+  when installed (the `ldconfig -p` grep is fragile under `curl | bash`'s minimal
+  PATH; check the actual `/usr/lib*/libwebkit2gtk-4.1.so.0` paths instead).
+  (Command stays `zanto-desktop`; binary not renamed — Cargo package unchanged.)
+- Consider an AUR `PKGBUILD` for native Arch install (separate packaging handoff).
+
 **Personal Finance — next version.** Today it's a trustworthy *transaction
 logger*; the next step is a *finance manager*. The known gaps to close (full plan
 archived as `docs/archive/finance-next-version-plan.md`):
