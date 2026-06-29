@@ -1,7 +1,6 @@
 <script lang="ts">
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
-  import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { toast } from "svelte-sonner";
   import PlusIcon from "@lucide/svelte/icons/plus";
@@ -13,23 +12,45 @@
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
+  // Markdown skeleton a new skill starts from, so the editor isn't a blank box.
+  const TEMPLATE = `# Skill
+
+Describe what this skill makes the assistant do.
+
+## Voice
+-
+
+## Focus
+-
+
+## Avoid
+-
+`;
+
   // The editor manages one scope's dir at a time; toggle switches the list and
   // the dir written to. Project scope needs an active project.
   let scope = $state<SkillScope>("global");
   const hasProject = $derived(!!appStore.config?.project_dir);
 
   let skills = $state<SkillDto[]>([]);
-  // The skill currently open in the editor. `null` = nothing selected; a draft
-  // with `isNew` is an unsaved new skill (name still editable).
+  // The skill currently open in the editor: a saved skill's name, or `null` when
+  // a draft (unsaved new skill) is being edited / nothing is selected.
   let selectedName = $state<string | null>(null);
-  let editorName = $state("");
   let editorBody = $state("");
-  let isNew = $state(false);
   let dirty = $state(false);
   let busy = $state(false);
 
-  // Skills for the active scope (server already filters per scope on list).
+  // Unsaved new skill. When non-null it renders as the top row of the list
+  // ("untitled" by default), name editable in place, body = TEMPLATE.
+  let draft = $state<{ name: string } | null>(null);
+
+  // Inline rename: the name currently being edited in the list (for a saved
+  // skill), and the working text. `null` = no inline rename in progress.
+  let renaming = $state<string | null>(null);
+  let renameText = $state("");
+
   const scopeSkills = $derived(skills.filter((s) => s.scope === scope));
+  const hasEditor = $derived(draft !== null || selectedName !== null);
 
   async function refresh() {
     try {
@@ -39,33 +60,31 @@
     }
   }
 
-  // Reload the list each time the dialog opens; reset the editor.
+  // Reload the list each time the dialog opens; reset transient editor state.
   $effect(() => {
     if (open) {
       void refresh();
-      closeEditor();
-      // Default to a usable scope: global always works; project only with a project.
+      resetEditor();
       if (!hasProject) scope = "global";
     }
   });
 
-  function closeEditor() {
+  function resetEditor() {
     selectedName = null;
-    editorName = "";
     editorBody = "";
-    isNew = false;
+    draft = null;
     dirty = false;
+    renaming = null;
   }
 
   async function selectSkill(name: string) {
-    if (busy) return;
+    if (busy || renaming === name) return;
     busy = true;
     try {
       const body = await ipc.readSkill(name, scope);
+      draft = null;
       selectedName = name;
-      editorName = name;
       editorBody = body;
-      isNew = false;
       dirty = false;
     } catch (e) {
       toast.error(`${e}`);
@@ -74,16 +93,18 @@
     }
   }
 
+  // Start a new skill: an "untitled" draft row at the top, selected, with the
+  // template loaded into the editor.
   function newSkill() {
+    renaming = null;
     selectedName = null;
-    editorName = "";
-    editorBody = "";
-    isNew = true;
+    draft = { name: "untitled" };
+    editorBody = TEMPLATE;
     dirty = true;
   }
 
   async function save() {
-    const name = editorName.trim();
+    const name = draft ? draft.name.trim() : selectedName;
     if (!name) {
       toast.error("Give the skill a name");
       return;
@@ -92,9 +113,8 @@
     try {
       const dto = await ipc.saveSkill(name, scope, editorBody);
       await refresh();
+      draft = null;
       selectedName = dto.name;
-      editorName = dto.name;
-      isNew = false;
       dirty = false;
       toast.success(`Saved “${dto.name}”`);
     } catch (e) {
@@ -109,7 +129,7 @@
     try {
       await ipc.deleteSkill(name, scope);
       await refresh();
-      if (selectedName === name) closeEditor();
+      if (selectedName === name) resetEditor();
       toast.success(`Deleted “${name}”`);
     } catch (e) {
       toast.error(`${e}`);
@@ -118,23 +138,30 @@
     }
   }
 
-  // Rename via a prompt — minimal v1 (the editor's name field saves a NEW file;
-  // renaming the file itself is an explicit action so it can't be confused with
-  // "save as").
-  async function rename(name: string) {
-    const next = window.prompt(`Rename skill “${name}” to:`, name);
-    if (next === null) return;
-    const trimmed = next.trim();
-    if (!trimmed || trimmed === name) return;
+  // ── Inline rename ─────────────────────────────────────────────────────────
+  function startRename(name: string) {
+    draft = null;
+    renaming = name;
+    renameText = name;
+  }
+
+  function cancelRename() {
+    renaming = null;
+    renameText = "";
+  }
+
+  async function commitRename() {
+    const from = renaming;
+    if (from === null) return;
+    const to = renameText.trim();
+    renaming = null;
+    if (!to || to === from) return;
     busy = true;
     try {
-      await ipc.renameSkill(name, trimmed, scope);
+      await ipc.renameSkill(from, to, scope);
       await refresh();
-      if (selectedName === name) {
-        selectedName = trimmed;
-        editorName = trimmed;
-      }
-      toast.success(`Renamed to “${trimmed}”`);
+      if (selectedName === from) selectedName = to;
+      toast.success(`Renamed to “${to}”`);
     } catch (e) {
       toast.error(`${e}`);
     } finally {
@@ -142,10 +169,32 @@
     }
   }
 
+  function onRenameKey(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitRename();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelRename();
+    }
+  }
+
   function setScope(next: SkillScope) {
     if (next === scope) return;
     scope = next;
-    closeEditor();
+    resetEditor();
+  }
+
+  // Tab inserts two spaces instead of moving focus, so the raw markdown editor is
+  // usable for indented lists/code without leaving the textarea.
+  function onBodyKey(e: KeyboardEvent) {
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    const ta = e.currentTarget as HTMLTextAreaElement;
+    const { selectionStart: s, selectionEnd: en } = ta;
+    editorBody = editorBody.slice(0, s) + "  " + editorBody.slice(en);
+    dirty = true;
+    queueMicrotask(() => ta.setSelectionRange(s + 2, s + 2));
   }
 </script>
 
@@ -189,47 +238,77 @@
       </div>
 
       <div class="flex flex-1 flex-col gap-0.5 overflow-y-auto">
+        <!-- Unsaved new-skill row, pinned to the top with its name editable. -->
+        {#if draft}
+          <div class="flex items-center gap-2 rounded-md bg-accent px-2 py-1.5 text-sm text-accent-foreground">
+            <BookOpenIcon class="size-3.5 shrink-0" />
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              autofocus
+              bind:value={draft.name}
+              oninput={() => (dirty = true)}
+              placeholder="untitled"
+              aria-label="New skill name"
+              class="min-w-0 flex-1 bg-transparent font-mono outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        {/if}
+
         {#if scope === "project" && !hasProject}
           <p class="px-2 py-4 text-xs text-muted-foreground">
             Set a project (Workspace) to create project-local skills, or use Global.
           </p>
-        {:else if scopeSkills.length === 0}
+        {:else if scopeSkills.length === 0 && !draft}
           <p class="px-2 py-4 text-xs text-muted-foreground">
             No {scope} skills yet. Click <span class="font-medium">New</span> to create one.
           </p>
         {:else}
           {#each scopeSkills as s (s.name)}
             <div
-              class="group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors {selectedName === s.name
+              class="group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm transition-colors {selectedName === s.name && !draft
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'}"
             >
-              <button
-                type="button"
-                onclick={() => selectSkill(s.name)}
-                class="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
-              >
+              {#if renaming === s.name}
                 <BookOpenIcon class="size-3.5 shrink-0" />
-                <span class="truncate font-mono">{s.name}</span>
-              </button>
-              <button
-                type="button"
-                onclick={() => rename(s.name)}
-                aria-label="Rename {s.name}"
-                title="Rename"
-                class="shrink-0 rounded p-0.5 opacity-0 hover:text-foreground group-hover:opacity-100"
-              >
-                <PencilIcon class="size-3.5" />
-              </button>
-              <button
-                type="button"
-                onclick={() => remove(s.name)}
-                aria-label="Delete {s.name}"
-                title="Delete"
-                class="shrink-0 rounded p-0.5 opacity-0 hover:text-destructive group-hover:opacity-100"
-              >
-                <Trash2Icon class="size-3.5" />
-              </button>
+                <!-- svelte-ignore a11y_autofocus -->
+                <input
+                  autofocus
+                  bind:value={renameText}
+                  onkeydown={onRenameKey}
+                  onblur={commitRename}
+                  aria-label="Rename {s.name}"
+                  class="min-w-0 flex-1 bg-transparent font-mono outline-none"
+                />
+              {:else}
+                <button
+                  type="button"
+                  onclick={() => selectSkill(s.name)}
+                  ondblclick={() => startRename(s.name)}
+                  class="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none"
+                >
+                  <BookOpenIcon class="size-3.5 shrink-0" />
+                  <span class="truncate font-mono">{s.name}</span>
+                </button>
+                <button
+                  type="button"
+                  onclick={() => startRename(s.name)}
+                  aria-label="Rename {s.name}"
+                  title="Rename"
+                  class="shrink-0 rounded p-0.5 opacity-0 hover:text-foreground group-hover:opacity-100"
+                >
+                  <PencilIcon class="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onclick={() => remove(s.name)}
+                  aria-label="Delete {s.name}"
+                  title="Delete"
+                  class="shrink-0 rounded p-0.5 opacity-0 hover:text-destructive group-hover:opacity-100"
+                >
+                  <Trash2Icon class="size-3.5" />
+                </button>
+              {/if}
             </div>
           {/each}
         {/if}
@@ -245,9 +324,9 @@
       </button>
     </nav>
 
-    <!-- Right: editor -->
+    <!-- Right: raw markdown editor -->
     <div class="flex min-h-0 flex-1 flex-col p-6">
-      {#if selectedName === null && !isNew}
+      {#if !hasEditor}
         <div class="flex flex-1 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
           <BookOpenIcon class="size-8 opacity-40" />
           <p class="text-sm">Select a skill to edit, or create a new one.</p>
@@ -257,34 +336,23 @@
           </p>
         </div>
       {:else}
-        <div class="mb-3 space-y-1">
-          <label for="skill-name" class="text-xs text-muted-foreground">Name</label>
-          <Input
-            id="skill-name"
-            bind:value={editorName}
-            oninput={() => (dirty = true)}
-            readonly={!isNew}
-            placeholder="my-skill"
-            class="font-mono {!isNew ? 'opacity-70' : ''}"
-          />
-          {#if !isNew}
-            <p class="text-[11px] text-muted-foreground">Use Rename (pencil) to change the file name.</p>
-          {/if}
-        </div>
         <div class="flex min-h-0 flex-1 flex-col space-y-1">
-          <label for="skill-body" class="text-xs text-muted-foreground">Skill (markdown)</label>
+          <label for="skill-body" class="text-xs text-muted-foreground">
+            {draft ? "New skill" : selectedName} — markdown
+          </label>
           <Textarea
             id="skill-body"
             bind:value={editorBody}
             oninput={() => (dirty = true)}
+            onkeydown={onBodyKey}
             placeholder="You are a meticulous code reviewer. Focus on correctness and clarity…"
-            class="min-h-0 flex-1 resize-none font-mono text-sm"
+            class="min-h-0 flex-1 resize-none font-mono text-sm leading-relaxed"
           />
         </div>
         <div class="mt-3 flex items-center justify-end gap-2">
-          <Button variant="ghost" onclick={closeEditor} disabled={busy}>Cancel</Button>
-          <Button onclick={save} disabled={busy || !dirty || !editorName.trim()}>
-            {isNew ? "Create" : "Save"}
+          <Button variant="ghost" onclick={resetEditor} disabled={busy}>Cancel</Button>
+          <Button onclick={save} disabled={busy || !dirty || (draft ? !draft.name.trim() : false)}>
+            {draft ? "Create" : "Save"}
           </Button>
         </div>
       {/if}
