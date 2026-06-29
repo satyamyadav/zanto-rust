@@ -38,27 +38,31 @@
       .join(" · ") || "No active context",
   );
 
-  // Session token gauge: cumulative tokens used / the active model's context
-  // window. Shown only once a turn has reported usage (window + total known).
-  // `~` marks an estimate (any contributing turn estimated). The bar fills by the
-  // last-known window occupancy; the tooltip carries the cumulative-vs-window note.
+  // Session spend gauge: CUMULATIVE tokens used across the whole conversation
+  // (every turn summed), not current context-window occupancy. The window is only
+  // a visual scale for the bar — cumulative spend legitimately exceeds it over a
+  // long session, so the bar clamps at full and is NOT a danger signal (no red).
+  // `~` marks an estimate (any contributing turn estimated). Shown once a turn has
+  // reported usage and the window is known.
   function fmtTokens(n: number): string {
     if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
     return `${n}`;
   }
   const usage = $derived(sessionUsage());
   const showGauge = $derived(usage.total > 0 && sessionStore.windowTokens > 0);
+  // Bar fill: cumulative spend as a fraction of one window, clamped — purely a
+  // proportional visual, not an occupancy/limit gauge.
   const gaugePct = $derived(
     sessionStore.windowTokens > 0
       ? Math.min(100, Math.round((usage.total / sessionStore.windowTokens) * 100))
       : 0,
   );
   const gaugeLabel = $derived(
-    `${usage.estimated ? "~" : ""}${fmtTokens(usage.total)} / ${fmtTokens(sessionStore.windowTokens)}`,
+    `${usage.estimated ? "~" : ""}${fmtTokens(usage.total)} tokens`,
   );
   const gaugeTitle = $derived(
     `${usage.total.toLocaleString()} tokens used across ${usage.turns} turn${usage.turns === 1 ? "" : "s"}` +
-      ` · ${sessionStore.windowTokens.toLocaleString()}-token context window (${gaugePct}%)` +
+      ` (cumulative session total, not current context occupancy)` +
       (usage.estimated ? " · includes estimated counts" : ""),
   );
 
@@ -672,18 +676,13 @@
         class="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground"
         title={gaugeTitle}
       >
-        <span
-          class="h-1.5 w-12 overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-          aria-label="Context window usage"
-          aria-valuenow={gaugePct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
+        <!-- Decorative proportional bar; the adjacent text carries the real value
+             (an open-ended spend counter has no meaningful progressbar max). Calm
+             fill at all levels — cumulative spend exceeding the window is normal,
+             not a warning, so never red. -->
+        <span class="h-1.5 w-12 overflow-hidden rounded-full bg-muted" aria-hidden="true">
           <span
-            class="block h-full rounded-full transition-all {gaugePct >= 90
-              ? 'bg-destructive'
-              : 'bg-primary/70'}"
+            class="block h-full rounded-full bg-primary/70 transition-all"
             style="width: {gaugePct}%"
           ></span>
         </span>
