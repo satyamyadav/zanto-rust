@@ -21,12 +21,12 @@
   let open = $state(false);
 </script>
 
-<div class="rounded-md border border-border/60">
+<div>
   <button
     type="button"
     aria-expanded={open}
     onclick={() => (open = !open)}
-    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
   >
     <ChevronRight size={12} class={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />
     <Workflow size={13} class="shrink-0 text-muted-foreground" />
@@ -41,7 +41,10 @@
   </button>
 
   {#if open}
-    <div class="flex flex-col gap-2 border-t border-border px-2 pb-2 pt-2">
+    <!-- Steps indented under the workflow row with a faint left guide — they read
+         as children of the workflow, not a boxed list. Each step is itself
+         borderless, so no card-in-card. -->
+    <div class="ml-3 flex flex-col gap-0.5 border-l border-border/50 pl-2 pt-0.5">
       {#each steps as step (step.id)}
         <ToolCallSegment name={step.name} args={step.args} output={step.output} ok={step.ok} />
       {/each}

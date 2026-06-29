@@ -29,29 +29,30 @@
 </script>
 
 {#snippet section(label: string, open: boolean, toggle: () => void, content: string)}
-  <div class="border-t border-border">
+  <div>
     <button
       type="button"
       aria-expanded={open}
       onclick={toggle}
-      class="flex w-full items-center gap-1 rounded-sm px-3 py-1 text-left font-mono text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      class="flex w-full items-center gap-1 rounded-sm px-2 py-1 text-left font-mono text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <ChevronRight size={12} class={cn("transition-transform", open && "rotate-90")} />
       {label}
     </button>
     {#if open}
-      <pre class="overflow-auto whitespace-pre-wrap px-3 pb-2 font-mono text-xs text-muted-foreground">{content}</pre>
+      <pre class="overflow-auto whitespace-pre-wrap px-2 pb-1 font-mono text-xs text-muted-foreground">{content}</pre>
     {/if}
   </div>
 {/snippet}
 
-<div class="rounded-md border border-border/60 text-xs">
-  <!-- Header row: collapse toggle for the whole card — tool name + status pill -->
+<div class="text-xs">
+  <!-- Header row: collapse toggle — tool name + status pill. Borderless row, not
+       a card; hierarchy comes from indentation of the expanded sections below. -->
   <button
     type="button"
     aria-expanded={cardOpen}
     onclick={() => (cardOpen = !cardOpen)}
-    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
   >
     <ChevronRight size={12} class={cn("shrink-0 text-muted-foreground transition-transform", cardOpen && "rotate-90")} />
     <span class="font-mono font-medium text-foreground">{name}</span>
@@ -75,10 +76,13 @@
   </button>
 
   {#if cardOpen}
-    {@render section("args", argsOpen, () => (argsOpen = !argsOpen), argsJson)}
+    <!-- args/output indented under the tool row with a faint left guide. -->
+    <div class="ml-3 border-l border-border/50 pl-2">
+      {@render section("args", argsOpen, () => (argsOpen = !argsOpen), argsJson)}
 
-    {#if !pending}
-      {@render section("output", outputOpen, () => (outputOpen = !outputOpen), output ?? "")}
-    {/if}
+      {#if !pending}
+        {@render section("output", outputOpen, () => (outputOpen = !outputOpen), output ?? "")}
+      {/if}
+    </div>
   {/if}
 </div>

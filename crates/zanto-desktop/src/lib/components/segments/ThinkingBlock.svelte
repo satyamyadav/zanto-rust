@@ -34,13 +34,13 @@
   const hasText = $derived(text.trim().length > 0);
 </script>
 
-<div class="rounded-md border border-border/60 text-xs">
+<div class="text-xs">
   <button
     type="button"
     aria-expanded={open}
     disabled={!hasText}
     onclick={() => hasText && (open = !open)}
-    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-transparent"
+    class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:bg-transparent"
   >
     <ChevronRight
       size={12}
@@ -59,7 +59,9 @@
   </button>
 
   {#if open && hasText}
-    <div class="border-t border-border px-3 py-2 whitespace-pre-wrap leading-relaxed text-muted-foreground">
+    <!-- Indented under the chevron with a faint left guide — hierarchy by
+         indentation, not a boxed card. -->
+    <div class="ml-3 border-l border-border/50 pl-3 py-1 whitespace-pre-wrap leading-relaxed text-muted-foreground">
       {text}
     </div>
   {/if}

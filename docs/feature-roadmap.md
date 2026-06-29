@@ -34,6 +34,10 @@ Small, low-risk, high-visibility. Do them back-to-back to build momentum.
   kept, hairline border, softer radius, no shadow) and grouped inter-turn spacing
   so exchanges read as pairs. Spec archived:
   `docs/archive/2026-06-29-chat-bubble-restyle.md`.
+- **3b. Flatten agent blocks** ✅ shipped (follow-up to #3) — de-carded the
+  thinking / tool-call / workflow segments; nesting now reads from indentation +
+  faint guides, not boxes-in-boxes. Spec archived:
+  `docs/archive/2026-06-29-flatten-agent-blocks.md`.
 
 ## Phase B — medium features (4–5)
 
