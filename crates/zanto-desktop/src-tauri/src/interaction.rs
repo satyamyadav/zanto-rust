@@ -142,9 +142,12 @@ impl TauriSink {
     }
 
     /// Signal the end of the turn so the shell can finalize the streaming message.
-    /// Carries the turn's token usage so the shell can show a per-message count.
-    pub fn finish(&self, usage: &zanto_core::chat::TurnUsage) {
-        let _ = self.app.emit("chat_done", json!({ "usage": usage }));
+    /// Carries the turn's token usage (per-message count) and the model's context
+    /// window in tokens (the session gauge's denominator).
+    pub fn finish(&self, usage: &zanto_core::chat::TurnUsage, window_tokens: usize) {
+        let _ = self
+            .app
+            .emit("chat_done", json!({ "usage": usage, "window_tokens": window_tokens }));
     }
 
     /// Mark the live turn as stopped (user interruption). Emitted before `finish()`

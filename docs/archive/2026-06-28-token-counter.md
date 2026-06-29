@@ -1,6 +1,10 @@
 # Token counter
 
 - **Date:** 2026-06-28
+- **Status:** ✅ Shipped (2026-06-29). Phase 1 = commit `59b7a7b`; Phase 2 (session
+  total + context gauge) follows. Persistence lives in core `assistant_turn_meta`;
+  the gauge is a compact bar in the composer meta-row, fed by a `window_tokens`
+  field added to the single `chat_done` emitter.
 
 ## Summary
 

@@ -155,6 +155,15 @@ export type TokenUsage = {
   estimated?: boolean;
 };
 
+// Payload of the `chat_done` event: the finished turn's usage plus the active
+// model's context window in tokens (the session gauge's denominator). Both
+// optional — an errored turn carries default-empty usage and a window is always
+// present, but the UI tolerates either being absent.
+export type ChatDonePayload = {
+  usage?: TokenUsage;
+  window_tokens?: number;
+};
+
 export type RenderMsg = {
   role: "user" | "assistant";
   text: string;
@@ -325,8 +334,8 @@ export const ipc = {
     listen<ToolResultEvent>("chat_tool_result", (e) => cb(e.payload)),
   onChatBlock: (cb: (block: ChatBlock) => void): Promise<UnlistenFn> =>
     listen<{ block: ChatBlock }>("chat_block", (e) => cb(e.payload.block)),
-  onChatDone: (cb: (p: { usage?: TokenUsage }) => void): Promise<UnlistenFn> =>
-    listen<{ usage?: TokenUsage }>("chat_done", (e) => cb(e.payload ?? {})),
+  onChatDone: (cb: (p: ChatDonePayload) => void): Promise<UnlistenFn> =>
+    listen<ChatDonePayload>("chat_done", (e) => cb(e.payload ?? {})),
   // Emitted before `chat_done` when a turn was interrupted (Stop).
   onChatStopped: (cb: () => void): Promise<UnlistenFn> =>
     listen<null>("chat_stopped", () => cb()),

@@ -13,7 +13,7 @@
   import LoaderIcon from "@lucide/svelte/icons/loader";
   import BookOpenIcon from "@lucide/svelte/icons/book-open";
   import { onMount } from "svelte";
-  import { sessionStore, send, newSession, interrupt } from "$lib/stores/session.svelte";
+  import { sessionStore, sessionUsage, send, newSession, interrupt } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
   import { openSettings } from "$lib/stores/settings.svelte";
   import { ipc, type FileEntry, type SkillDto } from "$lib/ipc";
@@ -34,6 +34,30 @@
     ]
       .filter(Boolean)
       .join(" · ") || "No active context",
+  );
+
+  // Session token gauge: cumulative tokens used / the active model's context
+  // window. Shown only once a turn has reported usage (window + total known).
+  // `~` marks an estimate (any contributing turn estimated). The bar fills by the
+  // last-known window occupancy; the tooltip carries the cumulative-vs-window note.
+  function fmtTokens(n: number): string {
+    if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+    return `${n}`;
+  }
+  const usage = $derived(sessionUsage());
+  const showGauge = $derived(usage.total > 0 && sessionStore.windowTokens > 0);
+  const gaugePct = $derived(
+    sessionStore.windowTokens > 0
+      ? Math.min(100, Math.round((usage.total / sessionStore.windowTokens) * 100))
+      : 0,
+  );
+  const gaugeLabel = $derived(
+    `${usage.estimated ? "~" : ""}${fmtTokens(usage.total)} / ${fmtTokens(sessionStore.windowTokens)}`,
+  );
+  const gaugeTitle = $derived(
+    `${usage.total.toLocaleString()} tokens used across ${usage.turns} turn${usage.turns === 1 ? "" : "s"}` +
+      ` · ${sessionStore.windowTokens.toLocaleString()}-token context window (${gaugePct}%)` +
+      (usage.estimated ? " · includes estimated counts" : ""),
   );
 
   // Large pastes become collapsed chips instead of flooding the textarea; the
@@ -609,6 +633,29 @@
     {#if attachments.length > 0}
       <span class="text-xs text-muted-foreground">
         {attachments.length} attached
+      </span>
+    {/if}
+    {#if showGauge}
+      <span
+        class="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+        title={gaugeTitle}
+      >
+        <span
+          class="h-1.5 w-12 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label="Context window usage"
+          aria-valuenow={gaugePct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <span
+            class="block h-full rounded-full transition-all {gaugePct >= 90
+              ? 'bg-destructive'
+              : 'bg-primary/70'}"
+            style="width: {gaugePct}%"
+          ></span>
+        </span>
+        <span class="tabular-nums">{gaugeLabel}</span>
       </span>
     {/if}
   </div>

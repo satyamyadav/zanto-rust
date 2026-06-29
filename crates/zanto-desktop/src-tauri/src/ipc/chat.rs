@@ -260,17 +260,18 @@ pub async fn send_message(
     // every call). Default is automatic, model-aware management (CO-2): keep the
     // conversation within the active model's window, summarizing older turns before
     // overflow. A non-zero `max_context_turns` is a manual override (0/unset = auto).
+    // The active model's context window — the gauge denominator on `chat_done`,
+    // and the budget the Auto policy summarizes against. Computed once so both the
+    // policy and the UI report the same number regardless of which policy is used.
+    let window_tokens = settings
+        .context_window_tokens
+        .unwrap_or_else(|| zanto_core::config::model_context_window(&config.model));
     let policy = match settings.max_context_turns {
         Some(n) if n > 0 => ContextPolicy::Summarize { keep_last: n },
-        _ => {
-            let window = settings
-                .context_window_tokens
-                .unwrap_or_else(|| zanto_core::config::model_context_window(&config.model));
-            ContextPolicy::Auto {
-                window_tokens: window,
-                headroom_frac: 0.75,
-            }
-        }
+        _ => ContextPolicy::Auto {
+            window_tokens,
+            headroom_frac: 0.75,
+        },
     };
     let result = chat(config, &state.store, &mut session, &text, &policy).await;
 
@@ -287,13 +288,14 @@ pub async fn send_message(
             sink.summarized();
         }
     }
-    // Carry the turn's token usage on `chat_done` (default-empty if the turn
-    // errored). The single `chat_done` emitter is `sink.finish`.
+    // Carry the turn's token usage + the model's context window on `chat_done`
+    // (usage default-empty if the turn errored; window is policy-independent). The
+    // single `chat_done` emitter is `sink.finish`.
     let usage = result
         .as_ref()
         .map(|t| t.usage.clone())
         .unwrap_or_default();
-    sink.finish(&usage);
+    sink.finish(&usage, window_tokens);
     let turn = result.map_err(|e| e.to_string())?;
 
     // Notify the user a turn finished while the window is in the background, so a

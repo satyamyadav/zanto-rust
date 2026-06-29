@@ -10,7 +10,7 @@ have specs).
 
 | # | Feature | Size | Risk | Spec | Notes |
 |---|---|---|---|---|---|
-| 1 | Token counter | M | low | ✅ written (awaiting approval) | full-stack, phased |
+| 1 | Token counter | M | low | ✅ **shipped** | full-stack; per-message label + session gauge |
 | 2 | Loader at end of message | S | low | ✅ written | UI only |
 | 3 | User chat-bubble restyle + spacing | S | low | ✅ written | UI/CSS only |
 | 4 | Skills editor | M | med | — | UI over `.zanto/skills` markdown |
@@ -24,9 +24,9 @@ Build top-to-bottom. Each ships and is verifiable before the next.
 
 Small, low-risk, high-visibility. Do them back-to-back to build momentum.
 
-- **1. Token counter** — capture genai usage (chars/4 fallback), show per-message
-  + session total + context gauge. Phased (core capture → totals). Spec:
-  `docs/specs/2026-06-28-token-counter.md`.
+- **1. Token counter** ✅ shipped — captures genai usage (chars/4 fallback), shows
+  a per-message label + a session total/context gauge in the composer. Spec
+  archived: `docs/archive/2026-06-28-token-counter.md`.
 - **2. Loader at end of message** — a persistent "responding" indicator at the
   thread tail while a turn is busy, complementing the thinking-block spinner.
   Spec: `docs/specs/2026-06-29-message-loader.md`.

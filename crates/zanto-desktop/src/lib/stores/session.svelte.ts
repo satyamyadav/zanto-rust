@@ -59,11 +59,37 @@ export const sessionStore = $state({
   busy: false,
   streaming: false, // assistant tokens currently arriving
   contextSummarized: false, // older turns folded into the summary to fit the window
+  windowTokens: 0, // active model's context window (tokens) from the latest chat_done; 0 = unknown
   hasMore: false, // older history exists above the loaded window
   loadingOlder: false, // a loadOlder() fetch is in flight
   sessionsHasMore: false, // more session-list pages exist below the loaded window
   loadingMoreSessions: false, // a loadMoreSessions() fetch is in flight
 });
+
+// Cumulative token usage for the loaded conversation: the sum of every assistant
+// turn's `total_tokens`, whether any of them is an estimate (`~` marker), and how
+// many turns contributed a count. `estimated` is true if ANY contributing turn was
+// estimated, since the sum then can't be exact. Note the total is over the loaded
+// window (scrollback pages add to it); turns summarized out of the model's context
+// still count toward this cumulative figure — distinct from `windowTokens`, which
+// is current-window capacity. See the spec's "Session total across summarization".
+// A function (not an exported `$derived` — Svelte forbids exporting derived state
+// from a module); callers read it inside their own reactive scope, where the
+// `sessionStore.convo` access re-tracks it.
+export function sessionUsage(): { total: number; estimated: boolean; turns: number } {
+  let total = 0;
+  let estimated = false;
+  let turns = 0;
+  for (const e of sessionStore.convo) {
+    const t = e.usage?.total_tokens ?? 0;
+    if (e.role === "assistant" && t > 0) {
+      total += t;
+      turns += 1;
+      if (e.usage?.estimated) estimated = true;
+    }
+  }
+  return { total, estimated, turns };
+}
 
 // How many display messages to show on first open / fetch per scrollback page.
 const PAGE_SIZE = 30;
@@ -89,6 +115,7 @@ function resetLiveTurn() {
   sessionStore.busy = false;
   sessionStore.streaming = false;
   sessionStore.contextSummarized = false;
+  sessionStore.windowTokens = 0;
   streamIdx = null;
 }
 
@@ -199,6 +226,9 @@ export function initStreaming() {
       const e = sessionStore.convo[streamIdx];
       if (e) sessionStore.convo[streamIdx] = { ...e, usage: p.usage };
     }
+    // Track the active model's context window (the session gauge's denominator).
+    // It's policy-independent and present on every turn; keep the last reported one.
+    if ((p.window_tokens ?? 0) > 0) sessionStore.windowTokens = p.window_tokens!;
     streamIdx = null;
     sessionStore.streaming = false;
   });
