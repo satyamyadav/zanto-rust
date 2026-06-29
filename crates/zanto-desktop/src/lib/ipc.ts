@@ -145,6 +145,16 @@ export type AttachmentMeta = {
   is_image: boolean;
 };
 
+// Token usage for an assistant turn: real provider counts, or a chars/4 estimate
+// (estimated=true) when the provider reports none. All optional — a turn may
+// report only some fields, or none.
+export type TokenUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  estimated?: boolean;
+};
+
 export type RenderMsg = {
   role: "user" | "assistant";
   text: string;
@@ -152,6 +162,7 @@ export type RenderMsg = {
   segments?: PersistedSegment[] | null;
   stopped?: boolean | null;
   attachments?: AttachmentMeta[];
+  usage?: TokenUsage | null;
 };
 
 // A filesystem entry from `browse_dir` (B1). `path = undefined` lists the
@@ -314,8 +325,8 @@ export const ipc = {
     listen<ToolResultEvent>("chat_tool_result", (e) => cb(e.payload)),
   onChatBlock: (cb: (block: ChatBlock) => void): Promise<UnlistenFn> =>
     listen<{ block: ChatBlock }>("chat_block", (e) => cb(e.payload.block)),
-  onChatDone: (cb: () => void): Promise<UnlistenFn> =>
-    listen<null>("chat_done", () => cb()),
+  onChatDone: (cb: (p: { usage?: TokenUsage }) => void): Promise<UnlistenFn> =>
+    listen<{ usage?: TokenUsage }>("chat_done", (e) => cb(e.payload ?? {})),
   // Emitted before `chat_done` when a turn was interrupted (Stop).
   onChatStopped: (cb: () => void): Promise<UnlistenFn> =>
     listen<null>("chat_stopped", () => cb()),

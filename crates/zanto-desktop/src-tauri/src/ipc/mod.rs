@@ -75,6 +75,10 @@ pub struct RenderMsg {
     pub stopped: Option<bool>,
     #[serde(default)]
     pub attachments: Vec<AttachmentMeta>,
+    /// Token usage for an assistant turn, persisted in the meta. `None` for user
+    /// messages and for turns saved before usage tracking existed.
+    #[serde(default)]
+    pub usage: Option<serde_json::Value>,
 }
 
 impl RenderMsg {
@@ -97,6 +101,11 @@ impl RenderMsg {
             .and_then(|m| m.get("attachments"))
             .and_then(|a| serde_json::from_value(a.clone()).ok())
             .unwrap_or_default();
+        let usage = meta
+            .as_ref()
+            .and_then(|m| m.get("usage"))
+            .filter(|u| u.is_object())
+            .cloned();
         RenderMsg {
             role,
             text,
@@ -104,6 +113,7 @@ impl RenderMsg {
             segments,
             stopped,
             attachments,
+            usage,
         }
     }
 }

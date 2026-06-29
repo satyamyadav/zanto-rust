@@ -287,7 +287,13 @@ pub async fn send_message(
             sink.summarized();
         }
     }
-    sink.finish();
+    // Carry the turn's token usage on `chat_done` (default-empty if the turn
+    // errored). The single `chat_done` emitter is `sink.finish`.
+    let usage = result
+        .as_ref()
+        .map(|t| t.usage.clone())
+        .unwrap_or_default();
+    sink.finish(&usage);
     let turn = result.map_err(|e| e.to_string())?;
 
     // Notify the user a turn finished while the window is in the background, so a

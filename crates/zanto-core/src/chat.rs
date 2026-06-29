@@ -35,6 +35,24 @@ pub struct ChatTurn {
     /// (ContextPolicy::Auto/Summarize) — drives the "summarized to fit" indicator.
     #[serde(default)]
     pub summarized: bool,
+    /// Token usage for this turn — real counts from the provider when reported,
+    /// else a chars/4 estimate (see `TurnUsage::estimated`). Default-empty for
+    /// back-compat with turns persisted before this existed.
+    #[serde(default)]
+    pub usage: TurnUsage,
+}
+
+/// Per-turn token usage. Real provider counts (genai `captured_usage`) when
+/// available, else a chars/4 estimate flagged by `estimated`. All `Option` so a
+/// provider that reports only some fields (or none) round-trips cleanly.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TurnUsage {
+    pub prompt_tokens: Option<u32>,
+    pub completion_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+    /// True when these are a chars/4 estimate (the provider reported no usage).
+    #[serde(default)]
+    pub estimated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,19 +393,29 @@ pub async fn chat(
         ChatOptions::default()
             .with_capture_content(true)
             .with_capture_tool_calls(true)
-            .with_capture_reasoning_content(true),
+            .with_capture_reasoning_content(true)
+            .with_capture_usage(true),
     );
 
     let mut blocks: Vec<ChatBlock> = Vec::new();
     // Ordered display segments for this assistant turn (reasoning/tool_call/block/
     // text), assembled as events occur so a reopened turn restores exactly.
     let mut display = TurnDisplay::default();
+    // Token usage accumulated across the turn's tool-loop iterations (each
+    // exec_chat_stream is one iteration; sum so a multi-tool turn reports the
+    // combined cost). `sent_chars`/`answer_chars` feed the chars/4 estimate when
+    // the provider reports no usage.
+    let mut usage_acc = TurnUsage::default();
+    let mut got_provider_usage = false;
+    let mut sent_chars: usize = 0;
+    let mut answer_chars: usize = 0;
     let mut turn = 1;
     loop {
         // Check point 1 — loop top: if cancelled before building the next request,
         // persist whatever we have and return a stopped turn without a model call.
         if cancelled(&config) {
-            let meta = assistant_turn_meta(&display, &blocks, true);
+            let usage = finalize_usage(&usage_acc, got_provider_usage, sent_chars, answer_chars);
+            let meta = assistant_turn_meta(&display, &blocks, true, &usage);
             push_msg_meta(
                 store,
                 session,
@@ -399,6 +427,7 @@ pub async fn chat(
                 blocks,
                 stopped: true,
                 summarized,
+                usage,
             });
         }
 
@@ -406,6 +435,13 @@ pub async fn chat(
 
         let mut send_messages = vec![system_prompt.clone()];
         send_messages.extend(session.effective_messages(policy));
+
+        // For the estimate fallback: approximate the prompt size this iteration
+        // sent (the latest iteration's prompt is what the model last saw).
+        sent_chars = send_messages
+            .iter()
+            .map(|m| message_text_len(m))
+            .sum();
 
         let req = ChatRequest::new(send_messages).with_tools(request_tools.clone());
         let res = client
@@ -428,6 +464,7 @@ pub async fn chat(
                     if let Some(sink) = &config.sink {
                         sink.on_text(&chunk.content).await;
                     }
+                    answer_chars += chunk.content.chars().count();
                     answer.push_str(&chunk.content);
                 }
                 ChatStreamEvent::ReasoningChunk(chunk) => {
@@ -439,6 +476,15 @@ pub async fn chat(
                     display.push_reasoning(&chunk.content);
                 }
                 ChatStreamEvent::End(end) => {
+                    // Read usage BEFORE captured_into_tool_calls(self) consumes
+                    // `end`. Sum into the per-turn accumulator (a turn may loop
+                    // for tool calls; usage adds across iterations).
+                    if let Some(u) = &end.captured_usage {
+                        got_provider_usage = true;
+                        add_opt(&mut usage_acc.prompt_tokens, u.prompt_tokens);
+                        add_opt(&mut usage_acc.completion_tokens, u.completion_tokens);
+                        add_opt(&mut usage_acc.total_tokens, u.total_tokens);
+                    }
                     tool_calls = end.captured_into_tool_calls().unwrap_or_default();
                 }
                 _ => {}
@@ -457,7 +503,8 @@ pub async fn chat(
 
         // Cancelled mid-stream: persist the partial assistant text and return it.
         if cancelled(&config) {
-            let meta = assistant_turn_meta(&display, &blocks, true);
+            let usage = finalize_usage(&usage_acc, got_provider_usage, sent_chars, answer_chars);
+            let meta = assistant_turn_meta(&display, &blocks, true, &usage);
             push_msg_meta(
                 store,
                 session,
@@ -472,6 +519,7 @@ pub async fn chat(
                 blocks,
                 stopped: true,
                 summarized,
+                usage,
             });
         }
 
@@ -501,7 +549,8 @@ pub async fn chat(
             // Persist the turn's full ordered display segments (reasoning/tool calls/
             // blocks/text) + the stopped flag so reopening restores it exactly. The
             // back-compat `blocks` list rides along for old readers.
-            let meta = assistant_turn_meta(&display, &blocks, false);
+            let usage = finalize_usage(&usage_acc, got_provider_usage, sent_chars, answer_chars);
+            let meta = assistant_turn_meta(&display, &blocks, false, &usage);
             push_msg_meta(
                 store,
                 session,
@@ -516,6 +565,7 @@ pub async fn chat(
                 blocks,
                 stopped: false,
                 summarized,
+                usage,
             });
         }
 
@@ -535,7 +585,8 @@ pub async fn chat(
         // if cancelled, return the partial turn rather than looping into another model
         // request.
         if cancelled(&config) {
-            let meta = assistant_turn_meta(&display, &blocks, true);
+            let usage = finalize_usage(&usage_acc, got_provider_usage, sent_chars, answer_chars);
+            let meta = assistant_turn_meta(&display, &blocks, true, &usage);
             push_msg_meta(
                 store,
                 session,
@@ -547,6 +598,7 @@ pub async fn chat(
                 blocks,
                 stopped: true,
                 summarized,
+                usage,
             });
         }
 
@@ -833,6 +885,7 @@ fn assistant_turn_meta(
     display: &TurnDisplay,
     blocks: &[ChatBlock],
     stopped: bool,
+    usage: &TurnUsage,
 ) -> Option<Value> {
     let components: Vec<&ChatBlock> = blocks
         .iter()
@@ -845,7 +898,50 @@ fn assistant_turn_meta(
         "segments": display.segments,
         "stopped": stopped,
         "blocks": components,
+        "usage": usage,
     }))
+}
+
+/// Add an `Option<i32>` provider count into an `Option<u32>` accumulator,
+/// treating absent/negative as zero. Used to sum usage across tool-loop
+/// iterations: the accumulator becomes `Some` once any iteration reports a count.
+fn add_opt(acc: &mut Option<u32>, v: Option<i32>) {
+    if let Some(n) = v {
+        let n = n.max(0) as u32;
+        *acc = Some(acc.unwrap_or(0) + n);
+    }
+}
+
+/// Approximate the char length of a chat message's text content (for the chars/4
+/// token estimate). Sums all text parts; non-text parts (images) contribute 0.
+fn message_text_len(m: &ChatMessage) -> usize {
+    m.content
+        .texts()
+        .iter()
+        .map(|t| t.chars().count())
+        .sum()
+}
+
+/// Finalize the turn's usage: use the accumulated provider counts when any were
+/// reported, else a chars/4 estimate over the (last) prompt + the answer, flagged
+/// `estimated`.
+fn finalize_usage(
+    acc: &TurnUsage,
+    got_provider_usage: bool,
+    sent_chars: usize,
+    answer_chars: usize,
+) -> TurnUsage {
+    if got_provider_usage {
+        return acc.clone();
+    }
+    let prompt = sent_chars.div_ceil(4) as u32;
+    let completion = answer_chars.div_ceil(4) as u32;
+    TurnUsage {
+        prompt_tokens: Some(prompt),
+        completion_tokens: Some(completion),
+        total_tokens: Some(prompt + completion),
+        estimated: true,
+    }
 }
 
 async fn flush_parallel(
@@ -1155,22 +1251,53 @@ mod tests {
                 target: Target::Canvas,
             },
         ];
-        let meta = assistant_turn_meta(&TurnDisplay::default(), &mixed, false)
+        let usage = TurnUsage {
+            prompt_tokens: Some(12),
+            completion_tokens: Some(34),
+            total_tokens: Some(46),
+            estimated: false,
+        };
+        let meta = assistant_turn_meta(&TurnDisplay::default(), &mixed, false, &usage)
             .expect("component block present → metadata");
         let arr = meta["blocks"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["kind"], "component");
         assert_eq!(arr[0]["component_id"], "chart");
         assert_eq!(meta["stopped"], serde_json::json!(false));
+        // Usage rides along in the persisted meta.
+        assert_eq!(meta["usage"]["total_tokens"], serde_json::json!(46));
+        assert_eq!(meta["usage"]["estimated"], serde_json::json!(false));
 
         // A NON-stopped turn with no segments/blocks → no metadata column.
-        assert!(assistant_turn_meta(&TurnDisplay::default(), &[], false).is_none());
+        assert!(assistant_turn_meta(&TurnDisplay::default(), &[], false, &usage).is_none());
         // A STOPPED empty turn still persists, so the "Stopped" marker survives a
         // reload (otherwise the empty assistant message is dropped on restore).
-        let stopped_meta = assistant_turn_meta(&TurnDisplay::default(), &[], true)
+        let stopped_meta = assistant_turn_meta(&TurnDisplay::default(), &[], true, &usage)
             .expect("stopped empty turn → metadata with stopped flag");
         assert_eq!(stopped_meta["stopped"], serde_json::json!(true));
         assert_eq!(stopped_meta["segments"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn usage_aggregates_across_iterations_and_estimates_fallback() {
+        // add_opt sums Some across iterations; absent/None contributes nothing.
+        let mut acc = TurnUsage::default();
+        add_opt(&mut acc.total_tokens, Some(10));
+        add_opt(&mut acc.total_tokens, None);
+        add_opt(&mut acc.total_tokens, Some(5));
+        assert_eq!(acc.total_tokens, Some(15));
+
+        // With provider usage, finalize returns it verbatim (not estimated).
+        let real = finalize_usage(&acc, true, 999, 999);
+        assert_eq!(real.total_tokens, Some(15));
+        assert!(!real.estimated);
+
+        // Without provider usage, finalize estimates chars/4 and flags it.
+        let est = finalize_usage(&TurnUsage::default(), false, 40, 16);
+        assert_eq!(est.prompt_tokens, Some(10)); // 40/4
+        assert_eq!(est.completion_tokens, Some(4)); // 16/4
+        assert_eq!(est.total_tokens, Some(14));
+        assert!(est.estimated);
     }
 
     #[test]
@@ -1221,7 +1348,8 @@ mod tests {
         display.push_tool_call("c1", "search_files", &serde_json::json!({ "q": "foo" }));
         display.complete_tool_call("c1", "3 hits", true);
         display.push_text("here");
-        let meta = assistant_turn_meta(&display, &[], true).expect("non-empty turn → metadata");
+        let meta = assistant_turn_meta(&display, &[], true, &TurnUsage::default())
+            .expect("non-empty turn → metadata");
 
         push_msg(&store, &mut session, ChatMessage::user("find foo"))
             .await
@@ -1271,7 +1399,7 @@ mod tests {
             data: serde_json::json!({ "points": [1, 2, 3] }),
             target: Target::Canvas,
         }];
-        let meta = assistant_turn_meta(&TurnDisplay::default(), &blocks, false)
+        let meta = assistant_turn_meta(&TurnDisplay::default(), &blocks, false, &TurnUsage::default())
             .expect("component block present → metadata");
 
         // Persist a plain user turn, then the assistant turn carrying block metadata.

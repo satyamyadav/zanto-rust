@@ -126,6 +126,21 @@
       .join("\n\n"),
   );
 
+  // Per-message token count: "1,234 tokens" (real) or "~1,234 tokens" (chars/4
+  // estimate). Null when the turn carries no usage (user messages, old sessions).
+  const usageLabel = $derived.by(() => {
+    const total = entry.usage?.total_tokens;
+    if (!total || total <= 0) return null;
+    return `${entry.usage?.estimated ? "~" : ""}${total.toLocaleString()} tokens`;
+  });
+  // Tooltip with the prompt/completion split when both are present.
+  const usageTitle = $derived.by(() => {
+    const u = entry.usage;
+    if (!u || u.prompt_tokens == null || u.completion_tokens == null) return undefined;
+    const pre = u.estimated ? "estimated " : "";
+    return `${pre}${u.prompt_tokens.toLocaleString()} in · ${u.completion_tokens.toLocaleString()} out`;
+  });
+
   let copied = $state(false);
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -370,6 +385,11 @@
               <PanelRightIcon class="size-3.5" />
               Open in panel
             </button>
+          {/if}
+          {#if usageLabel}
+            <span class="px-1.5 py-1 text-xs text-muted-foreground/70" title={usageTitle}>
+              {usageLabel}
+            </span>
           {/if}
         </div>
       {/if}

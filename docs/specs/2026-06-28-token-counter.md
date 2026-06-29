@@ -48,14 +48,14 @@ auto-summarization) and genai 0.6 exposes per-response usage on the stream's
 
 **Phase 1 — core capture + per-message**
 - `crates/zanto-core/src/chat.rs` — capture usage on `End`; aggregate; estimate
-  fallback; return it.
-- `crates/zanto-core/src/chat.rs` (`ChatTurn`) — add a `usage` field.
-- `crates/zanto-desktop/src-tauri/src/interaction.rs` — `chat_done` payload
-  carries usage.
-- `crates/zanto-desktop/src-tauri/src/ipc/chat.rs` — pass the turn's usage into
-  the `chat_done` emit + persist it on the assistant message meta.
-- `crates/zanto-desktop/src-tauri/src/ipc/mod.rs` (`RenderMsg`) — surface
-  persisted usage on reload.
+  fallback; add `TurnUsage` + the `ChatTurn.usage` field; thread usage into
+  `assistant_turn_meta` (signature + 4 callsites + 4 unit tests) so it persists.
+- `crates/zanto-desktop/src-tauri/src/interaction.rs` — `TauriSink::finish(usage)`
+  emits `chat_done` with a `{ usage }` payload.
+- `crates/zanto-desktop/src-tauri/src/ipc/chat.rs` — pass `turn.usage` to
+  `sink.finish(&usage)` (line 290). (Persistence is in core, NOT here.)
+- `crates/zanto-desktop/src-tauri/src/ipc/mod.rs` (`RenderMsg`) — add a `usage`
+  field + parse `meta.get("usage")` in `from_meta` to surface it on reload.
 - `crates/zanto-desktop/src/lib/ipc.ts` — `TokenUsage` type; `onChatDone` payload;
   `RenderMsg.usage`.
 - `crates/zanto-desktop/src/lib/stores/session.svelte.ts` — store per-entry
@@ -122,28 +122,48 @@ auto-summarization) and genai 0.6 exposes per-response usage on the stream's
    - Populate the returned `ChatTurn.usage` from `usage_acc` (real) or the
      estimate.
 
-4. **`chat_done` payload carries usage**
-   (`crates/zanto-desktop/src-tauri/src/interaction.rs` ~line 146)
-   - The sink emits `chat_done` with `()`. Change the emit to carry the turn's
-     usage. Since the sink doesn't have the final `ChatTurn` (the IPC layer does),
-     the cleanest path: have `ipc/chat.rs` emit `chat_done` with the usage AFTER
-     `chat()` returns, and remove/guard the sink's bare `chat_done` so it isn't
-     double-emitted. Verify which currently fires (`interaction.rs:146` sink vs
-     any ipc emit) and consolidate to one `chat_done` carrying
-     `{ usage, window_tokens }`. (window_tokens is phase 2; phase 1 sends
-     `{ usage }`.)
-   - If the sink's `on_done` must stay the single emitter for ordering reasons,
-     pass the usage into the sink before the final emit (e.g. a
-     `sink.set_usage(turn.usage)` call from `ipc/chat.rs` before the turn
-     completes) — choose the approach with the smaller, clearer diff and note it.
+4. **`chat_done` payload carries usage** (VERIFIED paths)
+   (`crates/zanto-desktop/src-tauri/src/interaction.rs` ~line 146 +
+   `crates/zanto-desktop/src-tauri/src/ipc/chat.rs:290`)
+   - `chat_done` has a SINGLE emitter: `TauriSink::finish()`
+     (`interaction.rs:146`, emits `("chat_done", ())`). It is called at
+     `ipc/chat.rs:290` — **after** `chat()` returns at line 275 — so the final
+     `result`/`turn` (with `turn.usage`) is in scope there. No double-emit risk,
+     no `set_usage` indirection needed.
+   - Change `TauriSink::finish` to take the usage and emit it in the payload:
+     `pub fn finish(&self, usage: &TurnUsage)` → `self.app.emit("chat_done",
+     ChatDonePayload { usage })`. Define a small serializable `ChatDonePayload`
+     (in `interaction.rs` or `ipc/mod.rs`) `{ usage: TurnUsage }` (phase 2 adds
+     `window_tokens`). At the callsite, the turn may be an `Err` (chat failed);
+     pass `turn.usage` on success, else `TurnUsage::default()` — so derive usage
+     from `result` before the `?`/map_err. Adjust the `sink.finish()` call at
+     line 290 to `sink.finish(&usage)`.
+   - `TurnUsage` is a core type (`zanto_core::chat::TurnUsage`); import it in the
+     desktop crate for the payload.
 
-5. **Persist usage on the assistant message**
-   (`crates/zanto-desktop/src-tauri/src/ipc/chat.rs` + `ipc/mod.rs`)
-   - Where the assistant turn is persisted (the per-message meta JSON used by
-     `RenderMsg::from_meta`), include `usage` in the meta object so it round-trips
-     on `load_session`. Add `pub usage: Option<TurnUsageDto>` (or reuse the core
-     `TurnUsage` shape) to `RenderMsg` and parse it in `from_meta` alongside
-     `segments`/`stopped`/`attachments`.
+5. **Persist usage on the assistant message** (CORRECTED: persistence lives in
+   CORE, not ipc/chat.rs)
+   (`crates/zanto-core/src/chat.rs` `assistant_turn_meta` + its 4 callsites +
+   tests; `crates/zanto-desktop/src-tauri/src/ipc/mod.rs` `RenderMsg`)
+   - The assistant turn's meta JSON is built by `assistant_turn_meta(&display,
+     &blocks, stopped)` at `chat.rs:832` and written via `push_msg_meta`. It is
+     called at 4 sites (lines ~390, 460, 504, 538). Change its signature to also
+     take the turn usage: `assistant_turn_meta(&display, &blocks, stopped,
+     &usage)`, and add `"usage": usage` to the returned `json!({...})`. Thread the
+     accumulated `usage` (from step 1/3) to each callsite.
+     - NOTE the `None`-return guard: `assistant_turn_meta` returns `None` when a
+       non-stopped turn has no segments/blocks. Adding usage means a turn that
+       produced *only* a token count but no visible content would still return
+       `None` (no meta persisted) — acceptable (no content to attach the count
+       to). Keep the existing guard; do not force meta just for usage.
+   - The **4 existing unit tests** call `assistant_turn_meta(...)` with the old
+     3-arg signature (lines ~1158, 1167, 1170, 1224, 1274) — update them to pass
+     a `&TurnUsage::default()` (or a sample) and, for at least one, assert the
+     `"usage"` field is present in the JSON.
+   - On the desktop side, `RenderMsg` (`ipc/mod.rs:70`) parses the meta in
+     `from_meta` (line ~85). Add `pub usage: Option<serde_json::Value>` (or a typed
+     `TokenUsageDto`) and parse `meta.get("usage")` alongside `segments`/`stopped`,
+     so reloaded sessions carry the count.
 
 6. **Frontend types + event** (`crates/zanto-desktop/src/lib/ipc.ts`)
    - Add `export type TokenUsage = { prompt_tokens?: number; completion_tokens?:
@@ -239,6 +259,9 @@ desktop app:
       active model's context window (e.g. ~8k for a default Ollama model). [Phase 2]
 - [ ] Old sessions (persisted before this change) load without error and show no
       token labels (backward compatible). [Phase 1]
+- [ ] `cargo test -p zanto-core` is green — the 4 updated `assistant_turn_meta`
+      tests pass with the new `usage` arg, and at least one asserts the persisted
+      `"usage"` JSON field. [Phase 1]
 
 ## Manual test plan
 

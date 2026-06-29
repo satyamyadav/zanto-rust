@@ -1,7 +1,7 @@
 // Session store: session list (for the active app), the active session's chat
 // thread (segment-modeled entries), and the right-panel canvas block.
 import { toast } from "svelte-sonner";
-import { ipc, type ChatBlock, type RenderMsg, type SessionMeta } from "$lib/ipc";
+import { ipc, type ChatBlock, type RenderMsg, type SessionMeta, type TokenUsage } from "$lib/ipc";
 import { activeApp, appStore } from "$lib/stores/app.svelte";
 
 // A chat entry is a sequence of typed segments rather than a single block, so
@@ -35,6 +35,7 @@ export type ChatEntry = {
   segments: ChatSegment[];
   stopped?: boolean; // true when this assistant turn was interrupted (Stop)
   attachments?: ChatAttachment[];
+  usage?: TokenUsage; // token usage for an assistant turn (real or estimated)
 };
 
 // Monotonic id for stable {#each} keying. Entry ids must survive both streaming
@@ -190,7 +191,14 @@ export function initStreaming() {
     sessionStore.contextSummarized = true;
   });
 
-  ipc.onChatDone(() => {
+  ipc.onChatDone((p) => {
+    // Attach the turn's token usage to the live assistant entry before clearing
+    // the stream pointer, so the per-message count renders (and persists on reload
+    // via toEntries). Skip an all-empty usage (e.g. an errored turn).
+    if (p.usage && streamIdx !== null && (p.usage.total_tokens ?? 0) > 0) {
+      const e = sessionStore.convo[streamIdx];
+      if (e) sessionStore.convo[streamIdx] = { ...e, usage: p.usage };
+    }
     streamIdx = null;
     sessionStore.streaming = false;
   });
@@ -329,6 +337,7 @@ function toEntries(msgs: RenderMsg[]): ChatEntry[] {
       if (m.attachments && m.attachments.length > 0) {
         e.attachments = m.attachments.map((a) => ({ path: a.path, name: a.name, isImage: a.is_image }));
       }
+      if (m.usage) e.usage = m.usage;
       return e;
     }
     // Back-compat: legacy sessions without persisted segments — rebuild from
@@ -344,6 +353,7 @@ function toEntries(msgs: RenderMsg[]): ChatEntry[] {
     if (m.attachments && m.attachments.length > 0) {
       e.attachments = m.attachments.map((a) => ({ path: a.path, name: a.name, isImage: a.is_image }));
     }
+    if (m.usage) e.usage = m.usage;
     return e;
   });
 }
