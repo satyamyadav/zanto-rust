@@ -60,13 +60,20 @@ Describe what this skill makes the assistant do.
     }
   }
 
-  // Reload the list each time the dialog opens; reset transient editor state.
+  // Reload the list and reset editor state ONLY on the rising edge of `open`
+  // (the dialog actually opening) — not on every dependency change while it's
+  // open. Without this latch, the body also read `hasProject`, so a late config
+  // load (project_dir resolving after the dialog opened) re-ran resetEditor()
+  // mid-edit and silently discarded an unsaved draft/edit.
+  let wasOpen = false;
   $effect(() => {
-    if (open) {
+    const isOpen = open;
+    if (isOpen && !wasOpen) {
       void refresh();
       resetEditor();
       if (!hasProject) scope = "global";
     }
+    wasOpen = isOpen;
   });
 
   function resetEditor() {
