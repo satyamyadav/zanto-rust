@@ -5,10 +5,12 @@
   import Chat from "$lib/components/Chat.svelte";
   import Canvas from "$lib/components/Canvas.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
+  import SkillsDialog from "$lib/components/SkillsDialog.svelte";
   import { appStore, loadApps, mountApp } from "$lib/stores/app.svelte";
   import { newSession, initStreaming } from "$lib/stores/session.svelte";
   import { loadCatalogue } from "$lib/stores/artifacts.svelte";
   import { settingsStore, openSettings } from "$lib/stores/settings.svelte";
+  import { skillsStore } from "$lib/stores/skills.svelte";
 
   onMount(async () => {
     initStreaming();
@@ -39,3 +41,4 @@
 </div>
 
 <SettingsDialog bind:open={settingsStore.open} initialSection={settingsStore.section} />
+<SkillsDialog bind:open={skillsStore.open} />

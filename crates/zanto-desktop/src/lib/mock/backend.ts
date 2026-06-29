@@ -1,5 +1,5 @@
 import type {
-  Config, AppManifest, ArtifactDef, SessionMeta, ChatTurn, SkillDto,
+  Config, AppManifest, ArtifactDef, SessionMeta, ChatTurn, SkillDto, SkillScope,
 } from "$lib/ipc";
 import { emit } from "./event";
 import { defaultScenario, pickScenario } from "./scenarios";
@@ -14,6 +14,29 @@ import loadSessionFx from "../../../contract/fixtures/load_session.json";
 
 let interrupted = false;
 let activeSkill: string | null = null;
+
+// In-memory skill store for the editor (CRUD). Keyed by "<scope>/<name>" so
+// project and global skills of the same name coexist. Seeded with the two skills
+// the picker tests expect (global scope).
+type MockSkill = { name: string; body: string; scope: SkillScope };
+const skillKey = (scope: SkillScope, name: string) => `${scope}/${name}`;
+const mockSkills = new Map<string, MockSkill>([
+  ["global/reviewer", { name: "reviewer", body: "Review code for bugs and clarity.", scope: "global" }],
+  ["global/researcher", { name: "researcher", body: "Find and cite sources.", scope: "global" }],
+]);
+// Mirror the core name validation so the mock rejects unsafe names like the real
+// backend does (keeps the editor's error paths exercisable in dev:mock).
+function validateMockSkillName(name: string) {
+  const n = name.trim();
+  if (!n) throw new Error("Skill name cannot be empty");
+  if (n.startsWith(".")) throw new Error("Skill name cannot start with a dot");
+  if (n.includes("/") || n.includes("\\") || n.includes("..")) {
+    throw new Error("Skill name cannot contain path separators");
+  }
+  if (!/^[\p{L}\p{N} _-]+$/u.test(n)) {
+    throw new Error("Skill name may only contain letters, digits, spaces, - and _");
+  }
+}
 let interruptResolve: (() => void) | null = null;
 let errorArmed = true;
 let pinned: any[] = listPinnedFx.response.slice();
@@ -185,11 +208,41 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   // a real native dialog. The key must match the exact invoke command name.
   "plugin:dialog|open": async (): Promise<string[]> => ["/home/user/docs/notes.txt"],
   add_allowed_path: async (): Promise<void> => undefined,
-  list_skills: async (): Promise<SkillDto[]> => [
-    { name: "reviewer", preview: "Review code for bugs and clarity." },
-    { name: "researcher", preview: "Find and cite sources." },
-  ],
+  list_skills: async (): Promise<SkillDto[]> =>
+    [...mockSkills.values()].map((s) => ({
+      name: s.name,
+      preview: s.body.trim().slice(0, 120),
+      scope: s.scope,
+    })),
   set_active_skill: async (a: { name: string | null }): Promise<void> => { activeSkill = a?.name ?? null; },
+  read_skill: async (a: { name: string; scope: SkillScope }): Promise<string> => {
+    const s = mockSkills.get(skillKey(a.scope, a.name));
+    if (!s) throw new Error(`Skill '${a.name}' not found in ${a.scope} scope`);
+    return s.body;
+  },
+  save_skill: async (a: { name: string; scope: SkillScope; body: string }): Promise<SkillDto> => {
+    validateMockSkillName(a.name);
+    const name = a.name.trim();
+    mockSkills.set(skillKey(a.scope, name), { name, body: a.body, scope: a.scope });
+    return { name, preview: a.body.trim().slice(0, 120), scope: a.scope };
+  },
+  delete_skill: async (a: { name: string; scope: SkillScope }): Promise<void> => {
+    const key = skillKey(a.scope, a.name.trim());
+    if (!mockSkills.has(key)) throw new Error(`Skill '${a.name}' does not exist`);
+    mockSkills.delete(key);
+    if (activeSkill === a.name.trim()) activeSkill = null;
+  },
+  rename_skill: async (a: { old: string; new: string; scope: SkillScope }): Promise<void> => {
+    validateMockSkillName(a.new);
+    const fromKey = skillKey(a.scope, a.old.trim());
+    const toKey = skillKey(a.scope, a.new.trim());
+    const s = mockSkills.get(fromKey);
+    if (!s) throw new Error(`Skill '${a.old}' does not exist`);
+    if (mockSkills.has(toKey)) throw new Error(`A skill named '${a.new}' already exists`);
+    mockSkills.delete(fromKey);
+    mockSkills.set(toKey, { name: a.new.trim(), body: s.body, scope: a.scope });
+    if (activeSkill === a.old.trim()) activeSkill = a.new.trim();
+  },
   respond: async (_a: { requestId: string; value: unknown }): Promise<void> => {},
 };
 

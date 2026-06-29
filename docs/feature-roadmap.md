@@ -13,7 +13,7 @@ have specs).
 | 1 | Token counter | M | low | ✅ **shipped** | full-stack; per-message label + session gauge |
 | 2 | Loader at end of message | S | low | ✅ **shipped** | tail loader persists whole turn |
 | 3 | User chat-bubble restyle + spacing | S | low | ✅ **shipped** | refined fill + grouped spacing |
-| 4 | Skills editor | M | med | — | UI over `.zanto/skills` markdown |
+| 4 | Skills editor | M | med | ✅ **shipped** | dialog CRUD, project/global scope |
 | 5 | Svelte/HTML-page artifacts | M-L | **high** | — | renders arbitrary HTML → security |
 | 6 | File Manager app | L | med | — | new micro-app + agent tools |
 | 7 | Video Editor app | XL | high | — | new app + media tooling (ffmpeg) |
@@ -41,14 +41,11 @@ Small, low-risk, high-visibility. Do them back-to-back to build momentum.
 
 ## Phase B — medium features (4–5)
 
-- **4. Skills editor.** A UI to create / edit / delete the markdown skills under
-  `.zanto/skills` (and the global skills dir). Builds on the existing skill
-  plumbing (`list_skills` / `get_skill`, the composer `/skill` picker, the
-  `selected_skill` config). Scope sketch: a panel/dialog listing skills, a
-  markdown editor, save/delete via new IPC over the existing `context.rs` skill
-  loader. Medium; mostly UI + a couple of write IPCs. Needs its own clarification
-  round (where it lives — Settings tab? own app? — and whether it edits global +
-  project skills).
+- **4. Skills editor** ✅ shipped — a dedicated `SkillsDialog` (opened from the
+  composer `/skill` menu → "Manage skills…") with a Project|Global scope toggle and
+  a markdown editor; create/edit/rename/delete via new scope-aware CRUD in
+  `context.rs` + IPC, behind a `validate_skill_name` traversal guard. Spec
+  archived: `docs/archive/2026-06-29-skills-editor.md`.
 
 - **5. Svelte/HTML-page artifacts.** Render an agent-produced HTML (or Svelte)
   page as an artifact in the canvas/hub. **High risk — security.** Arbitrary

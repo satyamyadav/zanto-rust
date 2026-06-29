@@ -12,7 +12,9 @@
   import TerminalIcon from "@lucide/svelte/icons/terminal";
   import LoaderIcon from "@lucide/svelte/icons/loader";
   import BookOpenIcon from "@lucide/svelte/icons/book-open";
+  import PencilIcon from "@lucide/svelte/icons/pencil";
   import { onMount } from "svelte";
+  import { skillsStore, openSkillsEditor } from "$lib/stores/skills.svelte";
   import { sessionStore, sessionUsage, send, newSession, interrupt } from "$lib/stores/session.svelte";
   import { appStore } from "$lib/stores/app.svelte";
   import { openSettings } from "$lib/stores/settings.svelte";
@@ -356,6 +358,25 @@
       closeMenu();
     }
   }
+
+  // Open the skills editor dialog from the /skill menu. Closes the picker; the
+  // $effect below re-lists skills once the dialog closes so edits show up.
+  function manageSkills() {
+    closeMenu();
+    openSkillsEditor();
+  }
+
+  // When the skills editor closes, refresh the cached skill list so the picker
+  // reflects any create/edit/rename/delete. Track the previous open state so we
+  // only refresh on the closing edge.
+  let skillsDialogWasOpen = false;
+  $effect(() => {
+    const isOpen = skillsStore.open;
+    if (skillsDialogWasOpen && !isOpen) {
+      ipc.listSkills().then((s) => (skills = s)).catch(() => {});
+    }
+    skillsDialogWasOpen = isOpen;
+  });
 
   // Find the `@` that opens a file tag at the caret: the nearest `@` before the
   // caret with no whitespace between it and the caret. Returns -1 if none.
@@ -738,6 +759,19 @@
               {:else}
                 <div class="px-2 py-1.5 text-sm text-muted-foreground">No skills found</div>
               {/each}
+              <!-- Footer: open the authoring dialog. Separated from the pickable
+                   skills so it's clearly an action, not a selectable skill. -->
+              <button
+                type="button"
+                onmousedown={(ev) => {
+                  ev.preventDefault();
+                  manageSkills();
+                }}
+                class="mt-1 flex w-full items-center gap-2 rounded-sm border-t border-border px-2 py-1.5 text-left text-sm text-muted-foreground outline-hidden hover:text-foreground"
+              >
+                <PencilIcon class="size-4 shrink-0" />
+                Manage skills…
+              </button>
             {:else}
               {#each filteredCommands as c, i (c.name)}
                 <button

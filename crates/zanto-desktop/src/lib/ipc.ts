@@ -113,8 +113,11 @@ export type Config = {
   generation: GenerationParams;
 };
 
-// A discoverable markdown skill: file stem + a short body preview.
-export type SkillDto = { name: string; preview: string };
+// Which on-disk skills dir a skill lives in / an editor op targets.
+export type SkillScope = "project" | "global";
+
+// A discoverable markdown skill: file stem, a short body preview, and its scope.
+export type SkillDto = { name: string; preview: string; scope: SkillScope };
 
 export type ConfigPatch = Partial<Pick<Config, "model" | "endpoint" | "max_context_turns">> & {
   providers?: ProviderPatch[];
@@ -308,6 +311,13 @@ export const ipc = {
   // Skills (user-selected markdown preprompts)
   listSkills: () => invoke<SkillDto[]>("list_skills"),
   setActiveSkill: (name: string | null) => invoke<void>("set_active_skill", { name }),
+  // Skills editor (CRUD over the project/global skills dirs)
+  readSkill: (name: string, scope: SkillScope) => invoke<string>("read_skill", { name, scope }),
+  saveSkill: (name: string, scope: SkillScope, body: string) =>
+    invoke<SkillDto>("save_skill", { name, scope, body }),
+  deleteSkill: (name: string, scope: SkillScope) => invoke<void>("delete_skill", { name, scope }),
+  renameSkill: (oldName: string, newName: string, scope: SkillScope) =>
+    invoke<void>("rename_skill", { old: oldName, new: newName, scope }),
 
   // Read an image file as a data-URL (permission-checked, capped at 10 MiB).
   readImageDataUrl: (path: string) => invoke<string>("read_image_data_url", { path }),
