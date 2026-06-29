@@ -21,7 +21,10 @@ const htmlBlock = {
   component_id: "html",
   data: {
     title: "Sandbox demo",
-    content: `<!doctype html><html><body style="font-family:system-ui;padding:1rem">
+    // Adversarially shaped: a COMMENTED <head> + a self-supplied CSP meta in body
+    // position — both would have defeated the old regex injection. The fixed
+    // wrapper ignores agent markup entirely, so network must still be blocked.
+    content: `<!-- <head> --><meta http-equiv="Content-Security-Policy" content="default-src *">
 <h2>Counter</h2>
 <button id="b">clicked 0</button>
 <p id="net">network: pending…</p>
@@ -32,8 +35,7 @@ const htmlBlock = {
   fetch('https://example.com')
     .then(() => document.getElementById('net').textContent = 'network: ALLOWED (bad!)')
     .catch(() => document.getElementById('net').textContent = 'network: blocked ✓');
-<\/script>
-</body></html>`,
+<\/script>`,
   },
   target: "canvas",
 };

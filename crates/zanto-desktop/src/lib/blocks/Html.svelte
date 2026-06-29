@@ -7,10 +7,15 @@
   //    sandbox. Omitting same-origin makes the frame a null origin — it cannot
   //    read window.parent, the app DOM, localStorage, cookies, or the Tauri
   //    bridge (window.__TAURI__ is undefined inside it).
-  //  • An injected CSP <meta> at the very top of <head> blocks all network
-  //    egress: default-src 'none' (no fetch/XHR/websocket/remote anything),
-  //    only inline <script>/<style>, images/fonts as data: URIs. A second CSP
-  //    the agent might inject can only intensify, never relax, this one.
+  //  • The agent content is placed in the BODY of a fixed document shell we fully
+  //    control, whose <head> carries our CSP <meta> FIRST. We never parse, rewrite,
+  //    or trust the agent's markup to find an injection point — so no crafted
+  //    input (a commented or attribute-embedded <head>, a self-supplied CSP, etc.)
+  //    can displace or neutralize our policy. A <meta http-equiv=CSP> only binds
+  //    from <head>; any CSP the agent puts in its (body-position) content is
+  //    ignored by the parser, and the first policy wins regardless.
+  //  • That CSP blocks all network egress: default-src 'none' (no fetch/XHR/
+  //    websocket/remote anything), only inline <script>/<style>, data: img/fonts.
   //  • The content goes into the iframe `srcdoc` ATTRIBUTE (a string) — never
   //    into the host DOM via {@html}. So nothing the agent sends touches the app.
   //
@@ -39,22 +44,17 @@
 
   const META = `<meta http-equiv="Content-Security-Policy" content="${CSP}">`;
 
-  // Build the final srcdoc: our CSP meta must come FIRST in <head> so it binds.
-  // Tolerate three shapes of agent content: a full document with <head>, a full
-  // document with <html> but no <head>, or a bare fragment.
-  const srcdoc = $derived.by(() => {
-    const raw = data.content ?? "";
-    if (/<head[\s>]/i.test(raw)) {
-      // Inject our meta immediately after the opening <head> tag.
-      return raw.replace(/<head([^>]*)>/i, `<head$1>${META}`);
-    }
-    if (/<html[\s>]/i.test(raw)) {
-      // Has <html> but no <head>: add a <head> carrying the CSP right after it.
-      return raw.replace(/<html([^>]*)>/i, `<html$1><head>${META}</head>`);
-    }
-    // Bare fragment: wrap in a minimal document with the CSP head.
-    return `<!doctype html><html><head>${META}<meta charset="utf-8"></head><body>${raw}</body></html>`;
-  });
+  // Build the srcdoc by WRAPPING the agent content in a fixed document shell whose
+  // <head> holds our CSP meta first. We do not inspect or rewrite the agent markup
+  // at all — whatever it is (a bare fragment, or a full <html> document) becomes
+  // body content. A full document nested in body position is non-conforming but
+  // parses fine (browsers ignore the stray <html>/<head>/<body> and still run its
+  // scripts/visible content); crucially, any <meta http-equiv=CSP> the agent
+  // supplies sits in body position and is ignored, so OUR head-level CSP is the
+  // only effective policy and is guaranteed present and first.
+  const srcdoc = $derived(
+    `<!doctype html><html><head>${META}<meta charset="utf-8"></head><body>${data.content ?? ""}</body></html>`,
+  );
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
