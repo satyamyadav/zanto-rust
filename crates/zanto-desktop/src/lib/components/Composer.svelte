@@ -250,10 +250,21 @@
       ? SLASH_COMMANDS.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
       : SLASH_COMMANDS,
   );
+  // The picker selects a skill by NAME, and the runtime resolves a name with
+  // project shadowing global (get_skill) — so two same-named skills are one
+  // choice here, not two. listSkills returns both scope copies (the editor needs
+  // them); collapse by name keeping the first occurrence. The IPC lists project
+  // before global, so the project copy wins — matching runtime resolution. This
+  // also keeps the {#each (s.name)} keys unique (a duplicate key would crash).
+  const dedupedSkills = $derived.by(() => {
+    const byName = new Map<string, SkillDto>();
+    for (const s of skills) if (!byName.has(s.name)) byName.set(s.name, s);
+    return [...byName.values()];
+  });
   const filteredSkills = $derived(
     skillQuery
-      ? skills.filter((s) => s.name.toLowerCase().includes(skillQuery.toLowerCase()))
-      : skills,
+      ? dedupedSkills.filter((s) => s.name.toLowerCase().includes(skillQuery.toLowerCase()))
+      : dedupedSkills,
   );
   const itemCount = $derived(
     menu === "file"

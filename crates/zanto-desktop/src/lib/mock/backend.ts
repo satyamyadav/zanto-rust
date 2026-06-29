@@ -23,6 +23,7 @@ const skillKey = (scope: SkillScope, name: string) => `${scope}/${name}`;
 const mockSkills = new Map<string, MockSkill>([
   ["global/reviewer", { name: "reviewer", body: "Review code for bugs and clarity.", scope: "global" }],
   ["global/researcher", { name: "researcher", body: "Find and cite sources.", scope: "global" }],
+  ["project/reviewer", { name: "reviewer", body: "PROJECT reviewer.", scope: "project" }],
 ]);
 // Mirror the core name validation so the mock rejects unsafe names like the real
 // backend does (keeps the editor's error paths exercisable in dev:mock).
@@ -209,11 +210,15 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   "plugin:dialog|open": async (): Promise<string[]> => ["/home/user/docs/notes.txt"],
   add_allowed_path: async (): Promise<void> => undefined,
   list_skills: async (): Promise<SkillDto[]> =>
-    [...mockSkills.values()].map((s) => ({
-      name: s.name,
-      preview: s.body.trim().slice(0, 120),
-      scope: s.scope,
-    })),
+    // Project scope first, then global — matching the real IPC's iteration order
+    // so name-dedup downstream resolves project-shadows-global the same way.
+    [...mockSkills.values()]
+      .sort((a, b) => (a.scope === b.scope ? 0 : a.scope === "project" ? -1 : 1))
+      .map((s) => ({
+        name: s.name,
+        preview: s.body.trim().slice(0, 120),
+        scope: s.scope,
+      })),
   set_active_skill: async (a: { name: string | null }): Promise<void> => { activeSkill = a?.name ?? null; },
   read_skill: async (a: { name: string; scope: SkillScope }): Promise<string> => {
     const s = mockSkills.get(skillKey(a.scope, a.name));
