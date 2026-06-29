@@ -225,10 +225,12 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
     if (!s) throw new Error(`Skill '${a.name}' not found in ${a.scope} scope`);
     return s.body;
   },
-  save_skill: async (a: { name: string; scope: SkillScope; body: string }): Promise<SkillDto> => {
+  save_skill: async (a: { name: string; scope: SkillScope; body: string; overwrite: boolean }): Promise<SkillDto> => {
     validateMockSkillName(a.name);
     const name = a.name.trim();
-    mockSkills.set(skillKey(a.scope, name), { name, body: a.body, scope: a.scope });
+    const key = skillKey(a.scope, name);
+    if (!a.overwrite && mockSkills.has(key)) throw new Error(`A skill named '${name}' already exists`);
+    mockSkills.set(key, { name, body: a.body, scope: a.scope });
     return { name, preview: a.body.trim().slice(0, 120), scope: a.scope };
   },
   delete_skill: async (a: { name: string; scope: SkillScope }): Promise<void> => {

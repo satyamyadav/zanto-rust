@@ -74,14 +74,20 @@ pub fn read_skill(name: String, scope: String) -> Result<String, String> {
         .ok_or_else(|| format!("Skill '{name}' not found in {} scope", scope_label(scope)))
 }
 
-/// Create or overwrite a skill in the given scope; returns the fresh DTO so the
-/// list can refresh immediately.
+/// Save a skill in the given scope; returns the fresh DTO so the list can refresh
+/// immediately. `overwrite` is false when creating a NEW skill (refuses to clobber
+/// an existing name) and true when saving edits to an already-existing one.
 #[tauri::command]
-pub fn save_skill(name: String, scope: String, body: String) -> Result<SkillDto, String> {
+pub fn save_skill(
+    name: String,
+    scope: String,
+    body: String,
+    overwrite: bool,
+) -> Result<SkillDto, String> {
     let scope_enum = parse_scope(&scope)?;
     let settings = Settings::load();
     let project_dir = settings.project_dir.as_deref().map(Path::new);
-    zanto_core::context::write_skill(scope_enum, project_dir, &name, &body)?;
+    zanto_core::context::write_skill(scope_enum, project_dir, &name, &body, overwrite)?;
     Ok(SkillDto {
         name: name.trim().to_string(),
         preview: preview_of(&body),

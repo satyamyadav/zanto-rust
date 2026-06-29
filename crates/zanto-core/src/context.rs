@@ -271,15 +271,21 @@ pub fn read_skill_in(scope: SkillScope, project_dir: Option<&Path>, name: &str) 
     }
 }
 
-/// Create or overwrite a skill file in the given scope. Creates the skills dir if
-/// missing. Validates the name (no traversal).
+/// Write a skill file in the given scope. Creates the skills dir if missing and
+/// validates the name (no traversal). When `overwrite` is false, refuses if a
+/// skill of that name already exists — so creating a NEW skill can't silently
+/// clobber an existing one (editing an existing skill passes `overwrite = true`).
 pub fn write_skill(
     scope: SkillScope,
     project_dir: Option<&Path>,
     name: &str,
     body: &str,
+    overwrite: bool,
 ) -> Result<(), String> {
     let path = skill_path(scope, project_dir, name)?;
+    if !overwrite && path.is_file() {
+        return Err(format!("A skill named '{}' already exists", name.trim()));
+    }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create skills dir: {e}"))?;
     }
@@ -491,14 +497,17 @@ mod tests {
         let proj = Some(tmp.path());
 
         // write → list_in → read_in round-trip
-        write_skill(SkillScope::Project, proj, "tester", "do the thing").unwrap();
+        write_skill(SkillScope::Project, proj, "tester", "do the thing", false).unwrap();
         let listed = list_skills_in(SkillScope::Project, proj);
         assert_eq!(listed.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["tester"]);
         let got = read_skill_in(SkillScope::Project, proj, "tester").unwrap();
         assert_eq!(got.body, "do the thing");
 
-        // overwrite
-        write_skill(SkillScope::Project, proj, "tester", "v2").unwrap();
+        // create (overwrite=false) refuses to clobber an existing skill…
+        assert!(write_skill(SkillScope::Project, proj, "tester", "clobber", false).is_err());
+        assert_eq!(read_skill_in(SkillScope::Project, proj, "tester").unwrap().body, "do the thing");
+        // …but an explicit edit (overwrite=true) replaces it.
+        write_skill(SkillScope::Project, proj, "tester", "v2", true).unwrap();
         assert_eq!(read_skill_in(SkillScope::Project, proj, "tester").unwrap().body, "v2");
 
         // rename
@@ -521,7 +530,7 @@ mod tests {
         }
         // The write path must refuse an unsafe name (no file escapes the dir).
         let tmp = TempDir::new().unwrap();
-        assert!(write_skill(SkillScope::Project, Some(tmp.path()), "../evil", "x").is_err());
+        assert!(write_skill(SkillScope::Project, Some(tmp.path()), "../evil", "x", false).is_err());
         assert!(!tmp.path().join("evil.md").exists());
     }
 
@@ -534,8 +543,8 @@ mod tests {
         // Stand in a fake global dir by writing both via the project path helper:
         // here we exercise the project scope directly, and a separate dir for the
         // "global" case using project scope rooted at a different temp dir.
-        write_skill(SkillScope::Project, Some(proj_root.path()), "reviewer", "PROJECT body").unwrap();
-        write_skill(SkillScope::Project, Some(global_root.path()), "reviewer", "GLOBAL body").unwrap();
+        write_skill(SkillScope::Project, Some(proj_root.path()), "reviewer", "PROJECT body", false).unwrap();
+        write_skill(SkillScope::Project, Some(global_root.path()), "reviewer", "GLOBAL body", false).unwrap();
 
         // Reading project scope at proj_root yields the project body; reading the
         // other root yields its own — proving reads are pinned to the given dir,
@@ -553,7 +562,7 @@ mod tests {
     #[test]
     fn project_scope_with_no_project_dir_errors_cleanly() {
         // No project dir → project-scope ops error (not panic), global unaffected.
-        assert!(write_skill(SkillScope::Project, None, "x", "y").is_err());
+        assert!(write_skill(SkillScope::Project, None, "x", "y", false).is_err());
         assert!(read_skill_in(SkillScope::Project, None, "x").is_none());
         assert!(list_skills_in(SkillScope::Project, None).is_empty());
     }

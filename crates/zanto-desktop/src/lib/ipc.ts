@@ -313,8 +313,8 @@ export const ipc = {
   setActiveSkill: (name: string | null) => invoke<void>("set_active_skill", { name }),
   // Skills editor (CRUD over the project/global skills dirs)
   readSkill: (name: string, scope: SkillScope) => invoke<string>("read_skill", { name, scope }),
-  saveSkill: (name: string, scope: SkillScope, body: string) =>
-    invoke<SkillDto>("save_skill", { name, scope, body }),
+  saveSkill: (name: string, scope: SkillScope, body: string, overwrite: boolean) =>
+    invoke<SkillDto>("save_skill", { name, scope, body, overwrite }),
   deleteSkill: (name: string, scope: SkillScope) => invoke<void>("delete_skill", { name, scope }),
   renameSkill: (oldName: string, newName: string, scope: SkillScope) =>
     invoke<void>("rename_skill", { old: oldName, new: newName, scope }),

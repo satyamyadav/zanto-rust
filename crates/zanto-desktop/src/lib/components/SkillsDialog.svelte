@@ -111,7 +111,10 @@ Describe what this skill makes the assistant do.
     }
     busy = true;
     try {
-      const dto = await ipc.saveSkill(name, scope, editorBody);
+      // A draft is a NEW skill (overwrite=false → backend refuses to clobber an
+      // existing name); saving an opened existing skill replaces its own file.
+      const overwrite = draft === null;
+      const dto = await ipc.saveSkill(name, scope, editorBody, overwrite);
       await refresh();
       draft = null;
       selectedName = dto.name;
