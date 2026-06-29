@@ -13,6 +13,31 @@ const chartBlock = {
   target: "inline",
 };
 
+// A self-contained interactive HTML page, target=canvas. The inline script wires
+// a counter button (proves allow-scripts runs) and attempts a fetch (which the
+// injected CSP must block — proving no network egress).
+const htmlBlock = {
+  kind: "component",
+  component_id: "html",
+  data: {
+    title: "Sandbox demo",
+    content: `<!doctype html><html><body style="font-family:system-ui;padding:1rem">
+<h2>Counter</h2>
+<button id="b">clicked 0</button>
+<p id="net">network: pending…</p>
+<script>
+  let n = 0;
+  const b = document.getElementById('b');
+  b.onclick = () => { n++; b.textContent = 'clicked ' + n; };
+  fetch('https://example.com')
+    .then(() => document.getElementById('net').textContent = 'network: ALLOWED (bad!)')
+    .catch(() => document.getElementById('net').textContent = 'network: blocked ✓');
+<\/script>
+</body></html>`,
+  },
+  target: "canvas",
+};
+
 const summaryBlock = {
   kind: "component",
   component_id: "monthly_summary",
@@ -53,6 +78,10 @@ export const scenarios: Scenario[] = [
       { event: "chat_block", payload: { block: summaryBlock } },
       { event: "chat_done", payload: null },
     ], response: { blocks: [summaryBlock as any] } },
+  { trigger: "html page", events: [
+      { event: "chat_block", payload: { block: htmlBlock } },
+      { event: "chat_done", payload: null },
+    ], response: { blocks: [htmlBlock as any] } },
   // Emits one chunk so streamIdx is set (enabling the Stopped marker), then parks
   // until interrupt_turn is called — simulating a turn stopped mid-stream.
   { trigger: "silent stop", blocking: true, events: [

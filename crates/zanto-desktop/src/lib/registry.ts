@@ -9,6 +9,7 @@ import KeyValue from "./blocks/KeyValue.svelte";
 import Json from "./blocks/Json.svelte";
 import Nba from "./blocks/Nba.svelte";
 import Page from "./blocks/Page.svelte";
+import Html from "./blocks/Html.svelte";
 // App-specific
 import TransactionsTable from "./apps/finance/transactions_table.svelte";
 import MonthlySummary from "./apps/finance/monthly_summary.svelte";
@@ -27,6 +28,7 @@ export const componentRegistry: Record<string, Component<{ data: any }>> = {
   json: Json,
   nba: Nba,
   page: Page,
+  html: Html,
   // app-specific (finance)
   transactions_table: TransactionsTable,
   monthly_summary: MonthlySummary,

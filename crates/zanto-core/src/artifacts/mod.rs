@@ -59,6 +59,9 @@ pub enum ArtifactKind {
     Markdown,
     Image,
     Json,
+    /// A self-contained HTML page (the agent's `html` artifact). Persisted as
+    /// `.html`; rendered ONLY inside a sandboxed iframe on the frontend.
+    Html,
 }
 
 impl ArtifactKind {
@@ -70,6 +73,7 @@ impl ArtifactKind {
             ArtifactKind::Image => "png",
             ArtifactKind::Json => "json",
             ArtifactKind::Text => "txt",
+            ArtifactKind::Html => "html",
         }
     }
 }
@@ -443,6 +447,25 @@ mod tests {
             .save(ArtifactKind::Image, "no-ext", b"\x89PNG", Scope::Global)
             .unwrap();
         assert!(dflt.rel_path.ends_with(".png"));
+    }
+
+    #[test]
+    fn html_artifact_round_trips() {
+        let (store, _dir) = global_store();
+        let body = b"<!doctype html><html><body><h1>hi</h1></body></html>";
+        let art = store
+            .save(ArtifactKind::Html, "page", body, Scope::Global)
+            .unwrap();
+        assert_eq!(art.kind, ArtifactKind::Html);
+        assert!(art.rel_path.ends_with(".html"));
+        let (got, bytes) = store.read(&art.id).unwrap();
+        assert_eq!(got.kind, ArtifactKind::Html);
+        assert_eq!(bytes, body);
+        // Serializes to the snake_case tag the frontend expects.
+        assert_eq!(
+            serde_json::to_value(ArtifactKind::Html).unwrap(),
+            serde_json::json!("html")
+        );
     }
 
     #[test]

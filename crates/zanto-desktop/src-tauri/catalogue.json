@@ -70,6 +70,20 @@
     }
   },
   {
+    "id": "html",
+    "storage": "file",
+    "description": "Render a self-contained HTML page. It runs in a locked-down sandbox: inline <script> executes, but the page has NO network access (fetch/XHR/websockets and all remote/CDN resources are blocked) and NO access to the app, your data, or the host. Emit a full HTML document as `content`.",
+    "when_to_use": "When the user wants a custom interactive page or visualisation that the fixed components (chart, table, metric, …) cannot express. Inline everything — <style> and <script> only; external/CDN URLs will not load. Prefer the simpler components when they fit.",
+    "data_schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" }
+      },
+      "required": ["content"]
+    }
+  },
+  {
     "id": "page",
     "storage": "file",
     "description": "A complete multi-section document — an ordered list of markdown sections, each with an optional heading, rendered as one composed page.",

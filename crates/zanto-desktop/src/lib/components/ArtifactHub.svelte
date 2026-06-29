@@ -8,6 +8,7 @@
   import { toast } from "svelte-sonner";
   import { FolderOpen, Download, Trash2, X as XIcon, Save, Library } from "@lucide/svelte";
   import Markdown from "$lib/blocks/Markdown.svelte";
+  import Html from "$lib/blocks/Html.svelte";
   import Block from "$lib/Block.svelte";
   import { openSettings } from "$lib/stores/settings.svelte";
   import { sessionStore } from "$lib/stores/session.svelte";
@@ -355,6 +356,12 @@
             />
           {:else if loadedDoc?.kind === "markdown"}
             <Markdown data={{ title: loadedDoc.title, content: loadedDoc.content }} />
+          {:else if loadedDoc?.kind === "html"}
+            <!-- Reopened html artifacts render through the SAME sandboxed iframe
+                 component, so the isolation guarantees hold on reload too. -->
+            <div class="h-full">
+              <Html data={{ title: loadedDoc.title, content: loadedDoc.content }} />
+            </div>
           {:else if loadedDoc}
             <pre class="overflow-auto whitespace-pre-wrap font-mono text-xs select-text">{loadedDoc.content}</pre>
           {/if}

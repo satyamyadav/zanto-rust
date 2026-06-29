@@ -14,7 +14,7 @@ have specs).
 | 2 | Loader at end of message | S | low | ✅ **shipped** | tail loader persists whole turn |
 | 3 | User chat-bubble restyle + spacing | S | low | ✅ **shipped** | refined fill + grouped spacing |
 | 4 | Skills editor | M | med | ✅ **shipped** | dialog CRUD, project/global scope |
-| 5 | Svelte/HTML-page artifacts | M-L | **high** | — | renders arbitrary HTML → security |
+| 5 | Svelte/HTML-page artifacts | M-L | **high** | ✅ **shipped** | sandboxed iframe, no-network CSP (HTML; Svelte=v2) |
 | 6 | File Manager app | L | med | — | new micro-app + agent tools |
 | 7 | Video Editor app | XL | high | — | new app + media tooling (ffmpeg) |
 
@@ -47,14 +47,13 @@ Small, low-risk, high-visibility. Do them back-to-back to build momentum.
   `context.rs` + IPC, behind a `validate_skill_name` traversal guard. Spec
   archived: `docs/archive/2026-06-29-skills-editor.md`.
 
-- **5. Svelte/HTML-page artifacts.** Render an agent-produced HTML (or Svelte)
-  page as an artifact in the canvas/hub. **High risk — security.** Arbitrary
-  HTML/JS in the app's webview is an XSS/exfiltration vector; must run sandboxed
-  (an isolated `<iframe sandbox>` or a separate webview with no Tauri IPC access,
-  CSP locked down). Scope sketch: a new artifact kind `html` (or `webpage`), a
-  sandboxed renderer block, storage like other artifacts. The spec must lead with
-  the threat model (what the page can/can't touch) before any rendering. Defer
-  until the threat model is agreed.
+- **5. Svelte/HTML-page artifacts** ✅ shipped (HTML; Svelte=v2) — an `html`
+  artifact rendered in an `<iframe sandbox="allow-scripts">` (deliberately NO
+  `allow-same-origin` → null origin) with an injected `default-src 'none'` CSP
+  meta blocking all network egress. Scripts run, but the page can't reach the app,
+  the user's data, the Tauri bridge, or the network. Opens in canvas + Artifact
+  Hub. Svelte-source compilation deferred to a v2 (needs a compiler in the
+  runtime). Spec archived: `docs/archive/2026-06-29-html-page-artifacts.md`.
 
 ## Phase C — large new apps (6–7)
 

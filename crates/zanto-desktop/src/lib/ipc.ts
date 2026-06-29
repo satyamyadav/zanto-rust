@@ -194,7 +194,7 @@ export type ArtifactDef = {
   data_schema: any;
 };
 
-export type ArtifactKind = "text" | "markdown" | "image" | "json";
+export type ArtifactKind = "text" | "markdown" | "image" | "json" | "html";
 export type ArtifactScope = "project" | "global";
 
 // A stored artifact's manifest entry (E4 browser list).
