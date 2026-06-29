@@ -107,6 +107,7 @@ export type Config = {
   context_sources: ContextSource[];
   selected_skill: string | null;
   max_context_turns: number | null;
+  context_window_tokens: number;
   providers: ProviderDto[];
   active_provider: string | null;
   provider_registry: ProviderInfo[];

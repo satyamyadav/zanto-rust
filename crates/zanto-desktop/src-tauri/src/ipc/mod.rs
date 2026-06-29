@@ -143,6 +143,10 @@ pub struct ConfigDto {
     pub context_sources: Vec<ContextSource>,
     pub selected_skill: Option<String>,
     pub max_context_turns: Option<usize>,
+    /// The active model's context window in tokens (explicit override, else the
+    /// model's known window). Lets the UI show the context gauge before the first
+    /// turn of a (re)opened session, without waiting for a `chat_done` event.
+    pub context_window_tokens: usize,
     pub providers: Vec<ProviderDto>,
     pub active_provider: Option<String>,
     pub provider_registry: Vec<ProviderInfo>,

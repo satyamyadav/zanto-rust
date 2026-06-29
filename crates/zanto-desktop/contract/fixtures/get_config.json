@@ -8,6 +8,7 @@
     "context_sources": [],
     "selected_skill": null,
     "max_context_turns": null,
+    "context_window_tokens": 200000,
     "providers": [
       {
         "provider": "anthropic",

@@ -115,7 +115,11 @@ function resetLiveTurn() {
   sessionStore.busy = false;
   sessionStore.streaming = false;
   sessionStore.contextSummarized = false;
-  sessionStore.windowTokens = 0;
+  // Seed the gauge denominator from the active model's known context window so a
+  // (re)opened session with prior usage shows the gauge immediately, instead of
+  // hiding it until the next chat_done re-reports window_tokens. A turn's
+  // chat_done still overrides this with the exact value it used.
+  sessionStore.windowTokens = appStore.config?.context_window_tokens ?? 0;
   streamIdx = null;
 }
 

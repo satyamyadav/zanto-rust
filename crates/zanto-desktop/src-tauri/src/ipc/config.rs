@@ -54,8 +54,16 @@ pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
 
     let active_provider = settings.active_provider.map(|p| p.as_str().to_string());
 
+    let model = state.model.lock().unwrap().clone();
+    // The same window the per-turn Auto context policy uses (ipc/chat.rs): an
+    // explicit override, else the active model's known window. Surfaced so the
+    // gauge has a denominator on session load, before any chat_done arrives.
+    let context_window_tokens = settings
+        .context_window_tokens
+        .unwrap_or_else(|| config::model_context_window(&model));
+
     ConfigDto {
-        model: state.model.lock().unwrap().clone(),
+        model,
         endpoint: state.endpoint.lock().unwrap().clone(),
         allowed_paths: settings.allowed_paths,
         project_dir: settings.project_dir,
@@ -64,6 +72,7 @@ pub fn get_config(state: State<'_, DesktopState>) -> ConfigDto {
         context_sources: load_project_settings().context_sources,
         selected_skill: state.selected_skill.lock().unwrap().clone(),
         max_context_turns: settings.max_context_turns,
+        context_window_tokens,
         providers,
         active_provider,
         provider_registry: config::provider_registry(),
