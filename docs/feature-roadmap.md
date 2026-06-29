@@ -12,7 +12,7 @@ have specs).
 |---|---|---|---|---|---|
 | 1 | Token counter | M | low | ✅ **shipped** | full-stack; per-message label + session gauge |
 | 2 | Loader at end of message | S | low | ✅ **shipped** | tail loader persists whole turn |
-| 3 | User chat-bubble restyle + spacing | S | low | ✅ written | UI/CSS only |
+| 3 | User chat-bubble restyle + spacing | S | low | ✅ **shipped** | refined fill + grouped spacing |
 | 4 | Skills editor | M | med | — | UI over `.zanto/skills` markdown |
 | 5 | Svelte/HTML-page artifacts | M-L | **high** | — | renders arbitrary HTML → security |
 | 6 | File Manager app | L | med | — | new micro-app + agent tools |
@@ -30,9 +30,10 @@ Small, low-risk, high-visibility. Do them back-to-back to build momentum.
 - **2. Loader at end of message** ✅ shipped — a "responding…" indicator at the
   thread tail that persists the whole busy turn, complementing the thinking-block
   spinner. Spec archived: `docs/archive/2026-06-29-message-loader.md`.
-- **3. Chat-bubble restyle + spacing** — restyle the user bubble and rework
-  inter-turn spacing/rhythm (assistant stays plain text). Spec:
-  `docs/specs/2026-06-29-chat-bubble-restyle.md`.
+- **3. Chat-bubble restyle + spacing** ✅ shipped — refined the user bubble (fill
+  kept, hairline border, softer radius, no shadow) and grouped inter-turn spacing
+  so exchanges read as pairs. Spec archived:
+  `docs/archive/2026-06-29-chat-bubble-restyle.md`.
 
 ## Phase B — medium features (4–5)
 

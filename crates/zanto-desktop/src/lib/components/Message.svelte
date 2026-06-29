@@ -307,7 +307,7 @@
   <div class="flex justify-end">
     <div
       data-role="user"
-      class="flex max-w-[85%] flex-col gap-1.5 rounded-2xl rounded-br-sm bg-muted px-4 py-2.5 text-sm leading-relaxed text-foreground shadow-sm"
+      class="flex max-w-[85%] flex-col gap-1.5 rounded-xl rounded-br-sm border border-border bg-muted px-3.5 py-2 text-sm leading-relaxed text-foreground"
     >
       {#each items as item, i (i)}
         {@render renderItem(item)}

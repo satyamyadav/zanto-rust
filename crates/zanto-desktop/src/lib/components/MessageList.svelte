@@ -78,30 +78,46 @@
          plain `justify-end` would push the overflow past the top edge and clip
          the oldest messages out of reach). -->
     <div class="flex min-h-full flex-col">
-      <div class="mt-auto flex flex-col gap-4">
+      <!-- No uniform `gap` here: turn rhythm is grouped — a user turn opens a new
+           exchange (larger top gap), its assistant reply continues it (smaller top
+           gap). Per-row margins below encode that; the first row has none. The
+           non-message rows (summarized divider, loader, queue) keep their own
+           explicit gaps. -->
+      <div class="mt-auto flex flex-col">
         {#if sessionStore.contextSummarized}
           <!-- Automatic context management: older turns were folded into a running
                summary to fit the model's window. Surfaced so the compaction is
                visible (it's otherwise a hidden system message). -->
-          <div class="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+          <div class="flex items-center gap-2 py-1 mb-2 text-xs text-muted-foreground">
             <span class="h-px flex-1 bg-border"></span>
             <span class="shrink-0">Earlier conversation summarized to fit context</span>
             <span class="h-px flex-1 bg-border"></span>
           </div>
         {/if}
         {#if sessionStore.loadingOlder}
-          <div class="flex justify-center py-1 text-xs text-muted-foreground">
+          <div class="flex justify-center py-1 mb-2 text-xs text-muted-foreground">
             loading older…
           </div>
         {/if}
-        {#each sessionStore.convo as entry (entry.id)}
-          <Message {entry} isLast={entry.id === lastId} />
-          {#if entry.stopped}
-            <div class="flex items-center gap-1.5 -mt-2 text-xs text-muted-foreground">
-              <Square class="size-3 fill-current" />
-              <span>Stopped</span>
-            </div>
-          {/if}
+        {#each sessionStore.convo as entry, i (entry.id)}
+          <!-- Grouped rhythm: a user turn after any prior turn opens a new exchange
+               (mt-6); an assistant turn hugs its question (mt-2). The first row gets
+               no top margin (it sits against the bottom-anchored top). -->
+          <div
+            class={i === 0
+              ? ""
+              : entry.role === "user"
+                ? "mt-6"
+                : "mt-2"}
+          >
+            <Message {entry} isLast={entry.id === lastId} />
+            {#if entry.stopped}
+              <div class="flex items-center gap-1.5 mt-1.5 text-xs text-muted-foreground">
+                <Square class="size-3 fill-current" />
+                <span>Stopped</span>
+              </div>
+            {/if}
+          </div>
         {/each}
         <!-- Thread-level "working" cue: a low-key bouncing-dots row at the tail,
              visible for the WHOLE busy turn (before the first token, through
@@ -114,7 +130,7 @@
           {@const hasContent =
             sessionStore.convo.at(-1)?.role === "assistant" &&
             (sessionStore.convo.at(-1)?.segments.length ?? 0) > 0}
-          <div class="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <div class="flex items-center gap-1.5 mt-2 text-sm text-muted-foreground">
             <span class="inline-flex gap-1">
               <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]"></span>
               <span class="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]"></span>
@@ -124,7 +140,7 @@
           </div>
         {/if}
         {#each sessionStore.queue as q, i (i)}
-          <div class="flex justify-end">
+          <div class="flex justify-end mt-2">
             <div
               class="flex max-w-[85%] items-center gap-2 rounded-2xl rounded-br-sm border border-dashed border-border bg-muted/50 px-4 py-2.5 text-sm leading-relaxed text-muted-foreground"
             >

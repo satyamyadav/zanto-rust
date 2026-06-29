@@ -1,6 +1,10 @@
 # Chat bubble restyle + conversation spacing
 
 - **Date:** 2026-06-29
+- **Status:** ✅ Shipped (2026-06-29). Chosen direction: **C — keep fill, refine**
+  (bg-muted, rounded-xl, hairline border, tighter padding, no shadow) +
+  **grouped-exchange spacing** (per-row top margin: mt-6 before a user turn, mt-2
+  before an assistant turn; first row none). `Message.svelte` + `MessageList.svelte`.
 
 ## Summary
 
