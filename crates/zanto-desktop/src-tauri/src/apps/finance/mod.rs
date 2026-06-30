@@ -1014,6 +1014,100 @@ impl FinanceApp {
             .unwrap_or_default()
     }
 
+    // ── W2 agent-friendly wrappers: single-item upserts over the existing typed
+    //    save handlers (which take the full list). They read current state, merge,
+    //    and save — so "budget groceries at 400" works from chat. ──
+
+    fn agent_set_budget(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        let category = args
+            .get("category")
+            .and_then(|v| v.as_str())
+            .ok_or("category is required")?
+            .to_string();
+        let limit = coerce_amount(args.get("limit")).abs();
+        let current = self.get_budgets(data)?;
+        let mut budgets: Vec<Value> = current
+            .get("budgets")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|b| b.get("category").and_then(|c| c.as_str()) != Some(category.as_str()))
+            .collect();
+        budgets.push(json!({ "category": category, "limit": limit }));
+        self.do_save_budgets(data, json!({ "budgets": budgets }))
+    }
+
+    fn agent_add_account(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        let name = args
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or("name is required")?
+            .to_string();
+        let typ = args.get("type").and_then(|v| v.as_str()).unwrap_or("cash");
+        let opening = coerce_amount(args.get("opening_balance"));
+        let current = self.get_accounts(data)?;
+        let mut accounts: Vec<Value> = current
+            .get("accounts")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|a| a.get("name").and_then(|n| n.as_str()) != Some(name.as_str()))
+            .collect();
+        accounts.push(json!({ "name": name, "type": typ, "opening_balance": opening }));
+        self.do_save_accounts(data, json!({ "accounts": accounts }))
+    }
+
+    fn agent_set_goal(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        let name = args
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or("name is required")?
+            .to_string();
+        let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("savings");
+        let account = args.get("account").and_then(|v| v.as_str()).unwrap_or("");
+        let target = coerce_amount(args.get("target")).abs();
+        let target_date = args.get("target_date").and_then(|v| v.as_str()).unwrap_or("");
+        let current = self.get_goals(data)?;
+        let mut goals: Vec<Value> = current
+            .get("goals")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|g| g.get("name").and_then(|n| n.as_str()) != Some(name.as_str()))
+            .collect();
+        goals.push(json!({
+            "name": name, "kind": kind, "account": account,
+            "target": target, "target_date": target_date
+        }));
+        self.do_save_goals(data, json!({ "goals": goals }))
+    }
+
+    fn agent_categorize(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        let ids: Vec<i64> = args
+            .get("ids")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
+            .unwrap_or_default();
+        let category = args
+            .get("category")
+            .and_then(|v| v.as_str())
+            .ok_or("category is required")?
+            .to_string();
+        let mut updated = 0u64;
+        for id in ids {
+            if self
+                .do_update_transaction(data, json!({ "id": id, "category": category }))
+                .is_ok()
+            {
+                updated += 1;
+            }
+        }
+        Ok(json!({ "updated": updated, "category": category }))
+    }
+
     /// Persist per-category budgets (replace-set). Keeps only entries with a
     /// non-empty `category` and a positive `limit` (coerced from number/string).
     fn do_save_budgets(&self, data: &DataStore, args: Value) -> Result<Value, String> {
@@ -1526,19 +1620,24 @@ impl App for FinanceApp {
     }
 
     fn skill(&self) -> String {
-        "You manage the user's personal finances. Transactions live in the `transactions` \
-         store (fields: date, amount, merchant, category). To record a transaction call \
-         add_transaction. To list transactions call query_transactions. For spending totals \
-         call monthly_summary — never compute totals yourself. When the user asks to open, \
-         show in a panel, or view a dashboard, pass target=\"canvas\"; otherwise omit it \
-         (defaults to inline).\n\n\
-         Inbuilt multi-step workflows — when the user asks for one of these, run the whole \
-         tool sequence in a single turn (do not stop after the first tool):\n\
-         - Import & categorize a statement: for each line item, call add_transaction with an \
-         inferred category, then call query_transactions and monthly_summary for the affected \
-         month so the user can review the result.\n\
-         - Monthly review: call monthly_summary for the target month, then query_transactions \
-         for that month, and finish with a short written takeaway."
+        "You manage the user's personal finances and can DO things, not just describe them. \
+         Record a transaction with add_transaction; list with query_transactions; spending \
+         totals with monthly_summary — never compute totals yourself. You can also run the \
+         app on the user's behalf: set_budget (a category's monthly limit), add_account, \
+         set_goal (savings/debt), add_category_rule (teach 'merchant contains X → category Y' \
+         so future entries auto-categorize), categorize_transactions (bulk-fix categories by \
+         id after query_transactions), and add_transfer. When the user asks to set a budget, \
+         add an account, create a goal, or fix categories, CALL THE TOOL — don't just explain \
+         how. Categories must be ones that exist; if unsure, infer the closest existing one. \
+         When the user asks to open/show a panel or dashboard, pass target=\"canvas\"; \
+         otherwise omit it (defaults to inline).\n\n\
+         Inbuilt multi-step workflows — run the whole sequence in one turn (don't stop after \
+         the first tool):\n\
+         - Import & categorize a statement: for each line item call add_transaction with an \
+         inferred category, then query_transactions and monthly_summary for the month so the \
+         user can review; offer to add_category_rule for any merchant you had to guess.\n\
+         - Monthly review: monthly_summary for the month, then query_transactions for it, and \
+         finish with a short written takeaway."
             .to_string()
     }
 
@@ -1614,6 +1713,61 @@ impl App for FinanceApp {
                     },
                     "required": ["amount", "from_account", "to_account"]
                 })),
+            // ── W2: the agent can now DO what the UI tabs do (not just talk). ──
+            GenaiTool::new("set_budget")
+                .with_description("Set or update the monthly spending limit for ONE category (e.g. 'budget groceries at 400'). Upserts — replaces an existing limit for that category.")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "category": { "type": "string", "description": "An existing expense category" },
+                        "limit": { "type": "number", "description": "Monthly limit, a positive number" }
+                    },
+                    "required": ["category", "limit"]
+                })),
+            GenaiTool::new("add_account")
+                .with_description("Add one of the user's accounts (checking/savings/card/cash) with an optional opening balance.")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "type": { "type": "string", "enum": ["checking", "savings", "card", "cash"], "description": "Defaults to cash" },
+                        "opening_balance": { "type": "number", "description": "Current/opening balance; defaults to 0" }
+                    },
+                    "required": ["name"]
+                })),
+            GenaiTool::new("set_goal")
+                .with_description("Create or update a savings or debt-payoff goal funded by one account.")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "kind": { "type": "string", "enum": ["savings", "debt"], "description": "Defaults to savings" },
+                        "account": { "type": "string", "description": "Which account funds/tracks the goal" },
+                        "target": { "type": "number", "description": "Target amount" },
+                        "target_date": { "type": "string", "description": "YYYY-MM-DD (optional)" }
+                    },
+                    "required": ["name", "target"]
+                })),
+            GenaiTool::new("add_category_rule")
+                .with_description("Teach the app to always categorize transactions whose merchant contains a phrase (e.g. 'STARBUCKS' → dining). Future imports/entries auto-apply it.")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "merchant_contains": { "type": "string", "description": "Case-insensitive substring of the merchant" },
+                        "category": { "type": "string", "description": "An existing category to assign" }
+                    },
+                    "required": ["merchant_contains", "category"]
+                })),
+            GenaiTool::new("categorize_transactions")
+                .with_description("Set the category on one or more transactions by id (bulk recategorize). Use after query_transactions to fix categories.")
+                .with_schema(json!({
+                    "type": "object",
+                    "properties": {
+                        "ids": { "type": "array", "items": { "type": "integer" }, "description": "Transaction ids to update" },
+                        "category": { "type": "string", "description": "The category to assign to all of them" }
+                    },
+                    "required": ["ids", "category"]
+                })),
         ]
     }
 
@@ -1653,6 +1807,16 @@ impl App for FinanceApp {
                 Some(self.do_delete_transaction(data, args).map(AppResult::Data))
             }
             "add_transfer" => Some(self.do_add_transfer(data, args).map(AppResult::Data)),
+            // W2 — the agent runs the app:
+            "set_budget" => Some(self.agent_set_budget(data, args).map(AppResult::Data)),
+            "add_account" => Some(self.agent_add_account(data, args).map(AppResult::Data)),
+            "set_goal" => Some(self.agent_set_goal(data, args).map(AppResult::Data)),
+            "add_category_rule" => {
+                Some(self.do_save_category_rule(data, args).map(AppResult::Data))
+            }
+            "categorize_transactions" => {
+                Some(self.agent_categorize(data, args).map(AppResult::Data))
+            }
             _ => None,
         }
     }

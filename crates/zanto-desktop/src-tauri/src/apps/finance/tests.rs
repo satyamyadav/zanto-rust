@@ -401,6 +401,54 @@ fn add_transfer_neutral_to_balance_moves_between_accounts() {
     assert_eq!(ov["net_worth"], 1000.0); // transfer nets to zero
 }
 
+// ---- W2: agent tools run the app (via dispatch_tool, the tool-call path) ----
+
+#[test]
+fn agent_tools_set_budget_account_goal_and_categorize() {
+    let (app, ds, _dir) = app_and_store();
+    let m = today_month();
+
+    // add_account via the agent tool → persists + shows up in accounts.
+    app.dispatch_tool(&ds, "add_account", json!({ "name": "Savings", "type": "savings", "opening_balance": 500 }))
+        .unwrap()
+        .unwrap();
+    let accts = app.query(&ds, "accounts", json!({})).unwrap();
+    let names: Vec<&str> = accts["accounts"].as_array().unwrap().iter()
+        .map(|a| a["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"Savings"), "add_account tool should persist the account");
+
+    // set_budget via the agent tool → upserts one category's limit.
+    app.dispatch_tool(&ds, "set_budget", json!({ "category": "groceries", "limit": 400 }))
+        .unwrap().unwrap();
+    app.dispatch_tool(&ds, "set_budget", json!({ "category": "groceries", "limit": 450 }))
+        .unwrap().unwrap(); // re-set replaces, not duplicates
+    let budgets = app.query(&ds, "budgets", json!({})).unwrap();
+    let groc: Vec<&Value> = budgets["budgets"].as_array().unwrap().iter()
+        .filter(|b| b["category"] == "groceries").collect();
+    assert_eq!(groc.len(), 1, "set_budget should upsert, not duplicate");
+    assert_eq!(groc[0]["limit"], 450.0);
+
+    // set_goal via the agent tool.
+    app.dispatch_tool(&ds, "set_goal", json!({ "name": "Rainy day", "kind": "savings", "account": "Savings", "target": 5000 }))
+        .unwrap().unwrap();
+    let goals = app.query(&ds, "goals", json!({})).unwrap();
+    assert!(goals["goals"].as_array().unwrap().iter().any(|g| g["name"] == "Rainy day"));
+
+    // categorize_transactions: add an uncategorized txn (on a NEW account via the
+    // agent tool — don't replace-set accounts, which would FK-block deleting the
+    // goal-referenced "Savings"), then bulk-categorize it by id.
+    app.dispatch_tool(&ds, "add_account", json!({ "name": "Checking", "type": "checking", "opening_balance": 0 }))
+        .unwrap().unwrap();
+    let added = app.dispatch_tool(&ds, "add_transaction", json!({ "amount": 43, "merchant": "MYSTERY LLC", "account": "Checking", "date": format!("{m}-10") }))
+        .unwrap().unwrap();
+    let id = match added { AppResult::Data(v) => v["id"].as_i64(), _ => None }.unwrap();
+    app.dispatch_tool(&ds, "categorize_transactions", json!({ "ids": [id], "category": "groceries" }))
+        .unwrap().unwrap();
+    let list = app.query(&ds, "list_transactions", json!({})).unwrap();
+    let row = list["rows"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap();
+    assert_eq!(row["category"], "groceries", "categorize_transactions should set the category");
+}
+
 /// Current month as `YYYY-MM` (matches the app's `today()`), for month-scoped tests.
 fn today_month() -> String {
     today()[..7].to_string()
