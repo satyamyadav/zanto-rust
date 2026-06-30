@@ -29,7 +29,7 @@
     current: number;
     target_date?: string;
   };
-  type Subscription = { merchant: string; amount: number; cadence: string };
+  type Subscription = { merchant: string; amount: number; cadence?: string };
   type Overview = {
     currency?: string;
     month?: string;
@@ -440,7 +440,7 @@
                 <span>{s.merchant}</span>
                 <span class="text-muted-foreground">
                   <span class="font-mono tabular-nums">{money(s.amount)}</span>
-                  <span class="text-xs">/ {s.cadence}</span>
+                  <span class="text-xs">/ {s.cadence ?? "month"}</span>
                 </span>
               </li>
             {/each}

@@ -189,6 +189,39 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
   },
   query_app: async (a: { id: string; query: string; args: any }): Promise<any> =>
     a?.id === "finance" ? financeQuery(a.query, a.args) : ({ income: 2000, spent: 12.5, net: 1987.5, by_category: { dining: 12.5 } }),
+  // Real-flow finance import, mocked: parse returns a fixed sample statement;
+  // import runs the rows through the mock add_transaction so the dashboard updates.
+  finance_parse_statement: async (_a: { path: string }): Promise<any> => ({
+    columns: ["Date", "Description", "Amount"],
+    headers: ["Date", "Description", "Amount"],
+    preview: [
+      ["2026-06-21", "WHOLE FOODS MARKET #882", "-64.12"],
+      ["2026-06-22", "UBER TRIP HELP.UBER.COM", "-19.50"],
+      ["2026-06-23", "STARBUCKS STORE 119", "-7.40"],
+      ["2026-06-24", "SHELL OIL 23981", "-48.00"],
+      ["2026-06-25", "SALARY ACME CORP", "3200.00"],
+    ],
+    row_count: 5, total_rows: 5, truncated: false, malformed: 0,
+    suggested_mapping: { date: "Date", merchant: "Description", amount: "Amount" },
+  }),
+  finance_import_statement: async (a: { path: string; mapping: any; account: string }): Promise<any> => {
+    const rows: [string, string, number][] = [
+      ["2026-06-21", "WHOLE FOODS MARKET #882", -64.12],
+      ["2026-06-22", "UBER TRIP HELP.UBER.COM", -19.5],
+      ["2026-06-23", "STARBUCKS STORE 119", -7.4],
+      ["2026-06-24", "SHELL OIL 23981", -48.0],
+      ["2026-06-25", "SALARY ACME CORP", 3200.0],
+    ];
+    let inserted = 0;
+    for (const [date, merchant, amount] of rows) {
+      await financeAction("add_transaction", {
+        merchant, amount: Math.abs(amount), type: amount >= 0 ? "income" : "expense",
+        date, account: a.account, source: "import",
+      });
+      inserted++;
+    }
+    return { inserted, skipped: 0, errors: [], total_rows: rows.length, truncated: false, malformed: 0 };
+  },
   run_app_action: async (a: { id: string; action: string; args: any }): Promise<any> =>
     a?.id === "finance" ? financeAction(a.action, a.args) : ({}),
   // Minimal seed so the @-tag autocomplete (C-8) has entries to display.
