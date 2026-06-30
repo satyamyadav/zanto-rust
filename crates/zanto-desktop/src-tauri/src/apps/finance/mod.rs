@@ -102,11 +102,13 @@ impl FinanceApp {
                 // F6 — canned multi-step workflows. Each prompt asks the agent to run a
                 // sequence of finance tools (≥2 tool calls), so the C6 workflow view groups them.
                 StartAction {
-                    label: "Import & categorize a statement".into(),
-                    prompt: "Import a bank statement: for each line item I give you, record it with \
-                             add_transaction (inferring a sensible category), then call \
-                             query_transactions to show the imported rows and monthly_summary for the \
-                             affected month so I can review the categorization.".into(),
+                    label: "Auto-categorize my transactions".into(),
+                    prompt: "Categorize my uncategorized transactions: call query_transactions \
+                             with category=\"uncategorized\" to list them, infer the best fit for \
+                             each from its merchant (using ONLY my existing categories), then call \
+                             categorize_transactions to apply them in bulk. For any merchant you're \
+                             confident about, also call add_category_rule so future imports \
+                             auto-apply it. Finish with a one-line summary of what you changed.".into(),
                 },
                 StartAction {
                     label: "Monthly review".into(),

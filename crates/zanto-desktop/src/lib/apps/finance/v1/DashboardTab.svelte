@@ -18,6 +18,7 @@
   import Repeat from "@lucide/svelte/icons/repeat";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
 
   type Category = { category: string; total: number; trend?: number[] };
   type BudgetStatus = { category: string; limit: number; spent: number };
@@ -184,20 +185,28 @@
       </div>
     </div>
 
-    <!-- Uncategorized nudge -->
+    <!-- Uncategorized nudge: review manually, or let the AI auto-categorize. -->
     {#if (overview.uncategorized_count ?? 0) > 0}
-      <button
-        type="button"
-        class="flex w-full items-center gap-2 rounded-md bg-accent px-3 py-2 text-left text-sm text-accent-foreground outline-none transition-colors hover:bg-accent/80 focus-visible:ring-2 focus-visible:ring-ring"
-        onclick={() => onReviewUncategorized?.()}
-      >
+      <div class="flex w-full items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm text-accent-foreground">
         <AlertCircle class="size-4 shrink-0" />
-        <span class="min-w-0 flex-1">
+        <button
+          type="button"
+          class="min-w-0 flex-1 text-left outline-none hover:underline focus-visible:underline"
+          onclick={() => onReviewUncategorized?.()}
+        >
           {overview.uncategorized_count} transaction{(overview.uncategorized_count ?? 0) === 1
             ? " needs"
             : "s need"} a category — review
-        </span>
-      </button>
+        </button>
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-7 shrink-0 gap-1 bg-background/60 px-2 text-xs"
+          onclick={() => send("Categorize my uncategorized transactions: list them with query_transactions (category=uncategorized), infer each from its merchant using only my existing categories, apply with categorize_transactions, and add a category rule for any merchant you're confident about.")}
+        >
+          <Sparkles class="size-3.5" /> Auto-categorize
+        </Button>
+      </div>
     {/if}
 
     <!-- KPI cards. Color carries MEANING, not decoration: green = money in / a
