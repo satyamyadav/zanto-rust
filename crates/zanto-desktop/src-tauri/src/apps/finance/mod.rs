@@ -1,6 +1,12 @@
 //! Personal Finance — the first micro-app. Full-stack: this Rust backend (stores,
 //! deterministic flows, agent tools, component decls) + a Svelte frontend slice.
 //! Aggregation is deterministic Rust (never the LLM).
+//!
+//! Storage (W5): typed SQLite `fin_*` tables (see `schema.rs`), not the schemaless
+//! JSON `DataStore`. Handlers read/write typed rows but RECONSTRUCT each
+//! transaction as a legacy-shaped `Record` before feeding the unchanged aggregate
+//! functions in `aggregate.rs`, so the business logic and JSON output shapes are
+//! byte-identical to the JSON-store era.
 
 use crate::app::{App, AppManifest, ComponentDecl, StartAction};
 use serde_json::{json, Value};
@@ -8,7 +14,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use zanto_core::chat::{AppResult, GenaiTool, Target};
-use zanto_core::data::{DataStore, Filter, FilterOp, Query};
+use zanto_core::data::{DataStore, Record};
+use zanto_core::rusqlite::{self, params, Connection, OptionalExtension};
 use zanto_core::session::{format_ts_display, unix_now_pub};
 
 mod aggregate;
@@ -16,15 +23,12 @@ mod import;
 mod schema;
 use aggregate::*;
 pub(crate) use import::suggest_mapping;
-use import::{coerce_amount, import_hash, import_row_to_args, migrate_legacy_transactions};
+use import::{coerce_amount, import_hash, import_row_to_args};
 
-const STORE: &str = "transactions";
-const PROFILE_STORE: &str = "finance_profile";
+/// Dashboard widget layout — the one remaining JSON store. Widgets are pure UI
+/// layout (no integrity to enforce, no `fin_*` table), so they stay in the
+/// schemaless `DataStore` rather than typed SQLite.
 const WIDGETS_STORE: &str = "finance_widgets";
-const RULES_STORE: &str = "finance_category_rules";
-const BUDGETS_STORE: &str = "finance_budgets";
-const ACCOUNTS_STORE: &str = "finance_accounts";
-const GOALS_STORE: &str = "finance_goals";
 
 /// Account a transaction belongs to when none is given (also the seeded account).
 const DEFAULT_ACCOUNT: &str = "Cash";
@@ -56,7 +60,7 @@ const DEFAULT_CATEGORIES: &[&str] = &[
 
 pub struct FinanceApp {
     manifest: AppManifest,
-    /// Set once the legacy backfill has run this process (see `ensure_store`).
+    /// Set once the typed schema has been ensured this process (see `ensure_store`).
     migrated: AtomicBool,
 }
 
@@ -67,15 +71,9 @@ impl FinanceApp {
             id: "finance".to_string(),
             name: "Personal Finance".to_string(),
             description: "Track expenses and view spending summaries.".to_string(),
-            stores: vec![
-                STORE.to_string(),
-                PROFILE_STORE.to_string(),
-                WIDGETS_STORE.to_string(),
-                RULES_STORE.to_string(),
-                BUDGETS_STORE.to_string(),
-                ACCOUNTS_STORE.to_string(),
-                GOALS_STORE.to_string(),
-            ],
+            // Finance data lives in typed `fin_*` SQLite tables (see schema.rs); the
+            // only JSON `DataStore` store left is the dashboard widget layout.
+            stores: vec![WIDGETS_STORE.to_string()],
             components: vec![
                 ComponentDecl {
                     id: "transactions_table".to_string(),
@@ -125,15 +123,21 @@ impl FinanceApp {
         })
     }
 
+    /// Ensure the typed `fin_*` schema exists + default categories are seeded for
+    /// this workspace. The per-process `migrated` flag short-circuits the (idempotent)
+    /// DDL after the first finance access; the seed itself is idempotent too.
     fn ensure_store(&self, data: &DataStore) -> Result<(), String> {
-        data.create_store(STORE).map_err(|e| e.to_string())?;
-        // One-time legacy backfill (B2-3): stamp explicit type/account on rows that
-        // predate the money model / accounts, so aggregation stops relying on lossy
-        // read-time defaults. Runs once per process; idempotent if it runs again.
-        if !self.migrated.load(Ordering::Acquire) {
-            migrate_legacy_transactions(data)?;
-            self.migrated.store(true, Ordering::Release);
+        if self.migrated.load(Ordering::Acquire) {
+            return Ok(());
         }
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            schema::ensure_schema(c)?;
+            schema::seed_default_categories(c, &ws)?;
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+        self.migrated.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -150,8 +154,8 @@ impl FinanceApp {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        // Enforce categories: keep a requested category only if it's in the
-        // profile; else try merchant rules; else "uncategorized" (review queue).
+        // Enforce categories: keep a requested category only if it's known; else try
+        // merchant rules; else "uncategorized" (review queue).
         let category = self.resolve_category(
             data,
             &merchant,
@@ -183,27 +187,58 @@ impl FinanceApp {
         // merchant; if one already exists, skip (re-running an import is a no-op).
         let import_h =
             (source == "import").then(|| import_hash(&date, amount, &merchant, &account));
-        if let Some(h) = &import_h {
-            let mut q = Query::default();
-            q.filters.push(Filter {
-                field: "import_hash".into(),
-                op: FilterOp::Eq,
-                value: json!(h),
-            });
-            if !data.query(STORE, &q).map_err(|e| e.to_string())?.is_empty() {
-                return Ok(json!({ "status": "duplicate_skipped", "import_hash": h }));
-            }
-        }
 
-        let mut record = json!({
-            "type": kind, "date": date, "amount": amount, "merchant": merchant,
-            "category": category, "note": note, "source": source, "account": account,
-        });
-        if let Some(h) = import_h {
-            record["import_hash"] = json!(h);
-        }
-        let id = data.insert(STORE, &record).map_err(|e| e.to_string())?;
-        Ok(json!({ "status": "added", "id": id, "record": record }))
+        let ws = data.workspace().to_string();
+        let result = data
+            .with_conn(|c| {
+                if let Some(h) = &import_h {
+                    let exists: bool = c
+                        .query_row(
+                            "SELECT 1 FROM fin_transactions WHERE workspace = ?1 AND import_hash = ?2 LIMIT 1",
+                            params![ws, h],
+                            |_| Ok(()),
+                        )
+                        .optional()?
+                        .is_some();
+                    if exists {
+                        return Ok(json!({ "status": "duplicate_skipped", "import_hash": h }));
+                    }
+                }
+                let account_id = ensure_account_id(c, &ws, &account)?;
+                let category_id = category_id_for(c, &ws, &category)?;
+                let now = unix_now_pub() as i64;
+                c.execute(
+                    "INSERT INTO fin_transactions
+                       (workspace, account_id, category_id, amount, transaction_type,
+                        merchant, notes, transaction_date, source, import_hash, created_at)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                    params![
+                        ws,
+                        account_id,
+                        category_id,
+                        amount,
+                        kind,
+                        merchant,
+                        note,
+                        date,
+                        source,
+                        import_h,
+                        now
+                    ],
+                )?;
+                let id = c.last_insert_rowid();
+                // Reconstruct the SAME JSON record the JSON store returned.
+                let mut record = json!({
+                    "type": kind, "date": date, "amount": amount, "merchant": merchant,
+                    "category": category, "note": note, "source": source, "account": account,
+                });
+                if let Some(h) = &import_h {
+                    record["import_hash"] = json!(h);
+                }
+                Ok(json!({ "status": "added", "id": id, "record": record }))
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(result)
     }
 
     /// Edit a transaction by id. Only the provided fields are changed; amount is
@@ -214,11 +249,15 @@ impl FinanceApp {
             .get("id")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| "update_transaction requires an integer `id`".to_string())?;
-        let mut rec = data
-            .get(STORE, id)
+
+        // Load the current record (legacy shape) so we apply the SAME field-merge +
+        // category re-resolution the JSON path did.
+        let ws = data.workspace().to_string();
+        let existing = data
+            .with_conn(|c| load_one_txn_record(c, &ws, id))
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("no transaction with id {id}"))?
-            .data;
+            .ok_or_else(|| format!("no transaction with id {id}"))?;
+        let mut rec = existing.data;
         {
             let obj = rec
                 .as_object_mut()
@@ -253,7 +292,24 @@ impl FinanceApp {
             let resolved = self.resolve_category(data, &merchant, requested.as_deref());
             rec["category"] = json!(resolved);
         }
-        data.update(STORE, id, &rec).map_err(|e| e.to_string())?;
+
+        // Write the merged fields back to the typed row.
+        let kind = txn_kind_str(rec.get("type"));
+        let amount = coerce_amount(rec.get("amount")).abs();
+        let merchant = rec.get("merchant").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let note = rec.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let date = rec.get("date").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let category = rec.get("category").and_then(|v| v.as_str()).unwrap_or("uncategorized").to_string();
+        data.with_conn(|c| {
+            let category_id = category_id_for(c, &ws, &category)?;
+            c.execute(
+                "UPDATE fin_transactions SET transaction_type=?1, amount=?2, merchant=?3,
+                   notes=?4, transaction_date=?5, category_id=?6 WHERE id=?7 AND workspace=?8",
+                params![kind, amount, merchant, note, date, category_id, id, ws],
+            )?;
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
         Ok(json!({ "status": "updated", "id": id, "record": rec }))
     }
 
@@ -264,26 +320,27 @@ impl FinanceApp {
             .get("id")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| "delete_transaction requires an integer `id`".to_string())?;
-        data.delete(STORE, id).map_err(|e| e.to_string())?;
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            c.execute(
+                "DELETE FROM fin_transactions WHERE id = ?1 AND workspace = ?2",
+                params![id, ws],
+            )?;
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
         Ok(json!({ "status": "deleted", "id": id }))
     }
 
     // ---- category enforcement + rules (v0.2) ----
 
-    /// The profile's category list, or the defaults when none/empty — so category
-    /// enforcement still works before onboarding.
+    /// The known category names (the seeded/typed `fin_categories` for this
+    /// workspace), or the defaults when somehow empty — so category enforcement
+    /// still works before onboarding.
     fn profile_categories(&self, data: &DataStore) -> Vec<String> {
-        let cats: Vec<String> = self
-            .get_profile(data)
-            .ok()
-            .and_then(|p| p.get("categories").cloned())
-            .and_then(|c| {
-                c.as_array().map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().map(str::to_string))
-                        .collect()
-                })
-            })
+        let ws = data.workspace().to_string();
+        let cats = data
+            .with_conn(|c| category_names(c, &ws))
             .unwrap_or_default();
         if cats.is_empty() {
             DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect()
@@ -292,24 +349,32 @@ impl FinanceApp {
         }
     }
 
-    /// All saved merchant→category rules, each carrying its `id`.
+    /// All saved merchant→category rules, each carrying its `id` and the category
+    /// NAME (the resolver works over names).
     fn get_category_rules(&self, data: &DataStore) -> Result<Vec<Value>, String> {
-        data.create_store(RULES_STORE).map_err(|e| e.to_string())?;
-        let rows = data
-            .query(RULES_STORE, &Query::default())
-            .map_err(|e| e.to_string())?;
-        Ok(rows
-            .into_iter()
-            .map(|r| {
-                let mut o = r.data;
-                o["id"] = json!(r.id);
-                o
-            })
-            .collect())
+        self.ensure_store(data)?;
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            let mut stmt = c.prepare(
+                "SELECT r.id, r.merchant_contains, cat.name
+                 FROM fin_category_rules r
+                 JOIN fin_categories cat ON cat.id = r.category_id
+                 WHERE r.workspace = ?1 ORDER BY r.id",
+            )?;
+            let rows = stmt.query_map(params![ws], |r| {
+                Ok(json!({
+                    "id": r.get::<_, i64>(0)?,
+                    "merchant_contains": r.get::<_, String>(1)?,
+                    "category": r.get::<_, String>(2)?,
+                }))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<Value>>>()
+        })
+        .map_err(|e| e.to_string())
     }
 
-    /// Resolve a category: a requested one that's in the profile wins; else a
-    /// matching merchant rule; else "uncategorized".
+    /// Resolve a category: a requested known category wins; else a matching merchant
+    /// rule; else "uncategorized".
     fn resolve_category(
         &self,
         data: &DataStore,
@@ -322,7 +387,7 @@ impl FinanceApp {
     }
 
     fn do_save_category_rule(&self, data: &DataStore, args: Value) -> Result<Value, String> {
-        data.create_store(RULES_STORE).map_err(|e| e.to_string())?;
+        self.ensure_store(data)?;
         let merchant_contains = args
             .get("merchant_contains")
             .and_then(|v| v.as_str())
@@ -338,44 +403,69 @@ impl FinanceApp {
         if merchant_contains.is_empty() || category.is_empty() {
             return Err("a rule needs a non-empty merchant_contains and category".to_string());
         }
-        let record = json!({ "merchant_contains": merchant_contains, "category": category });
+        let ws = data.workspace().to_string();
         let id = data
-            .insert(RULES_STORE, &record)
+            .with_conn(|c| {
+                // A rule needs a real category row (FK). Create it (expense) if new.
+                let category_id = ensure_category_id(c, &ws, &category)?;
+                c.execute(
+                    "INSERT INTO fin_category_rules (workspace, merchant_contains, category_id)
+                     VALUES (?1, ?2, ?3)",
+                    params![ws, merchant_contains, category_id],
+                )?;
+                Ok(c.last_insert_rowid())
+            })
             .map_err(|e| e.to_string())?;
+        let record = json!({ "merchant_contains": merchant_contains, "category": category });
         Ok(json!({ "status": "saved", "id": id, "record": record }))
     }
 
     fn do_delete_category_rule(&self, data: &DataStore, args: Value) -> Result<Value, String> {
+        self.ensure_store(data)?;
         let id = args
             .get("id")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| "delete_category_rule requires an integer `id`".to_string())?;
-        data.delete(RULES_STORE, id).map_err(|e| e.to_string())?;
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            c.execute(
+                "DELETE FROM fin_category_rules WHERE id = ?1 AND workspace = ?2",
+                params![id, ws],
+            )?;
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
         Ok(json!({ "status": "deleted", "id": id }))
     }
 
     fn compute_transactions(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let mut q = Query::default();
-        if let Some(cat) = args.get("category").and_then(|v| v.as_str()) {
-            q.filters.push(Filter {
-                field: "category".into(),
-                op: FilterOp::Eq,
-                value: json!(cat),
-            });
-        }
-        if let Some(month) = args.get("month").and_then(|v| v.as_str()) {
-            q.filters.push(Filter {
-                field: "date".into(),
-                op: FilterOp::Contains,
-                value: json!(month),
-            });
-        }
+        let cat_filter = args.get("category").and_then(|v| v.as_str()).map(str::to_string);
+        let month_filter = args.get("month").and_then(|v| v.as_str()).map(str::to_string);
+        let all = self.load_txn_records(data)?;
         // Include each row's `id` so the UI can edit/delete a specific transaction.
-        let rows: Vec<Value> = data
-            .query(STORE, &q)
-            .map_err(|e| e.to_string())?
+        // Filter in Rust over the legacy-shaped records to match the JSON-store
+        // semantics exactly (category Eq; month substring-of-date).
+        let rows: Vec<Value> = all
             .into_iter()
+            .filter(|r| {
+                cat_filter
+                    .as_deref()
+                    .map(|c| r.data.get("category").and_then(|v| v.as_str()) == Some(c))
+                    .unwrap_or(true)
+            })
+            .filter(|r| {
+                month_filter
+                    .as_deref()
+                    .map(|m| {
+                        r.data
+                            .get("date")
+                            .and_then(|v| v.as_str())
+                            .map(|d| d.contains(m))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(true)
+            })
             .map(|r| {
                 let mut o = r.data;
                 o["id"] = json!(r.id);
@@ -393,9 +483,7 @@ impl FinanceApp {
             .map(|s| s.to_string())
             .unwrap_or_else(|| today()[..7].to_string()); // YYYY-MM
 
-        let all = data
-            .query(STORE, &Query::default())
-            .map_err(|e| e.to_string())?;
+        let all = self.load_txn_records(data)?;
         let mut income = 0.0_f64;
         let mut total = 0.0_f64; // expenses
         let mut by_cat: HashMap<String, f64> = HashMap::new();
@@ -427,9 +515,7 @@ impl FinanceApp {
     /// transactions exist. All aggregation is deterministic Rust.
     fn compute_overview(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data
-            .query(STORE, &Query::default())
-            .map_err(|e| e.to_string())?;
+        let all = self.load_txn_records(data)?;
         if all.is_empty() {
             return Ok(json!({ "empty": true }));
         }
@@ -550,35 +636,57 @@ impl FinanceApp {
         }))
     }
 
+    // ---- transaction loading (typed → legacy `Record` shape) ----
+
+    /// Load every transaction (and transfer) for this workspace, reconstructing the
+    /// EXACT legacy JSON `Record` shape the aggregate functions consume:
+    /// `{ type, amount, category, date, merchant, account, source, import_hash, .. }`.
+    /// Transfers are emitted as `type:"transfer"` rows carrying `account` (from) and
+    /// `to_account` (to), matching what `compute_account_balances` reads. category_id
+    /// NULL → "uncategorized".
+    fn load_txn_records(&self, data: &DataStore) -> Result<Vec<Record>, String> {
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| load_txn_records_conn(c, &ws))
+            .map_err(|e| e.to_string())
+    }
+
     // ---- onboarding / profile (F2) ----
 
-    fn ensure_profile_store(&self, data: &DataStore) -> Result<(), String> {
-        data.create_store(PROFILE_STORE).map_err(|e| e.to_string())
-    }
-
     /// The saved onboarding profile, or `{ "setup": false }` when none exists.
-    /// Picks the row with the greatest `saved_at` (last write wins) rather than
-    /// relying on the store's scan order, which is not contractually defined.
+    /// Reconstructs the SAME shape the JSON store returned (setup/currency/
+    /// monthly_income/categories), reading the typed `fin_profile` + `fin_categories`.
     fn get_profile(&self, data: &DataStore) -> Result<Value, String> {
-        self.ensure_profile_store(data)?;
-        let rows = data
-            .query(PROFILE_STORE, &Query::default())
-            .map_err(|e| e.to_string())?;
-        let latest = rows
-            .into_iter()
-            .max_by_key(|r| r.data.get("saved_at").and_then(|v| v.as_u64()).unwrap_or(0));
-        match latest {
-            Some(r) => Ok(r.data),
-            None => Ok(json!({ "setup": false })),
-        }
+        self.ensure_store(data)?;
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            let row: Option<(String, Option<f64>, i64)> = c
+                .query_row(
+                    "SELECT currency, monthly_income, setup FROM fin_profile WHERE workspace = ?1",
+                    params![ws],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .optional()?;
+            match row {
+                None => Ok(json!({ "setup": false })),
+                Some((currency, monthly_income, setup)) => {
+                    let categories = category_names(c, &ws)?;
+                    Ok(json!({
+                        "setup": setup != 0,
+                        "currency": currency,
+                        "monthly_income": monthly_income,
+                        "categories": categories,
+                    }))
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
     }
 
-    /// Persist the onboarding profile. Idempotent at the read layer: each save stamps
-    /// a `saved_at`, and `get_profile` returns the row with the greatest `saved_at`, so
-    /// a re-run effectively overwrites the active profile (the DataStore API is
-    /// insert-only — no in-place update). Categories default when omitted.
+    /// Persist the onboarding profile into `fin_profile` (one row per workspace) and
+    /// ensure each supplied category exists in `fin_categories`. Returns the SAME
+    /// profile JSON shape as before. Categories default when omitted.
     fn do_save_profile(&self, data: &DataStore, args: Value) -> Result<Value, String> {
-        self.ensure_profile_store(data)?;
+        self.ensure_store(data)?;
 
         let currency = args
             .get("currency")
@@ -606,20 +714,36 @@ impl FinanceApp {
             None => DEFAULT_CATEGORIES.iter().map(|s| s.to_string()).collect(),
         };
 
-        let profile = json!({
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            for name in &categories {
+                ensure_category_id(c, &ws, name)?;
+            }
+            c.execute(
+                "INSERT INTO fin_profile (workspace, currency, monthly_income, setup)
+                 VALUES (?1, ?2, ?3, 1)
+                 ON CONFLICT(workspace) DO UPDATE SET
+                   currency = excluded.currency,
+                   monthly_income = excluded.monthly_income,
+                   setup = 1",
+                params![ws, currency, monthly_income],
+            )?;
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+
+        Ok(json!({
             "setup": true,
             "currency": currency,
             "monthly_income": monthly_income,
             "categories": categories,
             "saved_at": unix_now_pub(),
-        });
-
-        data.insert(PROFILE_STORE, &profile)
-            .map_err(|e| e.to_string())?;
-        Ok(profile)
+        }))
     }
 
     // ---- dashboard widgets (F4) ----
+    // Widgets remain in the JSON store: they're pure UI layout (no integrity to
+    // enforce) and out of W5's typed-storage scope.
 
     fn ensure_widgets_store(&self, data: &DataStore) -> Result<(), String> {
         data.create_store(WIDGETS_STORE).map_err(|e| e.to_string())
@@ -629,8 +753,6 @@ impl FinanceApp {
     /// `saved_at` (last write wins). Returns `{ widgets: [...] }`. When none has
     /// been saved, returns a sensible default layout mirroring the fixed F1
     /// dashboard (balance + this-month KPIs, the 6-month chart, top categories).
-    /// A widget def = `{ kind, title, source }` where `source` selects part of
-    /// the `overview` data.
     fn get_widgets(&self, data: &DataStore) -> Result<Value, String> {
         match latest_singleton(data, WIDGETS_STORE, "widgets") {
             Some(widgets) => Ok(json!({ "widgets": widgets })),
@@ -638,10 +760,8 @@ impl FinanceApp {
         }
     }
 
-    /// Persist the dashboard widget list. Insert-only like the profile: each save
-    /// stamps a `saved_at`, and `get_widgets` returns the row with the greatest
-    /// `saved_at`, so a re-save overwrites the active layout. Only the recognized
-    /// fields (`kind`, `title`, `source`) of each widget are kept.
+    /// Persist the dashboard widget list. Only the recognized fields (`kind`,
+    /// `title`, `source`) of each widget are kept.
     fn do_save_widgets(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_widgets_store(data)?;
 
@@ -665,8 +785,8 @@ impl FinanceApp {
     }
 
     /// Batch-import statement rows (already parsed + permission-checked in IPC).
-    /// args: `{ headers: [..], rows: [[..]], mapping, account }`. Reuses
-    /// `do_add_transaction` so category resolution + import dedupe both apply.
+    /// args: `{ headers: [..], rows: [[..]], mapping, account }`. Same parse/map/
+    /// dedup/category-resolution as the JSON era; rows are inserted typed.
     fn do_import_transactions(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_store(data)?;
         let headers: Vec<String> = args
@@ -690,25 +810,21 @@ impl FinanceApp {
             .unwrap_or(DEFAULT_ACCOUNT)
             .to_string();
 
-        // Resolve category-enforcement inputs ONCE (not per row) and collect the
-        // existing import hashes in a single query — the per-row do_add_transaction
-        // path previously did 1000+ lock cycles (review M3).
+        // Resolve category-enforcement inputs ONCE (not per row).
         let cats = self.profile_categories(data);
         let rules = self.get_category_rules(data).unwrap_or_default();
-        let mut seen: std::collections::HashSet<String> = data
-            .query(STORE, &Query::default())
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .filter_map(|r| {
-                r.data
-                    .get("import_hash")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string)
-            })
-            .collect();
 
-        let mut to_insert: Vec<Value> = Vec::new();
-        let mut skipped = 0u64;
+        // Parsed rows ready to insert, plus their resolved category names.
+        struct Pending {
+            kind: &'static str,
+            amount: f64,
+            merchant: String,
+            category: String,
+            date: String,
+            hash: String,
+        }
+
+        let mut pending: Vec<Pending> = Vec::new();
         let mut errors = Vec::new();
         for (i, row_v) in rows.iter().enumerate() {
             let row: Vec<String> = row_v
@@ -726,7 +842,6 @@ impl FinanceApp {
                     continue;
                 }
             };
-            // Same record shape + category enforcement as do_add_transaction.
             let kind = txn_kind_str(targs.get("type"));
             let amount = coerce_amount(targs.get("amount")).abs();
             let merchant = targs
@@ -746,26 +861,66 @@ impl FinanceApp {
                 .map(str::to_string)
                 .unwrap_or_else(today);
             let hash = import_hash(&date, amount, &merchant, &account);
-            // Dedupe against existing rows AND earlier rows in this same batch.
-            if !seen.insert(hash.clone()) {
-                skipped += 1;
-                continue;
-            }
-            to_insert.push(json!({
-                "type": kind, "date": date, "amount": amount, "merchant": merchant,
-                "category": category, "note": "", "source": "import", "account": account,
-                "import_hash": hash,
-            }));
+            pending.push(Pending {
+                kind,
+                amount,
+                merchant,
+                category,
+                date,
+                hash,
+            });
         }
 
-        // One transaction for the whole batch: all-or-nothing (B3-4).
-        let inserted = if to_insert.is_empty() {
-            0
-        } else {
-            data.insert_batch(STORE, &to_insert)
-                .map_err(|e| e.to_string())?
-                .len() as u64
-        };
+        let ws = data.workspace().to_string();
+        let (inserted, skipped) = data
+            .with_conn(|c| {
+                // Existing import hashes for this workspace (dedupe against prior runs).
+                let mut seen: std::collections::HashSet<String> = {
+                    let mut stmt = c.prepare(
+                        "SELECT import_hash FROM fin_transactions
+                         WHERE workspace = ?1 AND import_hash IS NOT NULL",
+                    )?;
+                    let rows = stmt.query_map(params![ws], |r| r.get::<_, String>(0))?;
+                    rows.collect::<rusqlite::Result<std::collections::HashSet<String>>>()?
+                };
+                let account_id = ensure_account_id(c, &ws, &account)?;
+                let now = unix_now_pub() as i64;
+                // All-or-nothing batch (B3-4): one transaction wraps every insert.
+                let tx = c.unchecked_transaction()?;
+                let mut inserted = 0u64;
+                let mut skipped = 0u64;
+                {
+                    let mut ins = tx.prepare(
+                        "INSERT INTO fin_transactions
+                           (workspace, account_id, category_id, amount, transaction_type,
+                            merchant, notes, transaction_date, source, import_hash, created_at)
+                         VALUES (?1,?2,?3,?4,?5,?6,'',?7,'import',?8,?9)",
+                    )?;
+                    for p in &pending {
+                        // Dedupe against existing rows AND earlier rows in this batch.
+                        if !seen.insert(p.hash.clone()) {
+                            skipped += 1;
+                            continue;
+                        }
+                        let category_id = category_id_for(&tx, &ws, &p.category)?;
+                        ins.execute(params![
+                            ws,
+                            account_id,
+                            category_id,
+                            p.amount,
+                            p.kind,
+                            p.merchant,
+                            p.date,
+                            p.hash,
+                            now
+                        ])?;
+                        inserted += 1;
+                    }
+                }
+                tx.commit()?;
+                Ok((inserted, skipped))
+            })
+            .map_err(|e| e.to_string())?;
 
         let mut result = json!({ "inserted": inserted, "skipped": skipped, "errors": errors });
         // Echo parse-level data loss (B3-3) so the import UI can warn the user.
@@ -782,18 +937,14 @@ impl FinanceApp {
     /// Recurring/subscription detection over all transactions.
     fn compute_recurring(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data
-            .query(STORE, &Query::default())
-            .map_err(|e| e.to_string())?;
+        let all = self.load_txn_records(data)?;
         Ok(json!({ "items": detect_recurring(&all, &today()[..7]) }))
     }
 
     /// Rest-of-this-month cash-flow forecast (run-rate + 3-month averages).
     fn compute_forecast(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data
-            .query(STORE, &Query::default())
-            .map_err(|e| e.to_string())?;
+        let all = self.load_txn_records(data)?;
         let (_, net_worth) = compute_account_balances(&self.accounts_vec(data), &all);
         let this_month = today()[..7].to_string();
         let months = last_n_months(&this_month, 4);
@@ -804,9 +955,7 @@ impl FinanceApp {
     /// Per-category 6-month expense trends + overall month-over-month change.
     fn compute_trends(&self, data: &DataStore) -> Result<Value, String> {
         self.ensure_store(data)?;
-        let all = data
-            .query(STORE, &Query::default())
-            .map_err(|e| e.to_string())?;
+        let all = self.load_txn_records(data)?;
         let months = last_n_months(&today()[..7], 6);
         let mut trends = compute_trends_data(&all, &months);
 
@@ -835,13 +984,26 @@ impl FinanceApp {
 
     // ---- budgets (v0.3) ----
 
-    /// The latest saved per-category budgets, or an empty list. Insert-only,
-    /// latest-wins by `saved_at` (mirrors widgets/profile).
+    /// The saved per-category budgets as `{ budgets: [{category, limit}] }`, joining
+    /// the category name. Empty list when none.
     fn get_budgets(&self, data: &DataStore) -> Result<Value, String> {
-        match latest_singleton(data, BUDGETS_STORE, "budgets") {
-            Some(budgets) => Ok(json!({ "budgets": budgets })),
-            None => Ok(json!({ "budgets": [] })),
-        }
+        self.ensure_store(data)?;
+        let ws = data.workspace().to_string();
+        let budgets = data
+            .with_conn(|c| {
+                let mut stmt = c.prepare(
+                    "SELECT cat.name, b.amount
+                     FROM fin_budgets b
+                     JOIN fin_categories cat ON cat.id = b.category_id
+                     WHERE b.workspace = ?1 ORDER BY b.id",
+                )?;
+                let rows = stmt.query_map(params![ws], |r| {
+                    Ok(json!({ "category": r.get::<_, String>(0)?, "limit": r.get::<_, f64>(1)? }))
+                })?;
+                rows.collect::<rusqlite::Result<Vec<Value>>>()
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "budgets": budgets }))
     }
 
     /// The budget list as a plain array (for aggregation).
@@ -852,11 +1014,10 @@ impl FinanceApp {
             .unwrap_or_default()
     }
 
-    /// Persist per-category budgets. Keeps only entries with a non-empty
-    /// `category` and a positive `limit` (coerced from number/string).
+    /// Persist per-category budgets (replace-set). Keeps only entries with a
+    /// non-empty `category` and a positive `limit` (coerced from number/string).
     fn do_save_budgets(&self, data: &DataStore, args: Value) -> Result<Value, String> {
-        data.create_store(BUDGETS_STORE)
-            .map_err(|e| e.to_string())?;
+        self.ensure_store(data)?;
         let budgets: Vec<Value> = match args.get("budgets").and_then(|v| v.as_array()) {
             Some(arr) => arr
                 .iter()
@@ -875,18 +1036,53 @@ impl FinanceApp {
                 .collect(),
             None => Vec::new(),
         };
-        save_singleton(data, BUDGETS_STORE, "budgets", json!(budgets))
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            // Replace-set semantics: clear this workspace's budgets, then insert.
+            c.execute("DELETE FROM fin_budgets WHERE workspace = ?1", params![ws])?;
+            for b in &budgets {
+                let category = b["category"].as_str().unwrap_or("");
+                let limit = b["limit"].as_f64().unwrap_or(0.0);
+                let category_id = ensure_category_id(c, &ws, category)?;
+                c.execute(
+                    "INSERT INTO fin_budgets (workspace, category_id, amount) VALUES (?1, ?2, ?3)
+                     ON CONFLICT(workspace, category_id) DO UPDATE SET amount = excluded.amount",
+                    params![ws, category_id, limit],
+                )?;
+            }
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "budgets": budgets, "saved_at": unix_now_pub() }))
     }
 
     // ---- accounts + transfers (v0.4) ----
 
-    /// The user's accounts (latest-wins), defaulting to a single seeded "Cash".
+    /// The user's accounts (`{ accounts: [{name, type, opening_balance}] }`),
+    /// defaulting to a single seeded "Cash" when none are saved.
     fn get_accounts(&self, data: &DataStore) -> Result<Value, String> {
-        match latest_singleton(data, ACCOUNTS_STORE, "accounts") {
-            Some(a) if a.as_array().map(|x| !x.is_empty()).unwrap_or(false) => {
-                Ok(json!({ "accounts": a }))
-            }
-            _ => Ok(json!({ "accounts": default_accounts() })),
+        self.ensure_store(data)?;
+        let ws = data.workspace().to_string();
+        let accounts = data
+            .with_conn(|c| {
+                let mut stmt = c.prepare(
+                    "SELECT name, type, opening_balance FROM fin_accounts
+                     WHERE workspace = ?1 ORDER BY id",
+                )?;
+                let rows = stmt.query_map(params![ws], |r| {
+                    Ok(json!({
+                        "name": r.get::<_, String>(0)?,
+                        "type": r.get::<_, String>(1)?,
+                        "opening_balance": r.get::<_, f64>(2)?,
+                    }))
+                })?;
+                rows.collect::<rusqlite::Result<Vec<Value>>>()
+            })
+            .map_err(|e| e.to_string())?;
+        if accounts.is_empty() {
+            Ok(json!({ "accounts": default_accounts() }))
+        } else {
+            Ok(json!({ "accounts": accounts }))
         }
     }
 
@@ -897,11 +1093,10 @@ impl FinanceApp {
             .unwrap_or_default()
     }
 
-    /// Persist the account list. Keeps entries with a non-empty name; type
-    /// defaults to "cash", opening_balance coerced to a number (default 0).
+    /// Persist the account list (replace-set). Keeps entries with a non-empty name;
+    /// type defaults to "cash", opening_balance coerced to a number (default 0).
     fn do_save_accounts(&self, data: &DataStore, args: Value) -> Result<Value, String> {
-        data.create_store(ACCOUNTS_STORE)
-            .map_err(|e| e.to_string())?;
+        self.ensure_store(data)?;
         let accounts: Vec<Value> = match args.get("accounts").and_then(|v| v.as_array()) {
             Some(arr) => arr
                 .iter()
@@ -921,11 +1116,62 @@ impl FinanceApp {
                 .collect(),
             None => Vec::new(),
         };
-        save_singleton(data, ACCOUNTS_STORE, "accounts", json!(accounts))
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            // Replace-set: upsert each supplied account, then drop accounts no longer
+            // listed BUT only when they have no transactions/transfers referencing
+            // them (FK safety) — orphaned-but-referenced accounts are kept so their
+            // money still aggregates.
+            let kept: std::collections::HashSet<String> = accounts
+                .iter()
+                .filter_map(|a| a["name"].as_str().map(str::to_string))
+                .collect();
+            for a in &accounts {
+                let name = a["name"].as_str().unwrap_or("");
+                let typ = normalize_account_type(a["type"].as_str().unwrap_or("cash"));
+                let opening = a["opening_balance"].as_f64().unwrap_or(0.0);
+                c.execute(
+                    "INSERT INTO fin_accounts (workspace, name, type, opening_balance)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(workspace, name) DO UPDATE SET
+                       type = excluded.type, opening_balance = excluded.opening_balance",
+                    params![ws, name, typ, opening],
+                )?;
+            }
+            // Remove accounts no longer in the set, skipping any still referenced.
+            let mut stmt = c.prepare(
+                "SELECT id, name FROM fin_accounts WHERE workspace = ?1",
+            )?;
+            let existing: Vec<(i64, String)> = stmt
+                .query_map(params![ws], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for (id, name) in existing {
+                if kept.contains(&name) {
+                    continue;
+                }
+                let referenced: bool = c
+                    .query_row(
+                        "SELECT 1 FROM fin_transactions WHERE account_id = ?1
+                         UNION SELECT 1 FROM fin_transfers
+                           WHERE from_account_id = ?1 OR to_account_id = ?1 LIMIT 1",
+                        params![id],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some();
+                if !referenced {
+                    c.execute("DELETE FROM fin_accounts WHERE id = ?1", params![id])?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "accounts": accounts, "saved_at": unix_now_pub() }))
     }
 
-    /// Record a transfer between two of the user's accounts (a single row,
-    /// neutral to income/expense; moves money in `compute_account_balances`).
+    /// Record a transfer between two of the user's accounts. Stored in
+    /// `fin_transfers`; surfaced to aggregation as a single legacy `type:transfer`
+    /// record (neutral to income/expense; moved in `compute_account_balances`).
     fn do_add_transfer(&self, data: &DataStore, args: Value) -> Result<Value, String> {
         self.ensure_store(data)?;
         let amount = coerce_amount(args.get("amount")).abs();
@@ -954,22 +1200,57 @@ impl FinanceApp {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+
+        let ws = data.workspace().to_string();
+        let id = data
+            .with_conn(|c| {
+                let from_id = ensure_account_id(c, &ws, &from)?;
+                let to_id = ensure_account_id(c, &ws, &to)?;
+                c.execute(
+                    "INSERT INTO fin_transfers (workspace, from_account_id, to_account_id, amount, transfer_date)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![ws, from_id, to_id, amount, date],
+                )?;
+                Ok(c.last_insert_rowid())
+            })
+            .map_err(|e| e.to_string())?;
+        // Same record shape as before (the JSON store inserted exactly this).
         let record = json!({
             "type": "transfer", "amount": amount, "account": from, "to_account": to,
             "category": "transfer", "date": date, "note": note, "source": "manual",
         });
-        let id = data.insert(STORE, &record).map_err(|e| e.to_string())?;
         Ok(json!({ "status": "added", "id": id, "record": record }))
     }
 
     // ---- goals (v0.5) ----
 
-    /// The user's savings/debt goals (latest-wins), default empty.
+    /// The user's savings/debt goals (`{ goals: [{name, kind, account, target,
+    /// target_date}] }`), default empty.
     fn get_goals(&self, data: &DataStore) -> Result<Value, String> {
-        match latest_singleton(data, GOALS_STORE, "goals") {
-            Some(goals) => Ok(json!({ "goals": goals })),
-            None => Ok(json!({ "goals": [] })),
-        }
+        self.ensure_store(data)?;
+        let ws = data.workspace().to_string();
+        let goals = data
+            .with_conn(|c| {
+                let mut stmt = c.prepare(
+                    "SELECT g.name, g.kind, COALESCE(a.name, ''), g.target_amount, g.target_date
+                     FROM fin_goals g
+                     LEFT JOIN fin_accounts a ON a.id = g.account_id
+                     WHERE g.workspace = ?1 ORDER BY g.id",
+                )?;
+                let rows = stmt.query_map(params![ws], |r| {
+                    let target_date: Option<String> = r.get(4)?;
+                    Ok(json!({
+                        "name": r.get::<_, String>(0)?,
+                        "kind": r.get::<_, String>(1)?,
+                        "account": r.get::<_, String>(2)?,
+                        "target": r.get::<_, f64>(3)?,
+                        "target_date": target_date.map(Value::String).unwrap_or(Value::Null),
+                    }))
+                })?;
+                rows.collect::<rusqlite::Result<Vec<Value>>>()
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "goals": goals }))
     }
 
     fn goals_vec(&self, data: &DataStore) -> Vec<Value> {
@@ -979,10 +1260,10 @@ impl FinanceApp {
             .unwrap_or_default()
     }
 
-    /// Persist goals. Keeps entries with a non-empty name; kind defaults to
-    /// savings, target coerced to a number.
+    /// Persist goals (replace-set). Keeps entries with a non-empty name; kind
+    /// defaults to savings, target coerced to a number.
     fn do_save_goals(&self, data: &DataStore, args: Value) -> Result<Value, String> {
-        data.create_store(GOALS_STORE).map_err(|e| e.to_string())?;
+        self.ensure_store(data)?;
         let goals: Vec<Value> = match args.get("goals").and_then(|v| v.as_array()) {
             Some(arr) => arr
                 .iter()
@@ -1003,8 +1284,221 @@ impl FinanceApp {
                 .collect(),
             None => Vec::new(),
         };
-        save_singleton(data, GOALS_STORE, "goals", json!(goals))
+        let ws = data.workspace().to_string();
+        data.with_conn(|c| {
+            c.execute("DELETE FROM fin_goals WHERE workspace = ?1", params![ws])?;
+            for g in &goals {
+                let name = g["name"].as_str().unwrap_or("");
+                let kind = g["kind"].as_str().unwrap_or("savings");
+                let account = g["account"].as_str().unwrap_or("");
+                let target = g["target"].as_f64().unwrap_or(0.0);
+                let target_date = g["target_date"].as_str();
+                // Account is optional; link by name if it exists (else NULL).
+                let account_id: Option<i64> = if account.is_empty() {
+                    None
+                } else {
+                    Some(ensure_account_id(c, &ws, account)?)
+                };
+                c.execute(
+                    "INSERT INTO fin_goals (workspace, name, kind, account_id, target_amount, target_date)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![ws, name, kind, account_id, target, target_date],
+                )?;
+            }
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "goals": goals, "saved_at": unix_now_pub() }))
     }
+}
+
+// ---- typed-storage SQL helpers (run inside `with_conn`) ----
+
+/// Map an arbitrary stored account-type string onto the CHECK-allowed set
+/// (`checking|savings|card|cash`). Anything unrecognized → `cash`, matching the
+/// JSON era's lenient default.
+fn normalize_account_type(t: &str) -> &'static str {
+    match t.to_lowercase().as_str() {
+        "checking" => "checking",
+        "savings" => "savings",
+        "card" => "card",
+        _ => "cash",
+    }
+}
+
+/// Resolve an account id by name for this workspace, creating it (default type
+/// `cash`) if missing — mirrors the JSON era where any referenced account name was
+/// valid. The seeded default account is "Cash".
+fn ensure_account_id(conn: &Connection, ws: &str, name: &str) -> rusqlite::Result<i64> {
+    let name = if name.is_empty() { DEFAULT_ACCOUNT } else { name };
+    if let Some(id) = conn
+        .query_row(
+            "SELECT id FROM fin_accounts WHERE workspace = ?1 AND name = ?2",
+            params![ws, name],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?
+    {
+        return Ok(id);
+    }
+    let typ = if name == DEFAULT_ACCOUNT { "cash" } else { "checking" };
+    conn.execute(
+        "INSERT INTO fin_accounts (workspace, name, type) VALUES (?1, ?2, ?3)",
+        params![ws, name, typ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// The category id for a known category NAME (case-insensitive), or NULL when the
+/// name is "uncategorized"/empty/unknown — matching "uncategorized → no category".
+fn category_id_for(conn: &Connection, ws: &str, name: &str) -> rusqlite::Result<Option<i64>> {
+    if name.is_empty() || name.eq_ignore_ascii_case("uncategorized") {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT id FROM fin_categories WHERE workspace = ?1 AND name = ?2 COLLATE NOCASE",
+        params![ws, name],
+        |r| r.get::<_, i64>(0),
+    )
+    .optional()
+}
+
+/// Resolve a category id by name, CREATING it (expense type) if missing. Used where
+/// a name must become a real FK target (rules, budgets, profile categories). Returns
+/// None only for "uncategorized"/empty.
+fn ensure_category_id(conn: &Connection, ws: &str, name: &str) -> rusqlite::Result<Option<i64>> {
+    if name.is_empty() || name.eq_ignore_ascii_case("uncategorized") {
+        return Ok(None);
+    }
+    if let Some(id) = category_id_for(conn, ws, name)? {
+        return Ok(Some(id));
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO fin_categories (workspace, name, type) VALUES (?1, ?2, 'expense')",
+        params![ws, name],
+    )?;
+    category_id_for(conn, ws, name)
+}
+
+/// All category names for a workspace, ordered by id (insertion order).
+fn category_names(conn: &Connection, ws: &str) -> rusqlite::Result<Vec<String>> {
+    let mut stmt =
+        conn.prepare("SELECT name FROM fin_categories WHERE workspace = ?1 ORDER BY id")?;
+    let rows = stmt.query_map(params![ws], |r| r.get::<_, String>(0))?;
+    rows.collect()
+}
+
+/// Build the legacy-shaped `Record` set for all transactions + transfers in a
+/// workspace (see `load_txn_records`).
+fn load_txn_records_conn(conn: &Connection, ws: &str) -> rusqlite::Result<Vec<Record>> {
+    let mut out: Vec<Record> = Vec::new();
+
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.transaction_type, t.amount, COALESCE(cat.name, 'uncategorized'),
+                t.transaction_date, COALESCE(t.merchant, ''), acc.name,
+                t.source, t.import_hash, t.notes, t.created_at
+         FROM fin_transactions t
+         JOIN fin_accounts acc ON acc.id = t.account_id
+         LEFT JOIN fin_categories cat ON cat.id = t.category_id
+         WHERE t.workspace = ?1
+         ORDER BY t.id",
+    )?;
+    let rows = stmt.query_map(params![ws], |r| {
+        let id: i64 = r.get(0)?;
+        let kind: String = r.get(1)?;
+        let amount: f64 = r.get(2)?;
+        let category: String = r.get(3)?;
+        let date: String = r.get(4)?;
+        let merchant: String = r.get(5)?;
+        let account: String = r.get(6)?;
+        let source: String = r.get(7)?;
+        let import_hash: Option<String> = r.get(8)?;
+        let note: String = r.get(9)?;
+        let created_at: i64 = r.get(10)?;
+        let mut data = json!({
+            "type": kind, "amount": amount, "category": category, "date": date,
+            "merchant": merchant, "account": account, "source": source, "note": note,
+        });
+        if let Some(h) = import_hash {
+            data["import_hash"] = json!(h);
+        }
+        Ok(Record {
+            id,
+            data,
+            created_at: created_at as u64,
+        })
+    })?;
+    for r in rows {
+        out.push(r?);
+    }
+
+    // Transfers become legacy `type:transfer` records carrying from→to account
+    // names, exactly as `do_add_transfer` once inserted into the JSON store.
+    let mut tstmt = conn.prepare(
+        "SELECT tr.id, fa.name, ta.name, tr.amount, tr.transfer_date
+         FROM fin_transfers tr
+         JOIN fin_accounts fa ON fa.id = tr.from_account_id
+         JOIN fin_accounts ta ON ta.id = tr.to_account_id
+         WHERE tr.workspace = ?1
+         ORDER BY tr.id",
+    )?;
+    let trows = tstmt.query_map(params![ws], |r| {
+        let id: i64 = r.get(0)?;
+        let from: String = r.get(1)?;
+        let to: String = r.get(2)?;
+        let amount: f64 = r.get(3)?;
+        let date: String = r.get(4)?;
+        Ok(Record {
+            id,
+            data: json!({
+                "type": "transfer", "amount": amount, "account": from, "to_account": to,
+                "category": "transfer", "date": date, "note": "", "source": "manual",
+            }),
+            created_at: 0,
+        })
+    })?;
+    for r in trows {
+        out.push(r?);
+    }
+
+    Ok(out)
+}
+
+/// Load a single transaction by id as a legacy-shaped `Record` (transfers excluded —
+/// updates only touch regular transactions).
+fn load_one_txn_record(conn: &Connection, ws: &str, id: i64) -> rusqlite::Result<Option<Record>> {
+    conn.query_row(
+        "SELECT t.id, t.transaction_type, t.amount, COALESCE(cat.name, 'uncategorized'),
+                t.transaction_date, COALESCE(t.merchant, ''), acc.name,
+                t.source, t.import_hash, t.notes, t.created_at
+         FROM fin_transactions t
+         JOIN fin_accounts acc ON acc.id = t.account_id
+         LEFT JOIN fin_categories cat ON cat.id = t.category_id
+         WHERE t.workspace = ?1 AND t.id = ?2",
+        params![ws, id],
+        |r| {
+            let id: i64 = r.get(0)?;
+            let kind: String = r.get(1)?;
+            let amount: f64 = r.get(2)?;
+            let category: String = r.get(3)?;
+            let date: String = r.get(4)?;
+            let merchant: String = r.get(5)?;
+            let account: String = r.get(6)?;
+            let source: String = r.get(7)?;
+            let import_hash: Option<String> = r.get(8)?;
+            let note: String = r.get(9)?;
+            let created_at: i64 = r.get(10)?;
+            let mut data = json!({
+                "type": kind, "amount": amount, "category": category, "date": date,
+                "merchant": merchant, "account": account, "source": source, "note": note,
+            });
+            if let Some(h) = import_hash {
+                data["import_hash"] = json!(h);
+            }
+            Ok(Record { id, data, created_at: created_at as u64 })
+        },
+    )
+    .optional()
 }
 
 /// Default dashboard widgets mirroring the fixed F1 layout. Each `source`
@@ -1198,8 +1692,10 @@ impl App for FinanceApp {
             "add_transfer" => self.do_add_transfer(data, args),
             "save_goals" => self.do_save_goals(data, args),
             "migrate_transactions" => {
+                // No-op since W5: storage is typed from the first write, so there is
+                // nothing to backfill. Kept for action-name compatibility.
                 self.ensure_store(data)?;
-                migrate_legacy_transactions(data).map(|n| json!({ "migrated": n }))
+                Ok(json!({ "migrated": 0 }))
             }
             other => Err(format!("unknown action: {other}")),
         }
@@ -1219,9 +1715,9 @@ fn today() -> String {
 }
 
 /// Pure category resolution (no DataStore): a requested category that's in the
-/// profile list wins (normalized to the profile's casing); else the first
-/// merchant rule whose `merchant_contains` is a case-insensitive substring of the
-/// merchant; else "uncategorized".
+/// known list wins (normalized to the stored casing); else the first merchant rule
+/// whose `merchant_contains` is a case-insensitive substring of the merchant; else
+/// "uncategorized".
 fn resolve_category_pure(
     merchant: &str,
     requested: Option<&str>,
@@ -1247,9 +1743,9 @@ fn resolve_category_pure(
     "uncategorized".to_string()
 }
 
-/// Read the latest value stored under `key` in a latest-wins singleton store
-/// (widgets/budgets/accounts/goals). Returns the `key` field of the row with the
-/// greatest `saved_at`, or None when the store is empty.
+/// Read the latest value stored under `key` in a latest-wins singleton JSON store
+/// (widgets only, post-W5). Returns the `key` field of the row with the greatest
+/// `saved_at`, or None when the store is empty.
 fn latest_singleton(data: &DataStore, store: &str, key: &str) -> Option<Value> {
     data.create_store(store).ok()?;
     let rows = data.query(store, &Query::default()).ok()?;
@@ -1258,10 +1754,8 @@ fn latest_singleton(data: &DataStore, store: &str, key: &str) -> Option<Value> {
         .and_then(|r| r.data.get(key).cloned())
 }
 
-/// Persist `value` under `key` in a singleton store, UPDATING the existing row in
-/// place (and pruning any older duplicates) instead of inserting a new row every
-/// save. The widgets/budgets/accounts/goals stores previously grew one dead row
-/// per save (review H6) — this converges them to a single row.
+/// Persist `value` under `key` in a singleton JSON store (widgets only, post-W5),
+/// UPDATING the existing row in place (and pruning older duplicates).
 fn save_singleton(data: &DataStore, store: &str, key: &str, value: Value) -> Result<Value, String> {
     data.create_store(store).map_err(|e| e.to_string())?;
     let record = json!({ key: value, "saved_at": unix_now_pub() });
@@ -1289,281 +1783,8 @@ fn save_singleton(data: &DataStore, store: &str, key: &str, value: Value) -> Res
     Ok(record)
 }
 
+// `Query` is still used by the widgets singleton helpers.
+use zanto_core::data::Query;
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use zanto_core::data::Record;
-
-    #[test]
-    fn balance_is_income_minus_expense_with_legacy_default() {
-        // Acceptance #1 + #5: income − expense, and a legacy row (no `type`)
-        // counts as an expense.
-        let recs = vec![
-            Record {
-                id: 1,
-                data: json!({ "type": "income", "amount": 2000 }),
-                created_at: 0,
-            },
-            Record {
-                id: 2,
-                data: json!({ "type": "expense", "amount": 12.50 }),
-                created_at: 0,
-            },
-            Record {
-                id: 3,
-                data: json!({ "amount": 8 }),
-                created_at: 0,
-            }, // legacy → expense
-        ];
-        assert_eq!(lifetime_balance(&recs), 2000.0 - 12.5 - 8.0);
-    }
-
-    #[test]
-    fn normalize_defaults_and_signs() {
-        let income = normalize_txn(&json!({ "type": "income", "amount": "-100" }));
-        assert_eq!(income.kind, TxnKind::Income);
-        assert_eq!(income.amount, 100.0); // abs: sign is carried by kind
-        let legacy = normalize_txn(&json!({ "amount": 5, "date": "2026-06-01" }));
-        assert_eq!(legacy.kind, TxnKind::Expense);
-        assert_eq!(legacy.category, "uncategorized");
-    }
-
-    #[test]
-    fn resolve_category_prefers_profile_then_rules_then_uncategorized() {
-        let cats = vec!["dining".to_string(), "transport".to_string()];
-        let rules = vec![json!({ "merchant_contains": "starbucks", "category": "dining" })];
-        // requested category in the profile (case-insensitive) → profile casing
-        assert_eq!(
-            resolve_category_pure("x", Some("Dining"), &cats, &rules),
-            "dining"
-        );
-        // merchant matches a rule
-        assert_eq!(
-            resolve_category_pure("STARBUCKS #5", None, &cats, &rules),
-            "dining"
-        );
-        // requested not in profile + no rule → uncategorized
-        assert_eq!(
-            resolve_category_pure("Acme", Some("foobar"), &cats, &rules),
-            "uncategorized"
-        );
-    }
-
-    #[test]
-    fn trends_builds_per_category_expense_series() {
-        let months = vec!["2026-05".to_string(), "2026-06".to_string()];
-        let recs = vec![
-            Record {
-                id: 1,
-                data: json!({ "type": "expense", "category": "dining", "amount": 10, "date": "2026-05-10" }),
-                created_at: 0,
-            },
-            Record {
-                id: 2,
-                data: json!({ "type": "expense", "category": "dining", "amount": 20, "date": "2026-06-10" }),
-                created_at: 0,
-            },
-            Record {
-                id: 3,
-                data: json!({ "type": "income", "category": "salary", "amount": 1000, "date": "2026-06-01" }),
-                created_at: 0,
-            },
-        ];
-        let t = compute_trends_data(&recs, &months);
-        let cats = t["categories"].as_array().unwrap();
-        assert_eq!(cats.len(), 1); // income excluded
-        assert_eq!(cats[0]["category"], json!("dining"));
-        assert_eq!(cats[0]["data"], json!([10.0, 20.0]));
-    }
-
-    #[test]
-    fn detect_recurring_finds_monthly_charge() {
-        let recs = vec![
-            Record {
-                id: 1,
-                data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-04-03" }),
-                created_at: 0,
-            },
-            Record {
-                id: 2,
-                data: json!({ "type": "expense", "merchant": "Netflix", "amount": 9.99, "date": "2026-05-03" }),
-                created_at: 0,
-            },
-            Record {
-                id: 3,
-                data: json!({ "type": "expense", "merchant": "netflix", "amount": 9.99, "date": "2026-06-03" }),
-                created_at: 0,
-            },
-            Record {
-                id: 4,
-                data: json!({ "type": "expense", "merchant": "Coffee", "amount": 3.50, "date": "2026-06-01" }),
-                created_at: 0,
-            },
-        ];
-        let items = detect_recurring(&recs, "2026-06");
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["merchant"], json!("Netflix"));
-        assert_eq!(items[0]["count"], json!(3));
-    }
-
-    #[test]
-    fn every_default_widget_kind_is_saveable() {
-        // Regression: default_widgets() ships budget/subscriptions/accounts/goals/
-        // forecast, which do_save_widgets used to reject → saving the dashboard
-        // silently dropped them. Every default kind must be in WIDGET_KINDS.
-        let defaults = default_widgets();
-        for w in defaults.as_array().unwrap() {
-            let kind = w.get("kind").and_then(|v| v.as_str()).unwrap();
-            assert!(
-                WIDGET_KINDS.contains(&kind),
-                "default widget kind '{kind}' is not saveable"
-            );
-        }
-    }
-
-    #[test]
-    fn forecast_projects_from_run_rate() {
-        // 3 complete months at £1000 expense; £300 spent so far this month.
-        let recs = vec![
-            Record {
-                id: 1,
-                data: json!({ "type": "expense", "amount": 1000, "date": "2026-03-15" }),
-                created_at: 0,
-            },
-            Record {
-                id: 2,
-                data: json!({ "type": "expense", "amount": 1000, "date": "2026-04-15" }),
-                created_at: 0,
-            },
-            Record {
-                id: 3,
-                data: json!({ "type": "expense", "amount": 1000, "date": "2026-05-15" }),
-                created_at: 0,
-            },
-            Record {
-                id: 4,
-                data: json!({ "type": "expense", "amount": 300, "date": "2026-06-10" }),
-                created_at: 0,
-            },
-        ];
-        let prev = vec![
-            "2026-03".to_string(),
-            "2026-04".to_string(),
-            "2026-05".to_string(),
-        ];
-        let f = compute_forecast_data(&recs, 5000.0, "2026-06", &prev);
-        assert_eq!(f["avg_monthly_expense"], json!(1000.0));
-        assert_eq!(f["expected_expense"], json!(1000.0)); // max(300, 1000)
-                                                          // 5000 + (0−0) − (1000−300) = 4300
-        assert_eq!(f["projected_net_worth"], json!(4300.0));
-    }
-
-    #[test]
-    fn goal_status_savings_and_debt() {
-        let accounts = vec![
-            json!({ "name": "Savings", "type": "savings", "balance": 2500.0 }),
-            json!({ "name": "Card", "type": "card", "balance": -800.0 }),
-        ];
-        let goals = vec![
-            json!({ "name": "Emergency", "kind": "savings", "account": "Savings", "target": 10000 }),
-            json!({ "name": "Pay off card", "kind": "debt", "account": "Card", "target": 1000 }),
-        ];
-        let s = compute_goal_status(&goals, &accounts);
-        let prog = |g: &Value| g["progress"].as_f64().unwrap();
-        let savings = s.iter().find(|g| g["name"] == "Emergency").unwrap();
-        assert_eq!(savings["current"], json!(2500.0));
-        assert!((prog(savings) - 0.25).abs() < 1e-9);
-        assert_eq!(savings["complete"], json!(false));
-        let debt = s.iter().find(|g| g["name"] == "Pay off card").unwrap();
-        assert_eq!(debt["owed"], json!(800.0));
-        assert!((prog(debt) - 0.2).abs() < 1e-9); // 1 - 800/1000
-    }
-
-    #[test]
-    fn account_balances_and_net_worth_with_transfer() {
-        let accounts = vec![
-            json!({ "name": "Checking", "type": "checking", "opening_balance": 1000 }),
-            json!({ "name": "Card", "type": "card", "opening_balance": 0 }),
-        ];
-        let recs = vec![
-            Record {
-                id: 1,
-                data: json!({ "type": "expense", "amount": 50, "account": "Card" }),
-                created_at: 0,
-            },
-            Record {
-                id: 2,
-                data: json!({ "type": "transfer", "amount": 200, "account": "Checking", "to_account": "Card" }),
-                created_at: 0,
-            },
-            Record {
-                id: 3,
-                data: json!({ "type": "income", "amount": 500, "account": "Checking" }),
-                created_at: 0,
-            },
-        ];
-        let (accts, net) = compute_account_balances(&accounts, &recs);
-        let bal = |name: &str| {
-            accts.iter().find(|a| a["name"] == name).unwrap()["balance"]
-                .as_f64()
-                .unwrap()
-        };
-        assert_eq!(bal("Checking"), 1300.0); // 1000 + 500 income − 200 transfer out
-        assert_eq!(bal("Card"), 150.0); // 0 − 50 expense + 200 transfer in
-        assert_eq!(net, 1450.0); // transfer nets to zero across accounts
-    }
-
-    #[test]
-    fn budget_status_flags_overspend() {
-        let budgets = vec![json!({ "category": "dining", "limit": 200 })];
-        let mut spent = HashMap::new();
-        spent.insert("dining".to_string(), 240.0);
-        let (status, over, _pace) = compute_budget_status(&budgets, &spent, 1.0);
-        assert_eq!(status.len(), 1);
-        assert_eq!(status[0]["over"], json!(true));
-        assert_eq!(over.len(), 1);
-        assert_eq!(over[0]["by"], json!(40.0));
-
-        // A budgeted category with no spend → 0 spent, not over.
-        let (status2, over2, _) = compute_budget_status(&budgets, &HashMap::new(), 1.0);
-        assert_eq!(status2[0]["spent"], json!(0.0));
-        assert!(over2.is_empty());
-    }
-
-    #[test]
-    fn pace_warning_when_on_track_to_exceed() {
-        let budgets = vec![json!({ "category": "dining", "limit": 200 })];
-        let mut spent = HashMap::new();
-        spent.insert("dining".to_string(), 160.0);
-        // 60% through the month: projected 160/0.6 ≈ 266 > 200, not yet over.
-        let (status, over, pace) = compute_budget_status(&budgets, &spent, 0.6);
-        assert!(over.is_empty());
-        assert_eq!(pace.len(), 1);
-        assert_eq!(status[0]["on_track_to_exceed"], json!(true));
-    }
-
-    #[test]
-    fn orphaned_account_money_is_not_lost() {
-        // A transaction on an account that is NOT declared (renamed/deleted) must
-        // still count toward net worth as an "unlinked" bucket.
-        let accounts =
-            vec![json!({ "name": "Checking", "type": "checking", "opening_balance": 100 })];
-        let recs = vec![
-            Record {
-                id: 1,
-                data: json!({ "type": "expense", "amount": 30, "account": "Checking" }),
-                created_at: 0,
-            },
-            Record {
-                id: 2,
-                data: json!({ "type": "income", "amount": 50, "account": "OldCard" }),
-                created_at: 0,
-            },
-        ];
-        let (accts, net) = compute_account_balances(&accounts, &recs);
-        let unlinked = accts.iter().find(|a| a["name"] == "OldCard").unwrap();
-        assert_eq!(unlinked["type"], json!("unlinked"));
-        assert_eq!(unlinked["balance"], json!(50.0));
-        assert_eq!(net, 120.0); // 100 - 30 (Checking) + 50 (OldCard)
-    }
-}
+mod tests;

@@ -3,9 +3,7 @@
 //! the one-time legacy-row backfill. Kept out of `mod.rs` so the parsing/import
 //! concern is isolated from aggregation and the store glue.
 
-use super::{DEFAULT_ACCOUNT, STORE};
 use serde_json::{json, Value};
-use zanto_core::data::{DataStore, Query};
 
 /// Coerce a model-supplied amount into a number. Weak models often send the
 /// amount as a string ("12.50", "$12.50", "5-"); `as_f64()` alone would silently
@@ -154,50 +152,6 @@ pub(super) fn import_hash(date: &str, amount: f64, merchant: &str, account: &str
     format!("{:016x}", h.finish())
 }
 
-/// Pure legacy backfill: given a stored transaction, return an updated copy when
-/// it predates the explicit money model (missing/empty `type`) or accounts
-/// (missing/empty `account`), else None. Only absent fields are stamped — existing
-/// values are never overwritten.
-pub(super) fn legacy_backfill(rec: &Value) -> Option<Value> {
-    let obj = rec.as_object()?;
-    let has = |k: &str| {
-        obj.get(k)
-            .and_then(|v| v.as_str())
-            .map(|s| !s.is_empty())
-            .unwrap_or(false)
-    };
-    let (needs_type, needs_account) = (!has("type"), !has("account"));
-    if !needs_type && !needs_account {
-        return None;
-    }
-    let mut out = obj.clone();
-    if needs_type {
-        out.insert("type".into(), json!("expense"));
-    }
-    if needs_account {
-        out.insert("account".into(), json!(DEFAULT_ACCOUNT));
-    }
-    Some(Value::Object(out))
-}
-
-/// One-time backfill over the transactions store (review C2). Idempotent: only
-/// rows actually missing an explicit `type`/`account` are rewritten, so a second
-/// run is a no-op. Returns the number of rows migrated.
-pub(super) fn migrate_legacy_transactions(data: &DataStore) -> Result<u64, String> {
-    let rows = data
-        .query(STORE, &Query::default())
-        .map_err(|e| e.to_string())?;
-    let mut migrated = 0u64;
-    for r in rows {
-        if let Some(updated) = legacy_backfill(&r.data) {
-            data.update(STORE, r.id, &updated)
-                .map_err(|e| e.to_string())?;
-            migrated += 1;
-        }
-    }
-    Ok(migrated)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,21 +263,5 @@ mod tests {
         assert_eq!(coerce_amount(None), 0.0);
         // Genuinely non-numeric → 0 (not a silent wrong value).
         assert_eq!(coerce_amount(Some(&json!("garbage"))), 0.0);
-    }
-
-    #[test]
-    fn legacy_backfill_stamps_missing_type_and_account() {
-        // Legacy row (no type/account) → explicit expense + Cash.
-        let out = legacy_backfill(&json!({ "amount": 10, "date": "2026-01-01" })).unwrap();
-        assert_eq!(out["type"], json!("expense"));
-        assert_eq!(out["account"], json!(DEFAULT_ACCOUNT));
-        // A fully-explicit row is left alone (None = no rewrite → idempotent).
-        assert!(
-            legacy_backfill(&json!({ "type": "income", "amount": 5, "account": "Bank" })).is_none()
-        );
-        // Partial: keeps the existing type, stamps only the missing account.
-        let p = legacy_backfill(&json!({ "type": "transfer", "amount": 1 })).unwrap();
-        assert_eq!(p["type"], json!("transfer"));
-        assert_eq!(p["account"], json!(DEFAULT_ACCOUNT));
     }
 }

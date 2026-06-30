@@ -28,3 +28,6 @@ async-trait = "0.1"
 jsonschema = "0.18"
 zanto-core = { path = "../../zanto-core" }
 
+[dev-dependencies]
+tempfile = "3"
+
