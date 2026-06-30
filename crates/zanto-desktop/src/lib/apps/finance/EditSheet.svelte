@@ -8,21 +8,29 @@
     title,
     children,
     onSave,
+    onClose,
     saveLabel = "Save",
     canSave = true,
     saving = false,
+    footer = true,
   }: {
     open?: boolean;
     title: string;
     children: Snippet;
     onSave?: () => void;
+    /** Called when the sheet is dismissed (for one-way `open` usage like a
+     *  read-only drill panel that owns its own open state). */
+    onClose?: () => void;
     saveLabel?: string;
     canSave?: boolean;
     saving?: boolean;
+    /** Hide the Cancel/Save footer entirely (read-only panels). */
+    footer?: boolean;
   } = $props();
 
   function close() {
     open = false;
+    onClose?.();
   }
 </script>
 
@@ -57,13 +65,15 @@
       {@render children()}
     </div>
 
-    <div class="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-      <Button variant="ghost" size="sm" onclick={close} disabled={saving}>Cancel</Button>
-      {#if onSave}
-        <Button size="sm" onclick={onSave} disabled={!canSave || saving}>
-          {saving ? "Saving…" : saveLabel}
-        </Button>
-      {/if}
-    </div>
+    {#if footer}
+      <div class="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <Button variant="ghost" size="sm" onclick={close} disabled={saving}>Cancel</Button>
+        {#if onSave}
+          <Button size="sm" onclick={onSave} disabled={!canSave || saving}>
+            {saving ? "Saving…" : saveLabel}
+          </Button>
+        {/if}
+      </div>
+    {/if}
   </div>
 {/if}

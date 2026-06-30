@@ -16,8 +16,11 @@
   import Landmark from "@lucide/svelte/icons/landmark";
   import Target from "@lucide/svelte/icons/target";
   import Repeat from "@lucide/svelte/icons/repeat";
+  import Eye from "@lucide/svelte/icons/eye";
+  import EyeOff from "@lucide/svelte/icons/eye-off";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
 
-  type Category = { category: string; total: number };
+  type Category = { category: string; total: number; trend?: number[] };
   type BudgetStatus = { category: string; limit: number; spent: number };
   type GoalStatus = {
     name: string;
@@ -36,6 +39,7 @@
     safe_to_spend?: number;
     net_worth?: number;
     top_categories?: Category[];
+    trend_months?: string[];
     uncategorized_count?: number;
     budget_status?: BudgetStatus[];
     goal_status?: GoalStatus[];
@@ -52,6 +56,18 @@
   function money(v: number | undefined): string {
     return formatCurrency(v, currency);
   }
+
+  // Sensitive figures (Net, Net worth) are masked by default — reveal on click.
+  let revealed = $state(false);
+  function money_masked(v: number | undefined): string {
+    return revealed ? money(v) : "••••";
+  }
+
+  // Category drill-down: which category's 3–6 month detail is open (null = none).
+  let drillCategory = $state<string | null>(null);
+  const drillData = $derived(
+    (overview?.top_categories ?? []).find((c) => c.category === drillCategory) ?? null,
+  );
 
   async function load() {
     error = null;
@@ -151,47 +167,114 @@
         <AlertCircle class="size-4 shrink-0" />
         <span class="min-w-0 flex-1">
           {overview.uncategorized_count} transaction{(overview.uncategorized_count ?? 0) === 1
-            ? ""
-            : "s"} need a category — review
+            ? " needs"
+            : "s need"} a category — review
         </span>
       </button>
     {/if}
 
-    <!-- KPI cards -->
+    <!-- KPI cards: semantic colors (income green, spend rose, net by sign,
+         net worth neutral). Net + Net worth are masked behind a reveal toggle. -->
+    {@const netPositive = (overview.net ?? 0) >= 0}
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {#each [{ label: "Spent", value: overview.spent, Icon: TrendingDown }, { label: "Income", value: overview.income, Icon: TrendingUp }, { label: "Net", value: overview.net, Icon: Scale }, { label: "Net worth", value: overview.net_worth, Icon: Landmark }] as k (k.label)}
-        <div class="rounded-lg border border-border bg-card p-3">
-          <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <k.Icon class="size-3.5" />
-            {k.label}
-          </div>
-          <div class="mt-1 font-display text-2xl font-semibold tabular-nums">
-            {money(k.value)}
-          </div>
+      <!-- Spent (rose/red) -->
+      <div class="rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/30">
+        <div class="flex items-center gap-1.5 text-xs text-rose-700 dark:text-rose-300">
+          <TrendingDown class="size-3.5" /> Spent
         </div>
-      {/each}
+        <div class="mt-1 font-display text-2xl font-semibold tabular-nums text-rose-700 dark:text-rose-300">
+          {money(overview.spent)}
+        </div>
+      </div>
+      <!-- Income (green) -->
+      <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+        <div class="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
+          <TrendingUp class="size-3.5" /> Income
+        </div>
+        <div class="mt-1 font-display text-2xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+          {money(overview.income)}
+        </div>
+      </div>
+      <!-- Net (green/red by sign; masked) -->
+      <div
+        class={[
+          "rounded-lg border p-3",
+          netPositive
+            ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/30"
+            : "border-rose-200 bg-rose-50 dark:border-rose-900/50 dark:bg-rose-950/30",
+        ].join(" ")}
+      >
+        <div
+          class={[
+            "flex items-center gap-1.5 text-xs",
+            netPositive ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300",
+          ].join(" ")}
+        >
+          <Scale class="size-3.5" /> Net
+        </div>
+        <div
+          class={[
+            "mt-1 font-display text-2xl font-semibold tabular-nums",
+            netPositive ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300",
+          ].join(" ")}
+        >
+          {money_masked(overview.net)}
+        </div>
+      </div>
+      <!-- Net worth (neutral; masked) -->
+      <div class="rounded-lg border border-border bg-card p-3">
+        <div class="flex items-center justify-between text-xs text-muted-foreground">
+          <span class="flex items-center gap-1.5"><Landmark class="size-3.5" /> Net worth</span>
+          <button
+            type="button"
+            onclick={() => (revealed = !revealed)}
+            title={revealed ? "Hide Net & Net worth" : "Show Net & Net worth"}
+            aria-label={revealed ? "Hide sensitive figures" : "Show sensitive figures"}
+            class="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {#if revealed}<EyeOff class="size-3.5" />{:else}<Eye class="size-3.5" />{/if}
+          </button>
+        </div>
+        <div class="mt-1 font-display text-2xl font-semibold tabular-nums text-foreground">
+          {money_masked(overview.net_worth)}
+        </div>
+      </div>
     </div>
 
-    <!-- Top categories -->
+    <!-- Top categories — each shows its 3–6 month trend as mini vertical bars
+         (how it's trending, not just this month). Click a row to drill in. -->
     {@const cats = overview.top_categories ?? []}
+    {@const months = overview.trend_months ?? []}
     {#if cats.length}
-      {@const catMax = Math.max(1, ...cats.map((c) => c.total))}
       <div class="rounded-lg border border-border bg-card p-4">
-        <div class="mb-3 text-sm font-medium">Top categories</div>
-        <div class="space-y-2.5">
+        <div class="mb-3 text-sm font-medium">Categories — 6-month trend</div>
+        <div class="divide-y divide-border">
           {#each cats as c (c.category)}
-            <div class="space-y-1">
-              <div class="flex items-center justify-between text-sm">
-                <span class="capitalize">{c.category}</span>
-                <span class="font-mono tabular-nums text-muted-foreground">{money(c.total)}</span>
-              </div>
-              <div class="h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                  class="h-full rounded-full bg-primary/70"
-                  style={`width: ${(c.total / catMax) * 100}%`}
-                ></div>
-              </div>
-            </div>
+            {@const tmax = Math.max(1, ...(c.trend ?? [c.total]))}
+            <button
+              type="button"
+              onclick={() => (drillCategory = c.category)}
+              class="flex w-full items-center gap-3 py-2.5 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:bg-muted/40"
+            >
+              <span class="w-24 shrink-0 truncate text-sm capitalize">{c.category}</span>
+              <!-- mini vertical bars -->
+              <span class="flex h-8 flex-1 items-end gap-0.5">
+                {#each c.trend ?? [c.total] as v, i (i)}
+                  <span
+                    class={[
+                      "min-h-[2px] w-full rounded-sm",
+                      i === (c.trend?.length ?? 1) - 1 ? "bg-primary" : "bg-primary/35",
+                    ].join(" ")}
+                    style={`height: ${(v / tmax) * 100}%`}
+                    title={months[i] ? `${months[i]}: ${money(v)}` : money(v)}
+                  ></span>
+                {/each}
+              </span>
+              <span class="w-24 shrink-0 text-right font-mono text-sm tabular-nums text-muted-foreground">
+                {money(c.total)}
+              </span>
+              <ChevronRight class="size-4 shrink-0 text-muted-foreground" />
+            </button>
           {/each}
         </div>
       </div>
@@ -312,6 +395,55 @@
     </div>
   {/if}
 </div>
+
+<!-- Category drill-down (overlay): the selected category's 6-month trend + an
+     "ask AI" to see its transactions. Open when drillCategory is set. -->
+<EditSheet
+  open={drillCategory !== null}
+  title={drillCategory ? `${drillCategory} — 6-month trend` : "Category"}
+  footer={false}
+  onClose={() => (drillCategory = null)}
+>
+  {#if drillData}
+    {@const months = overview?.trend_months ?? []}
+    {@const tmax = Math.max(1, ...(drillData.trend ?? [drillData.total]))}
+    <div class="space-y-4">
+      <div>
+        <div class="text-xs text-muted-foreground">This month</div>
+        <div class="font-display text-3xl font-semibold tabular-nums">{money(drillData.total)}</div>
+      </div>
+      <div class="flex h-44 items-end gap-1.5">
+        {#each drillData.trend ?? [drillData.total] as v, i (i)}
+          {@const isCurrent = i === (drillData.trend?.length ?? 1) - 1}
+          <div class="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+            <!-- value above the bar, compact (no currency code to avoid overflow) -->
+            <div class="text-[10px] tabular-nums text-muted-foreground">
+              {v.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </div>
+            <div class="flex w-full flex-1 items-end">
+              <div
+                class={["w-full rounded-t", isCurrent ? "bg-primary" : "bg-primary/40"].join(" ")}
+                style={`height: ${Math.max(4, (v / tmax) * 100)}%`}
+                title={`${months[i] ?? ""}: ${money(v)}`}
+              ></div>
+            </div>
+            <div class={["text-[10px]", isCurrent ? "font-medium text-foreground" : "text-muted-foreground"].join(" ")}>
+              {months[i] ?? ""}
+            </div>
+          </div>
+        {/each}
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        class="w-full"
+        onclick={() => { send(`Show my ${drillData?.category} transactions and how it's trending`); drillCategory = null; }}
+      >
+        <MessageCircle class="size-4" /> Ask about {drillData.category}
+      </Button>
+    </div>
+  {/if}
+</EditSheet>
 
 <!-- Budget overlay editor -->
 <EditSheet

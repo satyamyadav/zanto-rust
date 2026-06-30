@@ -20,7 +20,10 @@ export type MockAccount = { name: string; type: string; opening_balance: number 
 export type MockBudget = { category: string; limit: number };
 export type MockGoal = { name: string; kind: "savings" | "debt"; account: string; target: number; target_date?: string };
 
-const CURRENCY = "USD";
+// Currency is a SETTING, not a hardcoded default — the whole view uses whatever
+// the user configured (single-currency display). Mutable so the settings flow can
+// change it. Defaults to AED here to prove it's not USD-hardcoded.
+let currency = "AED";
 const CATEGORIES = ["groceries", "dining", "transport", "utilities", "rent", "subscriptions", "shopping", "income"];
 
 // Merchant→category memory (the "correct once, rule forever" loop, mocked).
@@ -99,8 +102,17 @@ function overview() {
   const byCat: Record<string, number> = {};
   for (const t of monthTxns.filter((t) => t.type === "expense"))
     byCat[t.category] = (byCat[t.category] ?? 0) + t.amount;
+  // Per-category 6-month trend (mock: deterministic pseudo-history ending at the
+  // real current-month total) so each category can show how it's trending.
+  const trendMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+  const catTrend = (cat: string, current: number): number[] => {
+    const seed = [...cat].reduce((s, c) => s + c.charCodeAt(0), 0);
+    return trendMonths.map((_, i) =>
+      i === 5 ? current : Math.round(current * (0.4 + ((seed + i * 37) % 70) / 100)),
+    );
+  };
   const top_categories = Object.entries(byCat)
-    .map(([category, total]) => ({ category, total }))
+    .map(([category, total]) => ({ category, total, trend: catTrend(category, total) }))
     .sort((a, b) => b.total - a.total);
   const uncategorized = monthTxns.filter((t) => t.type === "expense" && t.category === "uncategorized").length;
 
@@ -119,7 +131,8 @@ function overview() {
 
   return {
     empty: txns.length === 0,
-    currency: CURRENCY,
+    currency,
+    trend_months: trendMonths,
     month: MONTH,
     income, spent, net: income - spent,
     safe_to_spend,
@@ -142,7 +155,7 @@ function overview() {
 export async function financeQuery(query: string, _args: any): Promise<any> {
   switch (query) {
     case "overview": return overview();
-    case "profile": return { setup: true, currency: CURRENCY, monthly_income: 3200, categories: CATEGORIES };
+    case "profile": return { setup: true, currency, monthly_income: 3200, categories: CATEGORIES };
     case "categories": return CATEGORIES;
     case "list_transactions":
       return { rows: [...txns].sort((a, b) => b.date.localeCompare(a.date)) };
@@ -184,6 +197,7 @@ export async function financeAction(action: string, args: any): Promise<any> {
       }
       return { updated: (args.ids ?? []).length };
     }
+    case "save_profile": { if (args.currency) currency = String(args.currency).toUpperCase(); return { currency }; }
     case "save_accounts": { accounts.length = 0; accounts.push(...(args.accounts ?? [])); return { accounts }; }
     case "save_budgets": { budgets = args.budgets ?? []; return { budgets }; }
     case "save_goals": { goals = args.goals ?? []; return { goals }; }

@@ -42,8 +42,11 @@ test("R-6: monthly_summary renders inline as a block, no tool-call card", async 
   // 3. Assert the monthly_summary component rendered inline.
   //    monthly_summary.svelte renders data.month in a <div class="text-sm font-medium">.
   await expect(page.getByText("June 2026")).toBeVisible();
-  //    by_category rows render each c.category in a <span>; "Dining" is our canned entry.
-  await expect(page.getByText("Dining")).toBeVisible();
+  //    by_category rows render each c.category verbatim ("Dining", capital D). The
+  //    FinanceV1 dashboard in the canvas lists lowercase "dining" (capitalized via
+  //    CSS only — DOM text stays "dining"), so an exact-case match selects just the
+  //    chat block's entry and avoids the strict-mode collision.
+  await expect(page.getByText("Dining", { exact: true })).toBeVisible();
 
   // 4. Assert NO tool-call card for the summary.
   //    A tool-call card would display the tool/component name "monthly_summary".
