@@ -11,9 +11,10 @@
   import CopyIcon from "@lucide/svelte/icons/copy";
   import XIcon from "@lucide/svelte/icons/x";
 
-  // The v1 finance redesign is mock-only for now (its backend shapes don't exist
-  // in the real Rust app yet). `dev:mock` runs under Vite mode "mock".
-  const financeV1 = import.meta.env.MODE === "mock";
+  // The v1 finance redesign (4-tab dashboard). The real Rust `overview` now emits
+  // the shapes it needs (W5 typed storage + the additive FinanceV1 fields), and the
+  // agent tools (W2) back its "edit with AI" actions — so it's live in the real app.
+  const financeV1 = true;
 
   const promotedHost = $derived.by(() => {
     if (!sessionStore.promotedLink) return null;

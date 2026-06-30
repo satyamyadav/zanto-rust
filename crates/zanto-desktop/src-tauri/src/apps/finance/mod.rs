@@ -528,6 +528,8 @@ impl FinanceApp {
         let mut by_cat: HashMap<String, f64> = HashMap::new(); // this month, expenses
                                                                // Per-month EXPENSE, keyed by YYYY-MM (the 6-month spend series).
         let mut by_month: HashMap<String, f64> = HashMap::new();
+        // Per-month INCOME (for the stacked cashflow chart's income/savings).
+        let mut income_by_month: HashMap<String, f64> = HashMap::new();
 
         for r in &all {
             let t = normalize_txn(&r.data);
@@ -538,6 +540,9 @@ impl FinanceApp {
                 if t.category == "uncategorized" {
                     uncategorized_count += 1;
                 }
+            }
+            if matches!(t.kind, TxnKind::Income) && t.date.len() >= 7 {
+                *income_by_month.entry(t.date[..7].to_string()).or_insert(0.0) += t.amount;
             }
             if t.date.starts_with(&this_month) {
                 match t.kind {
@@ -613,6 +618,65 @@ impl FinanceApp {
             .and_then(|v| v.as_f64())
             .unwrap_or(net_worth);
 
+        // ── FinanceV1 (4-tab dashboard) additive fields. The legacy keys above
+        //    stay for the old Dashboard; these power the new UI. ──
+        // Currency from the profile (single-currency view).
+        let profile = self.get_profile(data).unwrap_or_else(|_| json!({}));
+        let currency = profile
+            .get("currency")
+            .and_then(|v| v.as_str())
+            .unwrap_or("USD")
+            .to_string();
+        let monthly_income_setting = profile.get("monthly_income").and_then(|v| v.as_f64());
+
+        // Short month labels (Jan…) aligned to the 6-month `months` window.
+        const MON: [&str; 12] = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
+        let trend_months: Vec<String> = months
+            .iter()
+            .map(|m| {
+                m.get(5..7)
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .and_then(|n| MON.get(n.saturating_sub(1)))
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| m.clone())
+            })
+            .collect();
+
+        // Stacked cashflow per month: income / spend / savings(=income−spend, ≥0).
+        let monthly: Vec<Value> = months
+            .iter()
+            .zip(trend_months.iter())
+            .map(|(ym, label)| {
+                let inc = *income_by_month.get(ym).unwrap_or(&0.0);
+                let sp = *by_month.get(ym).unwrap_or(&0.0);
+                json!({ "month": label, "income": inc, "spend": sp, "savings": (inc - sp).max(0.0) })
+            })
+            .collect();
+
+        // Safe-to-spend (W3): income this month (or the monthly_income setting if
+        // larger/known) minus what's already spent minus what's still budgeted but
+        // unspent. Deterministic; never negative.
+        let base_income = monthly_income_setting.filter(|v| *v > 0.0).unwrap_or(income);
+        let budget_remaining: f64 = budget_status
+            .iter()
+            .filter_map(|b| {
+                let lim = b.get("limit").and_then(|v| v.as_f64())?;
+                let sp = b.get("spent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                Some((lim - sp).max(0.0))
+            })
+            .sum();
+        let safe_to_spend = (base_income - month_total - budget_remaining).max(0.0);
+
+        // This-month category breakdown (donut). Detected subscriptions.
+        let category_breakdown = top_categories.clone();
+        let subscriptions = self
+            .compute_recurring(data)
+            .ok()
+            .and_then(|v| v.get("recurring").cloned())
+            .unwrap_or_else(|| json!([]));
+
         Ok(json!({
             "empty": false,
             "balance": balance,
@@ -633,6 +697,15 @@ impl FinanceApp {
             "projected_net_worth": projected_net_worth,
             "pace_warnings": pace_warnings,
             "series": { "labels": months, "data": series },
+            // FinanceV1 additive fields:
+            "currency": currency,
+            "spent": month_total,
+            "net": income - month_total,
+            "safe_to_spend": safe_to_spend,
+            "trend_months": trend_months,
+            "monthly": monthly,
+            "category_breakdown": category_breakdown,
+            "subscriptions": subscriptions,
         }))
     }
 
@@ -1837,6 +1910,14 @@ impl App for FinanceApp {
             "category_rules" => self
                 .get_category_rules(data)
                 .map(|rules| json!({ "rules": rules })),
+            // The category list (for the UI's category pickers). Returns a bare
+            // JSON array of names — what FinanceV1's `categories` query expects.
+            "categories" => Ok(Value::Array(
+                self.profile_categories(data)
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
+            )),
             other => Err(format!("unknown query: {other}")),
         }
     }
@@ -1855,6 +1936,9 @@ impl App for FinanceApp {
             "save_accounts" => self.do_save_accounts(data, args),
             "add_transfer" => self.do_add_transfer(data, args),
             "save_goals" => self.do_save_goals(data, args),
+            // FinanceV1's bulk-recategorize calls this via runAppAction (the UI
+            // path), the same handler the agent's tool uses.
+            "categorize_transactions" => self.agent_categorize(data, args),
             "migrate_transactions" => {
                 // No-op since W5: storage is typed from the first write, so there is
                 // nothing to backfill. Kept for action-name compatibility.

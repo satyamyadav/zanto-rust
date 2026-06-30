@@ -449,6 +449,30 @@ fn agent_tools_set_budget_account_goal_and_categorize() {
     assert_eq!(row["category"], "groceries", "categorize_transactions should set the category");
 }
 
+#[test]
+fn overview_emits_financev1_fields() {
+    let (app, ds, _dir) = app_and_store();
+    let m = today_month();
+    app.action(&ds, "save_profile", json!({ "currency": "AED", "monthly_income": 3000 })).unwrap();
+    app.action(&ds, "save_accounts", json!({ "accounts": [{ "name": "Checking", "type": "checking", "opening_balance": 0 }] })).unwrap();
+    app.action(&ds, "add_transaction", json!({ "type": "income", "amount": 3000, "account": "Checking", "date": format!("{m}-01") })).unwrap();
+    app.action(&ds, "add_transaction", json!({ "amount": 200, "category": "groceries", "account": "Checking", "date": format!("{m}-05") })).unwrap();
+
+    let ov = app.query(&ds, "overview", json!({})).unwrap();
+    // The additive FinanceV1 fields exist with the right shapes.
+    assert_eq!(ov["currency"], "AED");
+    assert_eq!(ov["spent"], 200.0);
+    assert_eq!(ov["net"], 2800.0); // 3000 − 200
+    assert!(ov["safe_to_spend"].as_f64().unwrap() >= 0.0);
+    assert!(ov["monthly"].as_array().unwrap().len() == 6, "6-month cashflow series");
+    // each monthly entry has income/spend/savings
+    let last = ov["monthly"].as_array().unwrap().last().unwrap();
+    assert!(last.get("income").is_some() && last.get("spend").is_some() && last.get("savings").is_some());
+    assert!(ov["trend_months"].as_array().unwrap().len() == 6);
+    assert!(ov["category_breakdown"].is_array());
+    assert!(ov["subscriptions"].is_array());
+}
+
 /// Current month as `YYYY-MM` (matches the app's `today()`), for month-scoped tests.
 fn today_month() -> String {
     today()[..7].to_string()
