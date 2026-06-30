@@ -11,7 +11,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import AlertCircle from "@lucide/svelte/icons/alert-circle";
   import TrendingUp from "@lucide/svelte/icons/trending-up";
-  import TrendingDown from "@lucide/svelte/icons/trending-down";
+  import Receipt from "@lucide/svelte/icons/receipt";
   import Scale from "@lucide/svelte/icons/scale";
   import Landmark from "@lucide/svelte/icons/landmark";
   import Target from "@lucide/svelte/icons/target";
@@ -173,16 +173,18 @@
       </button>
     {/if}
 
-    <!-- KPI cards: semantic colors (income green, spend rose, net by sign,
-         net worth neutral). Net + Net worth are masked behind a reveal toggle. -->
+    <!-- KPI cards. Color carries MEANING, not decoration: green = money in / a
+         positive net; red is reserved for a genuinely bad state (a negative net).
+         Spending is a neutral fact — NOT red (spending isn't a failure, and spend
+         going down is good; over-budget is signalled by the budget bars instead). -->
     {@const netPositive = (overview.net ?? 0) >= 0}
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <!-- Spent (rose/red) -->
-      <div class="rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/30">
-        <div class="flex items-center gap-1.5 text-xs text-rose-700 dark:text-rose-300">
-          <TrendingDown class="size-3.5" /> Spent
+      <!-- Spent (neutral) -->
+      <div class="rounded-lg border border-border bg-card p-3">
+        <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Receipt class="size-3.5" /> Spent
         </div>
-        <div class="mt-1 font-display text-2xl font-semibold tabular-nums text-rose-700 dark:text-rose-300">
+        <div class="mt-1 font-display text-2xl font-semibold tabular-nums text-foreground">
           {money(overview.spent)}
         </div>
       </div>

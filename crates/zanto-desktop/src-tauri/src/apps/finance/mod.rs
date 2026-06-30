@@ -13,6 +13,7 @@ use zanto_core::session::{format_ts_display, unix_now_pub};
 
 mod aggregate;
 mod import;
+mod schema;
 use aggregate::*;
 pub(crate) use import::suggest_mapping;
 use import::{coerce_amount, import_hash, import_row_to_args, migrate_legacy_transactions};

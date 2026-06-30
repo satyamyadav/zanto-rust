@@ -183,6 +183,27 @@ impl DataStore {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    /// The active workspace — callers building typed SQL scope their `fin_*`
+    /// rows by this, the same way the JSON stores are workspace-isolated.
+    pub fn workspace(&self) -> &str {
+        &self.workspace
+    }
+
+    /// Lend the underlying connection for raw, typed SQL (e.g. the finance app's
+    /// `fin_*` tables) over the same WAL connection — no second connection, no lock
+    /// contention. The closure runs while the connection mutex is held.
+    ///
+    /// IMPORTANT: the closure MUST NOT call back into any other `DataStore` method
+    /// (insert/query/create_store/…) — they re-lock the same mutex and would
+    /// deadlock. Do all DataStore JSON work before/after, never inside.
+    pub fn with_conn<T>(
+        &self,
+        f: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> Result<T, DataError> {
+        let conn = self.conn.lock().unwrap();
+        f(&conn).map_err(DataError::Db)
+    }
+
     /// Insert a JSON record; returns its row id.
     pub fn insert(&self, store: &str, record: &Value) -> Result<i64, DataError> {
         let conn = self.conn.lock().unwrap();
