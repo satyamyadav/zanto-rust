@@ -3,12 +3,17 @@
   import { sessionStore } from "$lib/stores/session.svelte";
   import { appStore, activeApp } from "$lib/stores/app.svelte";
   import Dashboard from "$lib/apps/finance/Dashboard.svelte";
+  import FinanceV1 from "$lib/apps/finance/FinanceV1.svelte";
   import ArtifactHub from "$lib/components/ArtifactHub.svelte";
   import { openExternal, copyLink } from "$lib/links.svelte";
   import { Button } from "$lib/components/ui/button";
   import ExternalLinkIcon from "@lucide/svelte/icons/external-link";
   import CopyIcon from "@lucide/svelte/icons/copy";
   import XIcon from "@lucide/svelte/icons/x";
+
+  // The v1 finance redesign is mock-only for now (its backend shapes don't exist
+  // in the real Rust app yet). `dev:mock` runs under Vite mode "mock".
+  const financeV1 = import.meta.env.MODE === "mock";
 
   const promotedHost = $derived.by(() => {
     if (!sessionStore.promotedLink) return null;
@@ -107,7 +112,14 @@
     </div>
   {:else if appStore.activeId === "finance"}
     <div data-testid="canvas-scroll" class="h-full min-h-0 overflow-y-auto">
-      <Dashboard />
+      <!-- FinanceV1 is the validated v1 redesign (4 tabs, dual-path edit). It's
+           gated to mock mode until the real Rust backend returns its shapes
+           (W5/W2/W1); the real app keeps the current Dashboard meanwhile. -->
+      {#if financeV1}
+        <FinanceV1 />
+      {:else}
+        <Dashboard />
+      {/if}
     </div>
   {:else}
     <div class="flex h-full items-center justify-center p-6">

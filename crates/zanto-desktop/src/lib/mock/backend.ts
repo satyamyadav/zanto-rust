@@ -3,6 +3,7 @@ import type {
 } from "$lib/ipc";
 import { emit } from "./event";
 import { defaultScenario, pickScenario } from "./scenarios";
+import { financeQuery, financeAction } from "./finance";
 
 import getConfigFx from "../../../contract/fixtures/get_config.json";
 import listAppsFx from "../../../contract/fixtures/list_apps.json";
@@ -186,8 +187,10 @@ export const backend: Record<string, (args: any) => Promise<unknown>> = {
     pinned.push({ id, component_id: a.componentId, title: a.title ?? null, target: "inline", created_at: 1718900000, data: a.data });
     return id;
   },
-  query_app: async (): Promise<any> => ({ income: 2000, spent: 12.5, net: 1987.5, by_category: { dining: 12.5 } }),
-  run_app_action: async (): Promise<any> => ({}),
+  query_app: async (a: { id: string; query: string; args: any }): Promise<any> =>
+    a?.id === "finance" ? financeQuery(a.query, a.args) : ({ income: 2000, spent: 12.5, net: 1987.5, by_category: { dining: 12.5 } }),
+  run_app_action: async (a: { id: string; action: string; args: any }): Promise<any> =>
+    a?.id === "finance" ? financeAction(a.action, a.args) : ({}),
   // Minimal seed so the @-tag autocomplete (C-8) has entries to display.
   // When descending into "src", returns a child file so keyboard descend is testable.
   browse_dir: async (a: { path?: string }): Promise<{ name: string; path: string; isDir: boolean }[]> => {
