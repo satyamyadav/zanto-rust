@@ -142,6 +142,16 @@ function overview() {
     budget_status,
     goal_status,
     accounts: accounts.map((a) => ({ name: a.name, type: a.type, balance: accountBalance(a.name) })),
+    // Monthly stacked cashflow: income / spend / savings per month (6 months).
+    // Mock: deterministic pseudo-history ending at the real current month.
+    monthly: trendMonths.map((label, i) => {
+      if (i === 5) return { month: label, income, spend: spent, savings: Math.max(0, income - spent) };
+      const inc = 2800 + ((i * 53) % 700);
+      const sp = 1500 + ((i * 97) % 900);
+      return { month: label, income: inc, spend: sp, savings: Math.max(0, inc - sp) };
+    }),
+    // This month's spend by category (for the donut).
+    category_breakdown: top_categories.map((c) => ({ category: c.category, total: c.total })),
     // Insights (folded in): a 6-month spend series + detected subscriptions.
     series: { labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"], data: [0, 0, 0, 0, 0, spent] },
     subscriptions: [

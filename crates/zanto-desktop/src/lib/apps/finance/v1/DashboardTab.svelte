@@ -18,7 +18,6 @@
   import Repeat from "@lucide/svelte/icons/repeat";
   import Eye from "@lucide/svelte/icons/eye";
   import EyeOff from "@lucide/svelte/icons/eye-off";
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
 
   type Category = { category: string; total: number; trend?: number[] };
   type BudgetStatus = { category: string; limit: number; spent: number };
@@ -40,6 +39,8 @@
     net_worth?: number;
     top_categories?: Category[];
     trend_months?: string[];
+    monthly?: { month: string; income: number; spend: number; savings: number }[];
+    category_breakdown?: { category: string; total: number }[];
     uncategorized_count?: number;
     budget_status?: BudgetStatus[];
     goal_status?: GoalStatus[];
@@ -67,6 +68,34 @@
   let drillCategory = $state<string | null>(null);
   const drillData = $derived(
     (overview?.top_categories ?? []).find((c) => c.category === drillCategory) ?? null,
+  );
+
+  // Month drill-down: which month's stacked bar is open (null = none).
+  let drillMonth = $state<string | null>(null);
+  const drillMonthData = $derived(
+    (overview?.monthly ?? []).find((m) => m.month === drillMonth) ?? null,
+  );
+
+  // Donut geometry: build conic-gradient stops for this month's category spend.
+  const donutPalette = [
+    "#8b5cf6", "#10b981", "#f59e0b", "#3b82f6", "#ec4899", "#14b8a6", "#f43f5e", "#a3a3a3",
+  ];
+  const donut = $derived.by(() => {
+    const items = (overview?.category_breakdown ?? []).filter((c) => c.total > 0);
+    const total = items.reduce((s, c) => s + c.total, 0) || 1;
+    let acc = 0;
+    const stops = items.map((c, i) => {
+      const from = (acc / total) * 100;
+      acc += c.total;
+      const to = (acc / total) * 100;
+      return { category: c.category, total: c.total, color: donutPalette[i % donutPalette.length], from, to };
+    });
+    return { items: stops, total };
+  });
+  const donutGradient = $derived(
+    donut.items.length
+      ? `conic-gradient(${donut.items.map((s) => `${s.color} ${s.from}% ${s.to}%`).join(", ")})`
+      : "conic-gradient(var(--muted) 0% 100%)",
   );
 
   async function load() {
@@ -120,8 +149,6 @@
     }
   }
 
-  // Sparkline helper: scale series to a 0..1 height.
-  const seriesMax = $derived(Math.max(1, ...(overview?.series?.data ?? [0])));
 </script>
 
 <div class="space-y-5">
@@ -243,44 +270,80 @@
       </div>
     </div>
 
-    <!-- Top categories — each shows its 3–6 month trend as mini vertical bars
-         (how it's trending, not just this month). Click a row to drill in. -->
-    {@const cats = overview.top_categories ?? []}
-    {@const months = overview.trend_months ?? []}
-    {#if cats.length}
-      <div class="rounded-lg border border-border bg-card p-4">
-        <div class="mb-3 text-sm font-medium">Categories — 6-month trend</div>
-        <div class="divide-y divide-border">
-          {#each cats as c (c.category)}
-            {@const tmax = Math.max(1, ...(c.trend ?? [c.total]))}
-            <button
-              type="button"
-              onclick={() => (drillCategory = c.category)}
-              class="flex w-full items-center gap-3 py-2.5 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:bg-muted/40"
-            >
-              <span class="w-24 shrink-0 truncate text-sm capitalize">{c.category}</span>
-              <!-- mini vertical bars -->
-              <span class="flex h-8 flex-1 items-end gap-0.5">
-                {#each c.trend ?? [c.total] as v, i (i)}
-                  <span
-                    class={[
-                      "min-h-[2px] w-full rounded-sm",
-                      i === (c.trend?.length ?? 1) - 1 ? "bg-primary" : "bg-primary/35",
-                    ].join(" ")}
-                    style={`height: ${(v / tmax) * 100}%`}
-                    title={months[i] ? `${months[i]}: ${money(v)}` : money(v)}
-                  ></span>
-                {/each}
-              </span>
-              <span class="w-24 shrink-0 text-right font-mono text-sm tabular-nums text-muted-foreground">
-                {money(c.total)}
-              </span>
-              <ChevronRight class="size-4 shrink-0 text-muted-foreground" />
-            </button>
-          {/each}
+    <!-- Cashflow trend (stacked monthly: income / spend / savings) + this-month
+         category donut, side by side. -->
+    {@const monthly = overview.monthly ?? []}
+    <div class="grid gap-3 lg:grid-cols-5">
+      <!-- Stacked monthly bar chart (3 of 5 cols) -->
+      {#if monthly.length}
+        {@const stackMax = Math.max(1, ...monthly.map((m) => m.income + m.spend + m.savings))}
+        <div class="rounded-lg border border-border bg-card p-4 lg:col-span-3">
+          <div class="mb-1 text-sm font-medium">Cashflow — last 6 months</div>
+          <div class="mb-3 flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-emerald-500"></span>Income</span>
+            <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-rose-400"></span>Spend</span>
+            <span class="flex items-center gap-1"><span class="size-2 rounded-sm bg-blue-500"></span>Savings</span>
+          </div>
+          <div class="flex h-40 items-end gap-2">
+            {#each monthly as m (m.month)}
+              {@const tot = m.income + m.spend + m.savings}
+              {@const barH = (tot / stackMax) * 100}
+              <button
+                type="button"
+                onclick={() => (drillMonth = m.month)}
+                title={`${m.month}: income ${money(m.income)}, spend ${money(m.spend)}, savings ${money(m.savings)}`}
+                class="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 outline-none"
+              >
+                <!-- one stacked bar: savings(top) / spend / income(bottom), each
+                     sized as a % of the WHOLE chart so segments add up to barH. -->
+                <div
+                  class="flex w-full flex-col overflow-hidden rounded-t ring-primary/40 transition-all group-hover:ring-2"
+                  style={`height: ${barH}%`}
+                >
+                  <div class="w-full bg-blue-500" style={`height: ${(m.savings / tot) * 100}%`}></div>
+                  <div class="w-full bg-rose-400" style={`height: ${(m.spend / tot) * 100}%`}></div>
+                  <div class="w-full bg-emerald-500" style={`height: ${(m.income / tot) * 100}%`}></div>
+                </div>
+                <div class="text-[10px] text-muted-foreground group-hover:text-foreground">{m.month}</div>
+              </button>
+            {/each}
+          </div>
         </div>
-      </div>
-    {/if}
+      {/if}
+
+      <!-- This-month category donut (2 of 5 cols) -->
+      {#if donut.items.length}
+        <div class="rounded-lg border border-border bg-card p-4 lg:col-span-2">
+          <div class="mb-3 text-sm font-medium">This month by category</div>
+          <div class="flex items-center gap-4">
+            <div class="relative size-28 shrink-0">
+              <div class="size-28 rounded-full" style={`background: ${donutGradient}`}></div>
+              <!-- donut hole -->
+              <div class="absolute inset-[18%] flex flex-col items-center justify-center rounded-full bg-card text-center">
+                <div class="text-[10px] text-muted-foreground">Spent</div>
+                <div class="font-display text-sm font-semibold tabular-nums">{money(overview.spent)}</div>
+              </div>
+            </div>
+            <ul class="min-w-0 flex-1 space-y-0.5 text-xs">
+              {#each donut.items.slice(0, 6) as s (s.category)}
+                <li>
+                  <button
+                    type="button"
+                    onclick={() => (drillCategory = s.category)}
+                    class="flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left outline-none transition-colors hover:bg-muted/50"
+                    title={`View ${s.category} trend`}
+                  >
+                    <span class="size-2 shrink-0 rounded-sm" style={`background: ${s.color}`}></span>
+                    <span class="min-w-0 flex-1 truncate capitalize">{s.category}</span>
+                    <span class="font-mono tabular-nums text-muted-foreground">{money(s.total)}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        </div>
+      {/if}
+    </div>
 
     <!-- Budgets -->
     <div class="rounded-lg border border-border bg-card p-4">
@@ -355,27 +418,8 @@
       </div>
     {/if}
 
-    <!-- Insights: 6-month sparkline + subscriptions -->
-    <div class="grid gap-3 sm:grid-cols-2">
-      {#if overview.series && overview.series.labels.length}
-        <div class="rounded-lg border border-border bg-card p-4">
-          <div class="mb-3 text-sm font-medium">Spend, last 6 months</div>
-          <div class="flex h-24 items-end gap-2">
-            {#each overview.series.data as d, i (i)}
-              <div class="flex flex-1 flex-col items-center gap-1">
-                <div class="flex w-full flex-1 items-end">
-                  <div
-                    class="w-full rounded-t bg-primary/60"
-                    style={`height: ${(d / seriesMax) * 100}%`}
-                  ></div>
-                </div>
-                <div class="text-[10px] text-muted-foreground">{overview.series.labels[i]}</div>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
+    <!-- Subscriptions (the 6-month spend card is now the Cashflow chart above). -->
+    <div>
       {#if (overview.subscriptions ?? []).length}
         <div class="rounded-lg border border-border bg-card p-4">
           <div class="mb-3 flex items-center gap-1.5 text-sm font-medium">
@@ -442,6 +486,39 @@
         onclick={() => { send(`Show my ${drillData?.category} transactions and how it's trending`); drillCategory = null; }}
       >
         <MessageCircle class="size-4" /> Ask about {drillData.category}
+      </Button>
+    </div>
+  {/if}
+</EditSheet>
+
+<!-- Month drill-down (overlay): the selected month's income / spend / savings. -->
+<EditSheet
+  open={drillMonth !== null}
+  title={drillMonth ? `${drillMonth} — cashflow` : "Month"}
+  footer={false}
+  onClose={() => (drillMonth = null)}
+>
+  {#if drillMonthData}
+    <div class="space-y-3">
+      <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+        <div class="text-xs text-emerald-700 dark:text-emerald-300">Income</div>
+        <div class="font-display text-2xl font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{money(drillMonthData.income)}</div>
+      </div>
+      <div class="rounded-lg border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/30">
+        <div class="text-xs text-rose-700 dark:text-rose-300">Spend</div>
+        <div class="font-display text-2xl font-semibold tabular-nums text-rose-700 dark:text-rose-300">{money(drillMonthData.spend)}</div>
+      </div>
+      <div class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/30">
+        <div class="text-xs text-blue-700 dark:text-blue-300">Saved</div>
+        <div class="font-display text-2xl font-semibold tabular-nums text-blue-700 dark:text-blue-300">{money(drillMonthData.savings)}</div>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        class="w-full"
+        onclick={() => { send(`Show my spending for ${drillMonthData?.month}`); drillMonth = null; }}
+      >
+        <MessageCircle class="size-4" /> Ask about {drillMonthData.month}
       </Button>
     </div>
   {/if}
