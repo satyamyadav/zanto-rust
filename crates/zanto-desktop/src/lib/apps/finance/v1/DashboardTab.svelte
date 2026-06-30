@@ -26,7 +26,9 @@
     name: string;
     kind: "savings" | "debt";
     target: number;
-    current: number;
+    progress: number; // 0..1, set for both kinds by compute_goal_status
+    current?: number; // savings goals only
+    owed?: number; // debt goals only
     target_date?: string;
   };
   type Subscription = { merchant: string; amount: number; cadence?: string };
@@ -404,18 +406,25 @@
         </div>
         <div class="space-y-3">
           {#each overview.goal_status ?? [] as g (g.name)}
-            {@const pct = g.target > 0 ? g.current / g.target : 0}
+            <!-- compute_goal_status emits `progress` (0..1) for both kinds; debt
+                 goals carry `owed` (not `current`). Label by kind, drive the bar
+                 off `progress` so it never reads NaN. -->
+            {@const pct = g.progress ?? 0}
             <div class="space-y-1">
               <div class="flex items-center justify-between text-sm">
                 <span>{g.name}</span>
                 <span class="font-mono tabular-nums text-muted-foreground">
-                  {money(g.current)} / {money(g.target)}
+                  {#if g.kind === "debt"}
+                    {money(g.owed ?? 0)} left
+                  {:else}
+                    {money(g.current ?? 0)} / {money(g.target)}
+                  {/if}
                 </span>
               </div>
               <div class="h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   class="h-full rounded-full bg-primary"
-                  style={`width: ${Math.min(1, pct) * 100}%`}
+                  style={`width: ${Math.min(1, Math.max(0, pct)) * 100}%`}
                 ></div>
               </div>
               {#if g.target_date}

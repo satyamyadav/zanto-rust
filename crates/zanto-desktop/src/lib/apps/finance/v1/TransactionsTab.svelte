@@ -11,15 +11,20 @@
   import Search from "@lucide/svelte/icons/search";
 
   type Row = {
-    id: number;
+    // Transfers carry a namespaced string id ("tr:<n>"); transactions carry a
+    // numeric id. Only numeric-id rows are editable/deletable.
+    id: number | string;
     date: string;
     merchant: string;
     category: string;
     amount: number;
-    type: "income" | "expense";
+    type: "income" | "expense" | "transfer";
     account: string;
     source: string;
   };
+
+  // A transaction (numeric id) can be edited/categorized; a transfer cannot.
+  const isTxn = (r: Row): r is Row & { id: number } => typeof r.id === "number";
 
   let { initialFilter = "all" }: { initialFilter?: "all" | "uncategorized" } = $props();
 
@@ -64,7 +69,8 @@
     rows.filter((r) => {
       if (onlyUncategorized && r.category !== "uncategorized") return false;
       if (categoryFilter !== "all" && r.category !== categoryFilter) return false;
-      if (searchText && !r.merchant.toLowerCase().includes(searchText.toLowerCase())) return false;
+      // Transfers carry no merchant; guard the optional field.
+      if (searchText && !(r.merchant ?? "").toLowerCase().includes(searchText.toLowerCase())) return false;
       return true;
     }),
   );
@@ -76,6 +82,7 @@
     return opts;
   }
 
+  // Only ever called for numeric (transaction) ids — transfers can't be edited.
   async function setRowCategory(id: number, category: string) {
     try {
       await ipc.runAppAction("finance", "update_transaction", { id, category });
@@ -251,18 +258,20 @@
             <tr class="border-b border-border/50">
               {#if editing}
                 <td class="px-3 py-1.5">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.id)}
-                    onchange={() => toggleSelected(r.id)}
-                    aria-label={`Select ${r.merchant}`}
-                  />
+                  {#if isTxn(r)}
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onchange={() => toggleSelected(r.id)}
+                      aria-label={`Select ${r.merchant}`}
+                    />
+                  {/if}
                 </td>
               {/if}
               <td class="px-3 py-1.5 font-mono tabular-nums text-foreground">{r.date}</td>
-              <td class="px-3 py-1.5 break-words text-foreground">{r.merchant}</td>
+              <td class="px-3 py-1.5 break-words text-foreground">{r.merchant ?? "Transfer"}</td>
               <td class="px-3 py-1.5">
-                {#if editing}
+                {#if editing && isTxn(r)}
                   <select
                     class={selectClass}
                     value={r.category}
@@ -281,16 +290,22 @@
               <td
                 class={[
                   "px-3 py-1.5 text-right font-mono tabular-nums",
-                  r.type === "income" ? "text-success" : "text-destructive",
+                  r.type === "income"
+                    ? "text-success"
+                    : r.type === "transfer"
+                      ? "text-muted-foreground"
+                      : "text-destructive",
                 ].join(" ")}
               >
-                {r.type === "income" ? "+" : "−"}{formatCurrency(r.amount, currency)}
+                {r.type === "income" ? "+" : r.type === "transfer" ? "" : "−"}{formatCurrency(r.amount, currency)}
               </td>
               {#if editing}
                 <td class="px-3 py-1.5 text-right">
-                  <AiEditButton
-                    prompt={`Recategorize the '${r.merchant}' transaction and similar ones`}
-                  />
+                  {#if isTxn(r)}
+                    <AiEditButton
+                      prompt={`Recategorize the '${r.merchant}' transaction and similar ones`}
+                    />
+                  {/if}
                 </td>
               {/if}
             </tr>

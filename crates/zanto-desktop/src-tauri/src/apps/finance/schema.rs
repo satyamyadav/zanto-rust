@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS fin_accounts (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     workspace       TEXT NOT NULL,
     name            TEXT NOT NULL,
-    type            TEXT NOT NULL CHECK(type IN ('checking','savings','card','cash')),
+    type            TEXT NOT NULL CHECK(type IN ('checking','savings','credit','cash','investment')),
     institution     TEXT,
     opening_balance REAL NOT NULL DEFAULT 0,
     currency        TEXT NOT NULL DEFAULT 'USD',

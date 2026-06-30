@@ -470,7 +470,17 @@ impl FinanceApp {
             })
             .map(|r| {
                 let mut o = r.data;
-                o["id"] = json!(r.id);
+                // Transfers live in a separate AUTOINCREMENT table (`fin_transfers`)
+                // whose ids overlap `fin_transactions` ids. Namespace transfer ids
+                // as a string so they can never be fed back to update/delete_transaction
+                // (which take an integer id and run against `fin_transactions`) — a bare
+                // numeric id would otherwise hit a same-numbered, unrelated transaction.
+                let is_transfer = o.get("type").and_then(|v| v.as_str()) == Some("transfer");
+                o["id"] = if is_transfer {
+                    json!(format!("tr:{}", r.id))
+                } else {
+                    json!(r.id)
+                };
                 o
             })
             .collect();
@@ -676,7 +686,7 @@ impl FinanceApp {
         let subscriptions = self
             .compute_recurring(data)
             .ok()
-            .and_then(|v| v.get("recurring").cloned())
+            .and_then(|v| v.get("items").cloned())
             .unwrap_or_else(|| json!([]));
 
         Ok(json!({
@@ -1172,15 +1182,24 @@ impl FinanceApp {
             .ok_or("category is required")?
             .to_string();
         let mut updated = 0u64;
+        let mut resolved = 0u64; // rows that actually landed in the requested category
         for id in ids {
-            if self
-                .do_update_transaction(data, json!({ "id": id, "category": category }))
-                .is_ok()
-            {
+            if let Ok(res) = self.do_update_transaction(data, json!({ "id": id, "category": category })) {
                 updated += 1;
+                let landed = res
+                    .get("record")
+                    .and_then(|r| r.get("category"))
+                    .and_then(|v| v.as_str());
+                if landed.is_some_and(|c| c.eq_ignore_ascii_case(&category)) {
+                    resolved += 1;
+                }
             }
         }
-        Ok(json!({ "updated": updated, "category": category }))
+        // `updated` = rows touched; `resolved` = rows that actually landed in
+        // `category`. They differ when the category isn't a known one and no
+        // rule matches, so the row falls back to "uncategorized" — report that
+        // honestly rather than claiming success.
+        Ok(json!({ "updated": resolved, "touched": updated, "category": category }))
     }
 
     /// Persist per-category budgets (replace-set). Keeps only entries with a
@@ -1484,13 +1503,17 @@ impl FinanceApp {
 // ---- typed-storage SQL helpers (run inside `with_conn`) ----
 
 /// Map an arbitrary stored account-type string onto the CHECK-allowed set
-/// (`checking|savings|card|cash`). Anything unrecognized → `cash`, matching the
-/// JSON era's lenient default.
+/// (`checking|savings|credit|cash|investment`). `card` is accepted as a legacy
+/// alias for `credit`. Anything unrecognized → `cash`, matching the JSON era's
+/// lenient default. This set is the single source of truth — it must match the
+/// `fin_accounts.type` CHECK in schema.rs, the `add_account` agent-tool enum, and
+/// the AccountsTab dropdown.
 fn normalize_account_type(t: &str) -> &'static str {
     match t.to_lowercase().as_str() {
         "checking" => "checking",
         "savings" => "savings",
-        "card" => "card",
+        "credit" | "card" => "credit",
+        "investment" => "investment",
         _ => "cash",
     }
 }
@@ -1800,12 +1823,12 @@ impl App for FinanceApp {
                     "required": ["category", "limit"]
                 })),
             GenaiTool::new("add_account")
-                .with_description("Add one of the user's accounts (checking/savings/card/cash) with an optional opening balance.")
+                .with_description("Add one of the user's accounts (checking/savings/credit/cash/investment) with an optional opening balance.")
                 .with_schema(json!({
                     "type": "object",
                     "properties": {
                         "name": { "type": "string" },
-                        "type": { "type": "string", "enum": ["checking", "savings", "card", "cash"], "description": "Defaults to cash" },
+                        "type": { "type": "string", "enum": ["checking", "savings", "credit", "cash", "investment"], "description": "Defaults to cash" },
                         "opening_balance": { "type": "number", "description": "Current/opening balance; defaults to 0" }
                     },
                     "required": ["name"]

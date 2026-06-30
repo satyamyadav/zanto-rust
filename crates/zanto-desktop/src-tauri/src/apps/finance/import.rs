@@ -29,10 +29,30 @@ fn parse_money(s: &str) -> f64 {
     let negative_paren = t.starts_with('(') && t.ends_with(')');
     let negative_trailing = t.ends_with('-');
     let negative_leading = t.starts_with('-');
-    // Keep only the magnitude digits + decimal point (drops $, commas, spaces, signs).
-    let digits: String = t
+    // Keep digits and BOTH separators (drops $, spaces, signs), then normalize the
+    // decimal separator so European (`1.234,50`) and US (`1,234.50`) both parse.
+    let kept: String = t
         .chars()
-        .filter(|c| c.is_ascii_digit() || *c == '.')
+        .filter(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+        .collect();
+    // Decide which separator is the decimal point. The rightmost `.`/`,` is the
+    // decimal UNLESS it looks like a thousands group: exactly 3 digits follow it and
+    // it's the only separator (e.g. US "1,234" → 1234, not 1.234). Earlier separators
+    // are always thousands grouping and are dropped.
+    let last_sep = kept.rfind(['.', ',']);
+    let decimal_pos = last_sep.filter(|&p| {
+        let trailing = kept.len() - p - 1;
+        let multiple_seps = kept.matches(['.', ',']).count() > 1;
+        // A 3-digit tail with no other separator is a thousands group, not a decimal.
+        !(trailing == 3 && !multiple_seps)
+    });
+    let digits: String = kept
+        .char_indices()
+        .filter_map(|(i, c)| match c {
+            '0'..='9' => Some(c),
+            '.' | ',' if Some(i) == decimal_pos => Some('.'),
+            _ => None, // a thousands separator
+        })
         .collect();
     if digits.is_empty() || digits == "." {
         return 0.0;
@@ -173,6 +193,15 @@ mod tests {
         assert_eq!(coerce_amount(Some(&json!("$ 42.00"))), 42.0);
         // Genuinely non-numeric still reads 0 (reported as an import error upstream).
         assert_eq!(coerce_amount(Some(&json!("n/a"))), 0.0);
+        // European format: dot = thousands, comma = decimal. Previously parsed to 0.0
+        // (the multi-dot string "1.234.50" failed f64::parse) — a silent data loss.
+        assert_eq!(coerce_amount(Some(&json!("1.234,50"))), 1234.5);
+        assert_eq!(coerce_amount(Some(&json!("1.234.567,89"))), 1234567.89);
+        assert_eq!(coerce_amount(Some(&json!("3,50"))), 3.5); // bare comma decimal
+        // Ambiguous "1,234": a 3-digit tail with no other separator is treated as a
+        // thousands group (US convention), not 1.234.
+        assert_eq!(coerce_amount(Some(&json!("1,234"))), 1234.0);
+        assert_eq!(coerce_amount(Some(&json!("1.234"))), 1234.0);
     }
 
     #[test]

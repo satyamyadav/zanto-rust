@@ -473,6 +473,66 @@ fn overview_emits_financev1_fields() {
     assert!(ov["subscriptions"].is_array());
 }
 
+// ---- review fixes: subscriptions key, categorize honesty, transfer id safety ----
+
+#[test]
+fn overview_subscriptions_populated_from_recurring() {
+    // Regression: compute_overview read `.get("recurring")` but compute_recurring
+    // returns `{items:[...]}`, so subscriptions were ALWAYS empty on the real backend.
+    let (app, ds, _dir) = app_and_store();
+    app.action(&ds, "save_accounts", json!({ "accounts": [{ "name": "Checking", "type": "checking", "opening_balance": 0 }] })).unwrap();
+    // ≥3 charges across ≥3 consecutive months with a ~monthly (25–35d) gap → recurring.
+    for date in ["2026-03-03", "2026-04-03", "2026-05-03"] {
+        app.action(&ds, "add_transaction", json!({ "amount": 9.99, "merchant": "Netflix", "account": "Checking", "date": date })).unwrap();
+    }
+    let ov = app.query(&ds, "overview", json!({})).unwrap();
+    let subs = ov["subscriptions"].as_array().unwrap();
+    assert!(
+        subs.iter().any(|s| s["merchant"] == "Netflix"),
+        "subscriptions must surface the detected recurring charge (was always [] before the key fix)"
+    );
+}
+
+#[test]
+fn categorize_reports_resolved_not_requested_category() {
+    // Regression: agent_categorize returned the REQUESTED category and counted every
+    // row as updated, even when an unknown category silently fell back to uncategorized.
+    let (app, ds, _dir) = app_and_store();
+    let m = today_month();
+    app.dispatch_tool(&ds, "add_account", json!({ "name": "Checking", "type": "checking", "opening_balance": 0 })).unwrap().unwrap();
+    let added = app.dispatch_tool(&ds, "add_transaction", json!({ "amount": 5, "merchant": "X", "account": "Checking", "date": format!("{m}-10") })).unwrap().unwrap();
+    let id = match added { AppResult::Data(v) => v["id"].as_i64(), _ => None }.unwrap();
+
+    // A bogus category with no matching rule resolves to "uncategorized".
+    let res = match app.dispatch_tool(&ds, "categorize_transactions", json!({ "ids": [id], "category": "not_a_real_category" })).unwrap().unwrap() {
+        AppResult::Data(v) => v,
+        _ => panic!("expected data"),
+    };
+    assert_eq!(res["updated"], 0, "no row actually landed in the bogus category");
+    let list = app.query(&ds, "list_transactions", json!({})).unwrap();
+    let row = list["rows"].as_array().unwrap().iter().find(|r| r["id"] == id).unwrap();
+    assert_eq!(row["category"], "uncategorized", "row stays uncategorized, not falsely reported");
+}
+
+#[test]
+fn transfer_rows_carry_namespaced_id() {
+    // Regression: transfers (separate AUTOINCREMENT table) surfaced in the txn list
+    // with a bare numeric id that could collide with a fin_transactions id; the UI
+    // could then update/delete the wrong row. Transfer ids are now strings ("tr:N").
+    let (app, ds, _dir) = app_and_store();
+    app.action(&ds, "save_accounts", json!({ "accounts": [
+        { "name": "Checking", "type": "checking", "opening_balance": 1000 },
+        { "name": "Card", "type": "credit", "opening_balance": 0 },
+    ] })).unwrap();
+    app.action(&ds, "add_transfer", json!({ "amount": 200, "from_account": "Checking", "to_account": "Card" })).unwrap();
+    let list = app.query(&ds, "list_transactions", json!({})).unwrap();
+    let transfer = list["rows"].as_array().unwrap().iter().find(|r| r["type"] == "transfer").unwrap();
+    assert!(transfer["id"].is_string(), "transfer id must be a namespaced string, not a bare integer");
+    assert!(transfer["id"].as_str().unwrap().starts_with("tr:"));
+    // And a transaction keeps its integer id (editable).
+    assert!(list["rows"].as_array().unwrap().iter().filter(|r| r["type"] != "transfer").all(|r| r["id"].is_i64()));
+}
+
 /// Current month as `YYYY-MM` (matches the app's `today()`), for month-scoped tests.
 fn today_month() -> String {
     today()[..7].to_string()

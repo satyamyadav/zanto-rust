@@ -49,7 +49,10 @@ function categorize(merchant: string, requested?: string): string {
 }
 
 let nextId = 1;
-const accounts: MockAccount[] = [{ name: "Checking", type: "checking", opening_balance: 1200 }];
+const accounts: MockAccount[] = [
+  { name: "Checking", type: "checking", opening_balance: 1200 },
+  { name: "Visa", type: "credit", opening_balance: -650 }, // exercises the debt goal + credit type
+];
 const txns: MockTxn[] = [];
 let budgets: MockBudget[] = [
   { category: "groceries", limit: 400 },
@@ -57,6 +60,7 @@ let budgets: MockBudget[] = [
 ];
 let goals: MockGoal[] = [
   { name: "Emergency fund", kind: "savings", account: "Checking", target: 5000, target_date: "2026-12-31" },
+  { name: "Pay off Visa", kind: "debt", account: "Visa", target: 1000, target_date: "2026-10-31" },
 ];
 
 // Seed a realistic month so the dashboard is alive on first open.
@@ -124,10 +128,19 @@ function overview() {
   const budget_status = budgets.map((b) => ({
     category: b.category, limit: b.limit, spent: byCat[b.category] ?? 0,
   }));
-  const goal_status = goals.map((g) => ({
-    name: g.name, kind: g.kind, target: g.target, current: Math.max(0, accountBalance(g.account)),
-    target_date: g.target_date,
-  }));
+  // Mirror compute_goal_status (aggregate.rs): savings carry `current`+`progress`,
+  // debt carry `owed`+`progress`. Keeps the Dashboard's debt branch exercised in mock.
+  const goal_status = goals.map((g) => {
+    const bal = accountBalance(g.account);
+    if (g.kind === "debt") {
+      const owed = Math.max(0, -bal);
+      const progress = g.target > 0 ? Math.min(1, Math.max(0, 1 - owed / g.target)) : owed === 0 ? 1 : 0;
+      return { name: g.name, kind: g.kind, target: g.target, owed, progress, target_date: g.target_date };
+    }
+    const current = Math.max(0, bal);
+    const progress = g.target > 0 ? Math.min(1, current / g.target) : 0;
+    return { name: g.name, kind: g.kind, target: g.target, current, progress, target_date: g.target_date };
+  });
 
   return {
     empty: txns.length === 0,
