@@ -6,441 +6,437 @@ const providers = [
   "Anthropic", "OpenAI", "Gemini", "Groq", "xAI",
   "DeepSeek", "Together", "Fireworks", "Cohere", "Ollama",
 ];
-
 ---
 
 <Base>
-  <!-- Hero -->
-  <section class="mx-auto max-w-5xl px-5 pt-20 pb-16 text-center">
-    <h1 class="mx-auto max-w-3xl text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">
-A private, local-first AI workspace<br />for your desktop.
-    </h1>
-    <p class="mx-auto mt-5 max-w-2xl text-pretty text-lg text-white/60">
-      {SITE.description}
-    </p>
-    <div class="mt-8 flex items-center justify-center gap-3">
-      <a
-        href={SITE.releasesLatest}
-        target="_blank"
-        rel="noopener"
-        class="rounded-xl bg-accent px-5 py-3 font-medium text-white shadow-lg shadow-accent/20 transition-transform hover:-translate-y-0.5"
-      >
-        Download for your OS
-      </a>
-      <a
-        href={SITE.repo}
-        target="_blank"
-        rel="noopener"
-        class="rounded-xl border border-line bg-ink-2 px-5 py-3 font-medium text-white/80 hover:text-white"
-      >
-        View on GitHub
-      </a>
-    </div>
-    <p class="mt-4 text-xs text-white/40">macOS · Windows · Linux — unsigned builds, install in seconds.</p>
-
-    <!-- Demo loop -->
-    <div class="mx-auto mt-12 max-w-4xl overflow-hidden rounded-2xl border border-line bg-ink-2 shadow-2xl shadow-black/40">
-      <video
-        class="block w-full"
-        autoplay
-        muted
-        loop
-        playsinline
-        preload="metadata"
-        poster={href("/og.png")}
-      >
-        <source src={href("/hero.webm")} type="video/webm" />
-        <source src={href("/hero.mp4")} type="video/mp4" />
-      </video>
+  <!-- ══ 1 · The complete app, on your desk ══════════════════════════════ -->
+  <section class="mx-auto max-w-6xl px-5 pt-14 pb-8 sm:pt-20">
+    <div class="mx-auto max-w-3xl text-center">
+      <p class="eyebrow">local-first · yours · offline-capable</p>
+      <h1 class="mx-auto mt-4 max-w-2xl text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl">
+        The AI workspace that lives on your machine.
+      </h1>
+      <p class="mx-auto mt-4 max-w-xl text-pretty text-ink-dim">
+        Your key, your files, your models. zanto talks straight to the provider you pick — or to Ollama, fully offline. Nothing routes through us.
+      </p>
+      <div class="mt-7 flex flex-wrap items-center justify-center gap-3">
+        <a
+          href={SITE.releasesLatest}
+          target="_blank"
+          rel="noopener"
+          class="rounded-lg bg-signal px-5 py-2.5 font-medium text-desk transition-transform hover:-translate-y-0.5"
+        >
+          Download for your OS
+        </a>
+        <a
+          href="#tour"
+          class="mono rounded-lg border border-rule bg-panel px-5 py-2.5 text-[0.85rem] text-ink-dim hover:text-ink"
+        >
+          take the tour ↓
+        </a>
+      </div>
+      <p class="mono mt-3 text-[0.72rem] text-ink-faint">macOS · Windows · Linux — install in seconds</p>
     </div>
 
-    <!-- Provider strip -->
-    <p class="mt-14 text-xs font-medium uppercase tracking-wider text-white/35">Works with</p>
-    <div class="mx-auto mt-4 flex max-w-3xl flex-wrap items-center justify-center gap-2">
-      {providers.map((p) => (
-        <span class="rounded-full border border-line bg-ink-2/60 px-3 py-1 text-sm text-white/55 transition-colors hover:border-accent/40 hover:text-white/80">
-          {p}
+    <!-- The whole window, rendered in HTML, set on the desk. -->
+    <div class="appframe appframe-tilt reveal mx-auto mt-12 max-w-5xl overflow-hidden" data-panel>
+      <!-- title bar -->
+      <div class="flex items-center gap-2 border-b border-rule px-4 py-2.5">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="mono ml-2 text-[0.72rem] text-ink-faint">zanto — local session</span>
+        <span class="mono ml-auto flex items-center gap-1.5 text-[0.72rem] text-signal">
+          <span class="size-1.5 rounded-full bg-signal"></span> on this device
         </span>
-      ))}
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-[196px_1fr_248px]">
+        <!-- sidebar -->
+        <aside class="hidden flex-col border-r border-rule bg-panel/60 p-3 md:flex">
+          <div class="flex items-center gap-2 rounded-md bg-panel-2 px-2.5 py-1.5 text-sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="size-4 text-ink-dim"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 10h8M8 14h5"/></svg>
+            Chat
+          </div>
+          <p class="eyebrow mt-4 px-1">apps</p>
+          <div class="mt-1.5 rounded-md px-2.5 py-1.5 text-sm text-ink-dim">Personal Finance</div>
+          <p class="eyebrow mt-4 px-1">chats</p>
+          <div class="mt-1.5 rounded-md border border-wire/25 bg-wire/5 px-2.5 py-2">
+            <div class="text-sm text-ink">Summarize my spending</div>
+            <div class="mono mt-0.5 text-[0.68rem] text-ink-faint">just now · 8 msgs</div>
+          </div>
+          <div class="mt-auto flex items-center justify-between border-t border-rule pt-3">
+            <span class="mono text-[0.7rem] text-ink-faint">gemini-3.5-flash</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="size-4 text-ink-faint"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+          </div>
+        </aside>
+
+        <!-- chat column -->
+        <div class="flex min-w-0 flex-col bg-desk/40">
+          <div class="flex-1 space-y-2.5 p-4">
+            <!-- tool call, resolved -->
+            <div class="stream flex items-center gap-2 rounded-md border border-rule bg-panel px-3 py-1.5 text-sm" style="animation-delay:.15s">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-3.5 text-ink-faint"><path d="M9 6l6 6-6 6"/></svg>
+              <span class="mono text-ink-dim">read_document</span>
+              <span class="mono ml-auto flex items-center gap-1 rounded bg-signal/12 px-1.5 py-0.5 text-[0.68rem] text-signal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="size-3"><path d="M20 6L9 17l-5-5"/></svg> done
+              </span>
+            </div>
+            <!-- thinking, collapsed -->
+            <div class="stream flex items-center gap-2 rounded-md border border-rule/60 px-3 py-1.5 text-sm text-ink-faint" style="animation-delay:.3s">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-3.5"><path d="M6 9l6 6 6-6"/></svg>
+              <span class="mono truncate">focusing on a clear summary of transactions.csv…</span>
+            </div>
+            <!-- assistant line -->
+            <p class="stream max-w-md text-sm text-ink/90" style="animation-delay:.45s">
+              Here's where your money went last month — rent dominates at 83.6%.
+            </p>
+
+            <!-- artifact: donut -->
+            <div class="stream rounded-lg border border-rule bg-panel p-3" style="animation-delay:.8s">
+              <div class="mb-2 flex items-center justify-between">
+                <span class="mono text-[0.72rem] text-ink-dim">Expenses by category · 4,187.70 AED</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="size-3.5 text-ink-faint"><path d="M12 3v18M6 9l6-6 6 6"/></svg>
+              </div>
+              <div class="flex items-center gap-4">
+                <div class="donut size-24 shrink-0 rounded-full"></div>
+                <ul class="mono space-y-1 text-[0.72rem] text-ink-dim">
+                  <li><span class="mr-1.5 inline-block size-2 rounded-full align-middle" style="background:var(--color-wire)"></span>Rent · 83.6%</li>
+                  <li><span class="mr-1.5 inline-block size-2 rounded-full align-middle" style="background:var(--color-signal)"></span>Utilities · 6.0%</li>
+                  <li><span class="mr-1.5 inline-block size-2 rounded-full align-middle bg-[#f4b740]"></span>Groceries · 4.4%</li>
+                  <li><span class="mr-1.5 inline-block size-2 rounded-full align-middle bg-[#e2705f]"></span>Dining · 2.6%</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- artifact: table -->
+            <div class="stream overflow-hidden rounded-lg border border-rule bg-panel" style="animation-delay:1.05s">
+              <div class="border-b border-rule px-3 py-1.5">
+                <span class="mono text-[0.72rem] text-ink-dim">Summary of transactions.csv</span>
+              </div>
+              <table class="w-full text-sm">
+                <tbody class="mono text-[0.78rem]">
+                  {[["Rent (ADIB)", "3,500.00", "83.6%"], ["Utilities", "250.00", "6.0%"], ["Groceries", "185.50", "4.4%"]].map((r) => (
+                    <tr class="border-b border-rule/60 last:border-0">
+                      <td class="px-3 py-1.5 text-ink/85">{r[0]}</td>
+                      <td class="px-3 py-1.5 text-right text-ink-dim tabular">{r[1]}</td>
+                      <td class="px-3 py-1.5 text-right text-ink-faint tabular">{r[2]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- composer -->
+          <div class="border-t border-rule p-3">
+            <div class="flex items-center gap-2 rounded-lg border border-wire/40 bg-panel px-3 py-2.5">
+              <span class="mono text-sm text-ink-dim caret">Ask about last month</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="ml-auto size-4 text-ink-faint"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- canvas -->
+        <aside class="hidden flex-col items-center justify-center border-l border-rule bg-panel/40 p-5 text-center lg:flex">
+          <div class="grid size-10 place-items-center rounded-lg border border-rule text-ink-faint">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-5"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 9v11"/></svg>
+          </div>
+          <p class="mt-3 text-sm text-ink-dim">Canvas</p>
+          <p class="mono mt-1 text-[0.7rem] leading-relaxed text-ink-faint">pinned charts &amp;<br />tables open here</p>
+        </aside>
+      </div>
     </div>
   </section>
 
-  <!-- Features — interactive walkthrough -->
-  <section id="features" class="mx-auto max-w-6xl px-5 py-16">
-    <div class="mx-auto max-w-2xl text-center">
-      <p class="text-xs font-medium uppercase tracking-wider text-accent/80">A walk through zanto</p>
-      <h2 class="mt-2 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-        Every feature, running right here.
-      </h2>
-      <p class="mt-3 text-white/55">Scroll — each panel is the actual interface, animating itself. Hover or click to poke at it.</p>
+  <!-- ══ 2 · The tour — one feature at a time ════════════════════════════ -->
+  <section id="tour" class="mx-auto max-w-6xl px-5 py-8">
+    <div class="border-t border-rule pt-10">
+      <p class="eyebrow">the tour</p>
+      <h2 class="mt-2 max-w-xl text-2xl font-semibold tracking-tight sm:text-3xl">What it does, panel by panel.</h2>
     </div>
 
-    <div class="mt-14 space-y-20">
-      <!-- ── 1. Chat → artifacts ─────────────────────────────────────────── -->
-      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
-        <div class="reveal order-2 lg:order-1">
-          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Chat → artifacts</span>
-          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Answers render, not just reply.</h3>
-          <p class="mt-3 max-w-md text-white/60">
-            Ask a question; zanto streams an answer and draws it — charts, tables, metrics — inline or on a side canvas. Pin the ones worth keeping.
+    <div class="mt-16 space-y-24">
+      <!-- providers -->
+      <article data-panel class="grid items-center gap-10 lg:grid-cols-[1fr_1.05fr]">
+        <div class="reveal">
+          <p class="eyebrow">providers</p>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Any model, no lock-in.</h3>
+          <p class="mt-3 max-w-md text-ink-dim">
+            Ten providers behind one window — Anthropic, OpenAI, Gemini, Groq, xAI, DeepSeek and more, or Ollama offline. Keys sit in your OS keychain. Switch mid-conversation; nothing restarts.
           </p>
         </div>
-        <div class="reveal order-1 lg:order-2">
-          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 shadow-2xl shadow-black/40">
-            <div class="flex items-center gap-1.5 border-b border-line px-4 py-2.5">
-              <span class="size-2.5 rounded-full bg-white/15"></span>
-              <span class="size-2.5 rounded-full bg-white/15"></span>
-              <span class="size-2.5 rounded-full bg-white/15"></span>
-              <span class="ml-2 text-xs text-white/35">zanto — chat</span>
-            </div>
-            <div class="grid gap-3 p-4 sm:grid-cols-2">
-              <!-- chat column -->
-              <div class="space-y-2.5">
-                <div class="ml-auto w-fit max-w-full rounded-xl rounded-br-sm bg-accent/20 px-3 py-2 text-right text-sm">
-                  <span class="typeline inline-block max-w-full align-bottom">Chart last quarter's revenue by month</span>
-                </div>
-                <div class="reply-line w-fit max-w-full rounded-xl rounded-bl-sm bg-ink px-3 py-2 text-sm text-white/75">
-                  Here's Q2 revenue — up 34% over the quarter. ↗
-                </div>
-              </div>
-              <!-- artifact canvas -->
-              <div class="rounded-xl border border-line bg-ink/60 p-3">
-                <div class="mb-2 flex items-center justify-between">
-                  <span class="text-xs font-medium text-white/60">Q2 revenue</span>
-                  <span class="rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">chart</span>
-                </div>
-                <div class="flex h-28 items-end gap-2">
-                  <div class="bar w-full rounded-t bg-accent/80" style="height:46%;animation-delay:2.1s"></div>
-                  <div class="bar w-full rounded-t bg-accent/80" style="height:58%;animation-delay:2.25s"></div>
-                  <div class="bar w-full rounded-t bg-accent/80" style="height:52%;animation-delay:2.4s"></div>
-                  <div class="bar w-full rounded-t bg-accent" style="height:74%;animation-delay:2.55s"></div>
-                  <div class="bar w-full rounded-t bg-accent" style="height:69%;animation-delay:2.7s"></div>
-                  <div class="bar w-full rounded-t bg-accent-2" style="height:92%;animation-delay:2.85s"></div>
-                </div>
-                <div class="mt-1.5 flex justify-between text-[10px] text-white/35">
-                  <span>Apr</span><span>May</span><span>Jun</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </article>
-
-      <!-- ── 2. Providers ────────────────────────────────────────────────── -->
-      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
         <div class="reveal">
-          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 p-5 shadow-2xl shadow-black/40">
+          <div class="appframe overflow-hidden p-5">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-white/60">Model</span>
-              <span class="rounded-md border border-line bg-ink px-2 py-1 text-xs text-white/70">
-                <span data-provider-model>claude-opus-4-8</span>
-              </span>
+              <span class="mono text-[0.72rem] text-ink-faint">active model</span>
+              <span class="mono rounded-md border border-rule bg-panel-2 px-2 py-1 text-[0.78rem] text-ink" data-model>claude-opus-4-8</span>
             </div>
-            <div class="mt-4 flex flex-wrap gap-2" data-provider-strip>
-              {["Anthropic","OpenAI","Gemini","Groq","xAI","DeepSeek","Ollama"].map((p, i) => (
-                <button
-                  type="button"
-                  data-provider={p}
-                  class:list={["provider-chip rounded-full border px-3 py-1.5 text-sm transition-colors", i === 0 ? "border-accent/60 bg-accent/15 text-white" : "border-line bg-ink/50 text-white/55 hover:border-accent/40 hover:text-white/80"]}
-                >
-                  {p}
-                </button>
+            <div class="mono mt-4 flex flex-wrap gap-2 text-[0.82rem]" data-chips>
+              {providers.slice(0, 7).map((p, i) => (
+                <button type="button" data-provider={p} data-on={i === 0 ? "true" : "false"} class="chip rounded-md px-3 py-1.5">{p}</button>
               ))}
             </div>
-            <p class="mt-4 text-xs text-white/40">Keys live in your OS keychain. Switch mid-conversation — no restart.</p>
+            <p class="mono mt-4 flex items-center gap-1.5 text-[0.72rem] text-signal">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="size-3.5"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>
+              keys stay in the OS keychain
+            </p>
           </div>
-        </div>
-        <div class="reveal">
-          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">10+ providers, one app</span>
-          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Bring your own model.</h3>
-          <p class="mt-3 max-w-md text-white/60">
-            Anthropic, OpenAI, Gemini, Groq, xAI, DeepSeek, Together, Fireworks, Cohere — or fully offline with Ollama. Tune generation globally or per provider.
-          </p>
         </div>
       </article>
 
-      <!-- ── 3. Tools with consent ───────────────────────────────────────── -->
-      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+      <!-- consent -->
+      <article data-panel class="grid items-center gap-10 lg:grid-cols-[1.05fr_1fr]">
         <div class="reveal order-2 lg:order-1">
-          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Real tools, with consent</span>
-          <h3 class="mt-2 text-2xl font-semibold tracking-tight">It acts — only when you allow it.</h3>
-          <p class="mt-3 max-w-md text-white/60">
-            Read, write, search and edit files; run shell commands; fetch the web; parse PDFs and Office docs. Every file or shell action is permission-gated, per path.
-          </p>
+          <div class="appframe overflow-hidden p-4">
+            <div class="mono flex items-center gap-2 text-sm text-ink-dim">
+              <span class="rounded bg-panel-2 px-1.5 py-0.5 text-[0.68rem]">tool</span>
+              write_file → <span class="text-ink">report.md</span>
+            </div>
+            <div class="mt-3 rounded-lg border border-wire/30 bg-wire/5 p-3">
+              <div class="flex items-center gap-2 text-sm text-ink/90">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-4 text-wire"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>
+                Write to <span class="mono">~/notes/report.md</span>?
+              </div>
+              <div class="mono mt-3 flex gap-2 text-[0.78rem]">
+                <span class="rounded-md bg-signal px-3 py-1.5 font-medium text-desk">Allow</span>
+                <span class="rounded-md border border-rule px-3 py-1.5 text-ink-dim">Deny</span>
+                <span class="rounded-md border border-rule px-3 py-1.5 text-ink-dim">Always</span>
+              </div>
+            </div>
+            <div class="mono mt-2 flex flex-wrap gap-1.5 text-[0.68rem] text-ink-faint">
+              {["read", "write", "edit", "shell", "web fetch", "docs"].map((t) => (
+                <span class="rounded bg-panel-2 px-1.5 py-0.5">{t}</span>
+              ))}
+            </div>
+          </div>
         </div>
         <div class="reveal order-1 lg:order-2">
-          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 p-4 shadow-2xl shadow-black/40">
-            <div class="space-y-2 text-sm">
-              <div class="reply-line flex items-center gap-2 text-white/60" style="animation-delay:.2s">
-                <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/60">tool</span>
-                write_file → <span class="font-mono text-white/80">report.md</span>
-              </div>
-              <!-- permission prompt -->
-              <div class="pop rounded-xl border border-accent/30 bg-accent/10 p-3" style="animation-delay:.9s">
-                <div class="flex items-center gap-2 text-white/85">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-4 text-accent"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>
-                  <span>Allow <b>write</b> to <span class="font-mono">~/notes/report.md</span>?</span>
-                </div>
-                <div class="mt-3 flex gap-2">
-                  <span data-consent-allow class="relative rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white">
-                    Allow
-                    <span class="cursor-ping pointer-events-none absolute -bottom-1 -right-1 size-3 rounded-full border-2 border-white/70"></span>
-                  </span>
-                  <span class="rounded-lg border border-line px-3 py-1.5 text-xs text-white/60">Deny</span>
-                  <span class="rounded-lg border border-line px-3 py-1.5 text-xs text-white/60">Always allow</span>
-                </div>
-              </div>
-              <!-- confirmation toast -->
-              <div data-consent-done class="pop flex items-center gap-2 rounded-lg border border-accent-2/30 bg-accent-2/10 px-3 py-2 text-white/80" style="animation-delay:2.2s;opacity:0">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="size-4 text-accent-2"><path d="M20 6L9 17l-5-5"/></svg>
-                Wrote <span class="font-mono">report.md</span> · 1.2&nbsp;KB
-              </div>
-              <div class="flex gap-1.5 pt-1 text-[10px] text-white/35">
-                <span class="rounded bg-white/5 px-1.5 py-0.5">read</span>
-                <span class="rounded bg-white/5 px-1.5 py-0.5">shell</span>
-                <span class="rounded bg-white/5 px-1.5 py-0.5">web fetch</span>
-                <span class="rounded bg-white/5 px-1.5 py-0.5">edit</span>
-                <span class="rounded bg-white/5 px-1.5 py-0.5">docs</span>
-              </div>
-            </div>
-          </div>
+          <p class="eyebrow">consent</p>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">It acts only when you say so.</h3>
+          <p class="mt-3 max-w-md text-ink-dim">
+            Read, write and edit files, run shell commands, fetch the web, parse PDFs and Office docs. Every file or shell action asks first — per path — and you can grant it once or for good.
+          </p>
         </div>
       </article>
 
-      <!-- ── 4. Artifacts grid ───────────────────────────────────────────── -->
-      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+      <!-- artifacts -->
+      <article data-panel class="grid items-center gap-10 lg:grid-cols-[1fr_1.05fr]">
+        <div class="reveal">
+          <p class="eyebrow">artifacts</p>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Answers you can keep.</h3>
+          <p class="mt-3 max-w-md text-ink-dim">
+            Structured replies render as real charts, tables and metrics — inline, or pinned to a side canvas you can come back to. Sandboxed HTML pages, too.
+          </p>
+        </div>
         <div class="reveal">
           <div class="grid grid-cols-2 gap-3">
-            <!-- metric -->
-            <div class="pop rounded-2xl border border-line bg-ink-2/70 p-4" style="animation-delay:.1s">
-              <div class="text-xs text-white/50">Net worth</div>
-              <div class="tabular mt-1 text-2xl font-semibold text-accent-2" data-countup data-to="48210" data-prefix="$">$0</div>
-              <div class="mt-1 text-[11px] text-accent-2">▲ 6.2% this month</div>
+            <div class="appframe p-4">
+              <div class="mono text-[0.72rem] text-ink-faint">net worth</div>
+              <div class="tabular mt-1 text-2xl font-semibold text-signal" data-countup data-to="48210" data-prefix="$">$0</div>
+              <div class="mono mt-1 text-[0.68rem] text-signal">▲ 6.2% this month</div>
             </div>
-            <!-- donut -->
-            <div class="pop rounded-2xl border border-line bg-ink-2/70 p-4" style="animation-delay:.2s">
-              <div class="text-xs text-white/50">By category</div>
-              <div class="mt-2 grid place-items-center">
-                <div class="donut size-16 rounded-full">
-                  <div class="grid size-16 place-items-center rounded-full [mask:radial-gradient(transparent_54%,#000_55%)]"></div>
-                </div>
-              </div>
+            <div class="appframe grid place-items-center p-4">
+              <div class="donut size-16 rounded-full"></div>
             </div>
-            <!-- table -->
-            <div class="pop col-span-2 rounded-2xl border border-line bg-ink-2/70 p-4" style="animation-delay:.3s">
-              <div class="text-xs text-white/50">Recent</div>
-              <div class="mt-2 space-y-1.5 text-sm">
-                {[["Whole Foods","−$77.80"],["Salary","+$3,200"],["Uber","−$22.10"]].map((r, i) => (
-                  <div class="reply-line flex items-center justify-between border-b border-line/60 pb-1.5" style={`animation-delay:${0.5 + i * 0.25}s`}>
-                    <span class="text-white/70">{r[0]}</span>
-                    <span class:list={["tabular font-mono", r[1].startsWith("+") ? "text-accent-2" : "text-white/55"]}>{r[1]}</span>
+            <div class="appframe col-span-2 overflow-hidden p-4">
+              <div class="mono text-[0.72rem] text-ink-faint">recent</div>
+              <div class="mono mt-2 space-y-1.5 text-[0.8rem]">
+                {[["Whole Foods", "−$77.80", "dim"], ["Salary", "+$3,200", "signal"], ["Uber", "−$22.10", "dim"]].map((r, i) => (
+                  <div class="stream flex items-center justify-between border-b border-rule/60 pb-1.5 last:border-0" style={`animation-delay:${0.4 + i * 0.2}s`}>
+                    <span class="text-ink-dim">{r[0]}</span>
+                    <span class:list={["tabular", r[2] === "signal" ? "text-signal" : "text-ink-dim"]}>{r[1]}</span>
                   </div>
                 ))}
               </div>
             </div>
           </div>
         </div>
-        <div class="reveal">
-          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Artifacts, not just chat</span>
-          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Charts, tables, metrics, docs.</h3>
-          <p class="mt-3 max-w-md text-white/60">
-            Structured answers render as real components — inline or pinned to a side canvas you can browse later. Sandboxed HTML pages too.
-          </p>
-        </div>
       </article>
 
-      <!-- ── 5. Sessions ─────────────────────────────────────────────────── -->
-      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+      <!-- sessions -->
+      <article data-panel class="grid items-center gap-10 lg:grid-cols-[1.05fr_1fr]">
         <div class="reveal order-2 lg:order-1">
-          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Sessions that survive</span>
-          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Crash-safe, resumable.</h3>
-          <p class="mt-3 max-w-md text-white/60">
-            Every message is appended to a local SQLite store as it happens. Close the app, reopen, pick up exactly where you left off — with automatic context summarization for long threads.
-          </p>
-        </div>
-        <div class="reveal order-1 lg:order-2">
-          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 p-4 shadow-2xl shadow-black/40">
-            <div class="mb-2 flex items-center justify-between text-xs text-white/50">
-              <span>Chats</span>
-              <span class="rounded bg-white/5 px-1.5 py-0.5">SQLite · WAL</span>
+          <div class="appframe overflow-hidden p-4">
+            <div class="mono mb-2 flex items-center justify-between text-[0.72rem] text-ink-faint">
+              <span>chats</span><span>SQLite · crash-safe</span>
             </div>
             <div class="space-y-1.5">
-              <div class="pop flex items-center justify-between rounded-lg border border-accent/40 bg-accent/10 px-3 py-2" style="animation-delay:.2s">
+              <div class="stream flex items-center justify-between rounded-md border border-wire/25 bg-wire/5 px-3 py-2" style="animation-delay:.15s">
                 <div>
-                  <div class="text-sm text-white/85">Q2 revenue analysis</div>
-                  <div class="text-[11px] text-white/40">resumed · 42 messages</div>
+                  <div class="text-sm text-ink">Q2 revenue analysis</div>
+                  <div class="mono text-[0.68rem] text-ink-faint">resumed · 42 msgs</div>
                 </div>
-                <span class="pulse rounded-full bg-accent/25 px-2 py-0.5 text-[10px] font-medium text-accent">live</span>
+                <span class="mono rounded-full bg-signal/12 px-2 py-0.5 text-[0.66rem] text-signal">live</span>
               </div>
-              <div class="reply-line flex items-center justify-between rounded-lg px-3 py-2" style="animation-delay:.7s">
+              <div class="stream flex items-center justify-between rounded-md px-3 py-2" style="animation-delay:.4s">
                 <div>
-                  <div class="text-sm text-white/70">Finance import</div>
-                  <div class="text-[11px] text-white/40">yesterday · 18 messages</div>
+                  <div class="text-sm text-ink-dim">Finance import</div>
+                  <div class="mono text-[0.68rem] text-ink-faint">yesterday · 18 msgs</div>
                 </div>
-                <span class="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-white/40">summarized</span>
+                <span class="mono rounded-full bg-panel-2 px-2 py-0.5 text-[0.66rem] text-ink-faint">summarized</span>
               </div>
-              <div class="reply-line flex items-center justify-between rounded-lg px-3 py-2" style="animation-delay:1s">
-                <div>
-                  <div class="text-sm text-white/70">Refactor plan</div>
-                  <div class="text-[11px] text-white/40">2 days ago · 7 messages</div>
-                </div>
+              <div class="stream flex items-center justify-between rounded-md px-3 py-2" style="animation-delay:.6s">
+                <div class="text-sm text-ink-dim">Refactor plan</div>
+                <span class="mono text-[0.68rem] text-ink-faint">2d ago</span>
               </div>
             </div>
           </div>
         </div>
+        <div class="reveal order-1 lg:order-2">
+          <p class="eyebrow">sessions</p>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Close it. Reopen it. Keep going.</h3>
+          <p class="mt-3 max-w-md text-ink-dim">
+            Every message lands in a local SQLite store the moment it happens, so a crash costs nothing. Long threads summarize themselves to stay fast — and stay yours.
+          </p>
+        </div>
       </article>
 
-      <!-- ── 6. Finance app ──────────────────────────────────────────────── -->
-      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+      <!-- finance app -->
+      <article data-panel class="grid items-center gap-10 lg:grid-cols-[1fr_1.05fr]">
         <div class="reveal">
-          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 shadow-2xl shadow-black/40">
-            <div class="flex items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-white/45">
-              <span class="rounded-md bg-accent/15 px-2 py-0.5 text-accent">Dashboard</span>
+          <p class="eyebrow">apps</p>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Focused apps on the same engine.</h3>
+          <p class="mt-3 max-w-md text-ink-dim">
+            Personal Finance is the first: import a bank statement and zanto categorizes it, tracks budgets, accounts and net worth — and answers questions about your money. All local.
+          </p>
+          <a href={SITE.releasesLatest} target="_blank" rel="noopener" class="mono mt-5 inline-block rounded-md border border-rule bg-panel px-4 py-2 text-[0.82rem] text-ink-dim hover:text-ink">
+            try it free →
+          </a>
+        </div>
+        <div class="reveal">
+          <div class="appframe overflow-hidden">
+            <div class="mono flex items-center gap-3 border-b border-rule px-4 py-2.5 text-[0.72rem] text-ink-faint">
+              <span class="rounded bg-signal/12 px-2 py-0.5 text-signal">Dashboard</span>
               <span>Transactions</span><span>Accounts</span><span>Import</span>
             </div>
             <div class="space-y-3 p-4">
-              <!-- safe to spend -->
-              <div class="rounded-xl border border-line bg-ink/50 p-3">
-                <div class="text-[11px] text-white/45">Safe to spend</div>
+              <div class="rounded-lg border border-rule bg-panel-2 p-3">
+                <div class="mono text-[0.7rem] text-ink-faint">safe to spend</div>
                 <div class="tabular mt-0.5 text-2xl font-semibold" data-countup data-to="2336.93" data-prefix="AED " data-decimals="2">AED 0.00</div>
               </div>
-              <!-- cashflow bars -->
-              <div class="rounded-xl border border-line bg-ink/50 p-3">
-                <div class="mb-2 text-[11px] text-white/45">Cashflow — 6 months</div>
+              <div class="rounded-lg border border-rule bg-panel-2 p-3">
+                <div class="mono mb-2 text-[0.7rem] text-ink-faint">cashflow · 6 months</div>
                 <div class="flex h-16 items-end gap-1.5">
-                  {[40,55,48,62,58,72].map((h, i) => (
+                  {[40, 55, 48, 62, 58, 72].map((h, i) => (
                     <div class="flex w-full flex-col justify-end gap-0.5" style="height:100%">
-                      <div class="bar rounded-t bg-accent-2/80" style={`height:${h * 0.4}%;animation-delay:${0.3 + i * 0.08}s`}></div>
-                      <div class="bar bg-accent/70" style={`height:${h * 0.35}%;animation-delay:${0.35 + i * 0.08}s`}></div>
+                      <div class="bar rounded-t bg-signal/70" style={`height:${h * 0.42}%;animation-delay:${0.25 + i * 0.07}s`}></div>
+                      <div class="bar rounded-t bg-wire/60" style={`height:${h * 0.32}%;animation-delay:${0.3 + i * 0.07}s`}></div>
                     </div>
                   ))}
                 </div>
               </div>
-              <!-- uncategorized → categorized -->
-              <div class="rounded-xl border border-line bg-ink/50 p-3">
-                <div class="mb-2 flex items-center justify-between text-[11px]">
-                  <span class="text-white/45">1 needs a category</span>
-                  <span data-cat-btn class="relative rounded-md bg-accent/15 px-2 py-0.5 text-accent">
-                    ✦ Auto-categorize
-                    <span class="cursor-ping pointer-events-none absolute -bottom-1 -right-1 size-3 rounded-full border-2 border-accent/70"></span>
-                  </span>
-                </div>
-                <div data-cat-row class="recat flex items-center justify-between rounded-md px-2 py-1.5 text-sm">
-                  <span class="text-white/75">SPOTIFY USA</span>
-                  <span class="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-white/45" data-cat-label>uncategorized</span>
-                </div>
-              </div>
             </div>
           </div>
-        </div>
-        <div class="reveal">
-          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Apps on the same engine</span>
-          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Personal finance, fully local.</h3>
-          <p class="mt-3 max-w-md text-white/60">
-            Import a bank statement, and zanto categorizes it, tracks budgets, accounts and net worth — and answers questions about your money. Nothing is uploaded.
-          </p>
-          <a href={SITE.releasesLatest} target="_blank" rel="noopener" class="mt-5 inline-block rounded-lg border border-line bg-ink px-4 py-2 text-sm font-medium text-white/80 hover:border-accent/40 hover:text-white">
-            Try it free →
-          </a>
         </div>
       </article>
     </div>
   </section>
 
-  <!-- Privacy band -->
-  <section class="mx-auto max-w-5xl px-5 py-12">
-    <div class="rounded-2xl border border-line bg-gradient-to-br from-accent/10 to-transparent p-8 sm:p-10">
-      <h2 class="max-w-2xl text-2xl font-semibold tracking-tight">Private by design.</h2>
-      <p class="mt-3 max-w-2xl text-white/60">
-        zanto runs on your machine and talks directly to the model provider you choose —
-        or to a model running locally. Your files, keys and conversations stay with you.
-      </p>
-      <a href={SITE.releasesLatest} target="_blank" rel="noopener" class="mt-6 inline-block rounded-lg bg-white px-4 py-2 font-medium text-ink hover:bg-white/90">
-        Get started →
-      </a>
+  <!-- ══ 3 · Provider strip ══════════════════════════════════════════════ -->
+  <section class="mx-auto max-w-6xl px-5 py-8">
+    <div class="border-t border-rule pt-10 text-center">
+      <p class="eyebrow">works with</p>
+      <div class="mono mx-auto mt-4 flex max-w-3xl flex-wrap items-center justify-center gap-2 text-[0.82rem]">
+        {providers.map((p) => (
+          <span class="rounded-md border border-rule bg-panel/60 px-3 py-1 text-ink-dim transition-colors hover:border-wire/40 hover:text-ink">{p}</span>
+        ))}
+      </div>
     </div>
   </section>
 
-  <!-- Demo driver: reveal on scroll, count-up tweens, and the two interactive bits. -->
+  <!-- ══ 4 · See it in motion (video last) ═══════════════════════════════ -->
+  <section class="mx-auto max-w-6xl px-5 py-8">
+    <div class="reveal border-t border-rule pt-10" data-panel>
+      <p class="eyebrow">in motion</p>
+      <h2 class="mt-2 max-w-xl text-2xl font-semibold tracking-tight sm:text-3xl">A minute of the real thing.</h2>
+      <div class="appframe mx-auto mt-8 max-w-4xl overflow-hidden">
+        <div class="flex items-center gap-2 border-b border-rule px-4 py-2.5">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="mono ml-2 text-[0.72rem] text-ink-faint">zanto — screen recording</span>
+        </div>
+        <video
+          class="block w-full"
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          poster={href("/og.png")}
+        >
+          <source src={href("/hero.webm")} type="video/webm" />
+          <source src={href("/hero.mp4")} type="video/mp4" />
+        </video>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 5 · Close ═══════════════════════════════════════════════════════ -->
+  <section class="mx-auto max-w-6xl px-5 py-16">
+    <div class="appframe overflow-hidden p-8 text-center sm:p-12">
+      <h2 class="mx-auto max-w-lg text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
+        Keep your work on your machine.
+      </h2>
+      <p class="mx-auto mt-3 max-w-md text-ink-dim">
+        Free, open-source, and private by construction. Your files, keys and conversations never leave the device.
+      </p>
+      <div class="mt-7 flex flex-wrap items-center justify-center gap-3">
+        <a href={SITE.releasesLatest} target="_blank" rel="noopener" class="rounded-lg bg-signal px-5 py-2.5 font-medium text-desk transition-transform hover:-translate-y-0.5">
+          Download for your OS
+        </a>
+        <a href={SITE.repo} target="_blank" rel="noopener" class="mono rounded-lg border border-rule bg-panel px-5 py-2.5 text-[0.85rem] text-ink-dim hover:text-ink">
+          view source
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Reveal on scroll, count-ups, and the one interactive bit (provider switch). -->
   <script is:inline>
     (() => {
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-      // Tween a number into an element once its demo is in view.
       function countUp(el) {
         const to = parseFloat(el.dataset.to || "0");
-        const decimals = parseInt(el.dataset.decimals || "0", 10);
+        const dp = parseInt(el.dataset.decimals || "0", 10);
         const prefix = el.dataset.prefix || "";
-        const fmt = (n) =>
-          prefix + n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+        const fmt = (n) => prefix + n.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
         if (reduce) { el.textContent = fmt(to); return; }
         const dur = 1100, t0 = performance.now();
         const step = (t) => {
           const p = Math.min(1, (t - t0) / dur);
-          const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
-          el.textContent = fmt(to * eased);
+          el.textContent = fmt(to * (1 - Math.pow(1 - p, 3)));
           if (p < 1) requestAnimationFrame(step);
         };
         requestAnimationFrame(step);
       }
 
-      // Reveal each demo once; kick off its count-ups.
       const io = new IntersectionObserver((entries) => {
         for (const e of entries) {
           if (!e.isIntersecting) continue;
           e.target.classList.add("in-view");
-          e.target.querySelectorAll("[data-countup]").forEach((n) => countUp(n));
+          e.target.querySelectorAll("[data-countup]").forEach(countUp);
           io.unobserve(e.target);
         }
-      }, { threshold: 0.35 });
-      document.querySelectorAll("[data-demo]").forEach((d) => io.observe(d));
+      }, { threshold: 0.25 });
+      document.querySelectorAll(".reveal, [data-panel]").forEach((n) => io.observe(n));
 
-      // ── Interactive: provider switcher ──────────────────────────────────
+      // Provider switcher: click to select; gently auto-cycles until touched.
       const MODEL = {
         Anthropic: "claude-opus-4-8", OpenAI: "gpt-5", Gemini: "gemini-2.5-pro",
-        Groq: "llama-4-70b", xAI: "grok-4", DeepSeek: "deepseek-v3", Ollama: "llama3.2 (local)",
+        Groq: "llama-4-70b", xAI: "grok-4", DeepSeek: "deepseek-v3", Together: "qwen-2.5-72b",
       };
-      const strip = document.querySelector("[data-provider-strip]");
-      const modelEl = document.querySelector("[data-provider-model]");
-      function selectProvider(name) {
-        if (!strip || !modelEl) return;
-        strip.querySelectorAll("[data-provider]").forEach((c) => {
-          const on = c.dataset.provider === name;
-          c.classList.toggle("border-accent/60", on);
-          c.classList.toggle("bg-accent/15", on);
-          c.classList.toggle("text-white", on);
-          c.classList.toggle("border-line", !on);
-          c.classList.toggle("bg-ink/50", !on);
-          c.classList.toggle("text-white/55", !on);
-        });
-        modelEl.textContent = MODEL[name] || name;
+      const chips = document.querySelector("[data-chips]");
+      const modelEl = document.querySelector("[data-model]");
+      function select(name) {
+        chips?.querySelectorAll("[data-provider]").forEach((c) => c.dataset.on = String(c.dataset.provider === name));
+        if (modelEl) modelEl.textContent = MODEL[name] || name;
       }
-      strip?.querySelectorAll("[data-provider]").forEach((c) =>
-        c.addEventListener("click", () => selectProvider(c.dataset.provider)),
-      );
-      // Gentle auto-cycle until the user interacts.
-      if (!reduce && strip) {
+      chips?.querySelectorAll("[data-provider]").forEach((c) => c.addEventListener("click", () => select(c.dataset.provider)));
+      if (!reduce && chips) {
         const names = Object.keys(MODEL);
         let i = 0, touched = false;
-        strip.addEventListener("click", () => { touched = true; }, { once: true });
-        setInterval(() => { if (!touched) selectProvider(names[++i % names.length]); }, 1800);
+        chips.addEventListener("click", () => { touched = true; }, { once: true });
+        setInterval(() => { if (!touched) select(names[++i % names.length]); }, 2000);
       }
-
-      // ── Interactive: finance auto-categorize ────────────────────────────
-      const catBtn = document.querySelector("[data-cat-btn]");
-      const catLabel = document.querySelector("[data-cat-label]");
-      const catRow = document.querySelector("[data-cat-row]");
-      function categorize() {
-        if (!catLabel || !catRow) return;
-        catLabel.textContent = "subscriptions";
-        catLabel.classList.remove("bg-white/5", "text-white/45");
-        catLabel.classList.add("bg-accent/15", "text-accent");
-        catRow.classList.add("recat");
-        catRow.style.animation = "none";
-        void catRow.offsetWidth; // reflow to restart the highlight
-        catRow.style.animation = "";
-      }
-      catBtn?.addEventListener("click", categorize);
     })();
   </script>
 </Base>
