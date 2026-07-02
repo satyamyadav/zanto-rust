@@ -7,48 +7,6 @@ const providers = [
   "DeepSeek", "Together", "Fireworks", "Cohere", "Ollama",
 ];
 
-// Inline line icons (24×24, stroke=currentColor) — themed per feature, no icon lib.
-const ICON = {
-  key: '<path d="M15 7a4 4 0 1 0-3.9 5h.9l2 2 1.5-1.5L17 14l1.5-1.5L20 14l1.5-1.5L15 6"/><circle cx="15" cy="7" r="0"/><path d="M12.5 11.5 3 21v0h3v-2h2v-2h2l1.5-1.5"/>',
-  swap: '<path d="M4 7h11l-2.5-2.5M20 17H9l2.5 2.5"/><path d="M16 4.5 20 7l-4 2.5M8 14.5 4 17l4 2.5"/>',
-  shield: '<path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/>',
-  chart: '<path d="M4 20V4M4 20h16"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/>',
-  database: '<ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v6c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 11v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
-  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
-};
-
-const features = [
-  {
-    icon: ICON.key,
-    title: "You own the stack",
-    body: "Bring your own API key (stored in the OS keychain), or run fully offline against local Ollama. No middleman server, ever.",
-  },
-  {
-    icon: ICON.swap,
-    title: "10+ providers, one app",
-    body: "Switch models live across Anthropic, OpenAI, Gemini, Groq, xAI, DeepSeek and more. Tune generation params globally or per provider.",
-  },
-  {
-    icon: ICON.shield,
-    title: "Real tools, with consent",
-    body: "Read, write, search and edit files; run shell commands; fetch the web; parse PDFs and Office docs — every file action is permission-gated.",
-  },
-  {
-    icon: ICON.chart,
-    title: "Artifacts, not just chat",
-    body: "Answers render as charts, tables, metrics and documents — inline or on a side canvas. Pin the ones worth keeping.",
-  },
-  {
-    icon: ICON.database,
-    title: "Sessions that survive",
-    body: "SQLite-backed, crash-safe and resumable, with automatic context summarization for long conversations.",
-  },
-  {
-    icon: ICON.grid,
-    title: "Apps on the same engine",
-    body: "Focused micro-apps on top of the same private engine — starting with Personal Finance: transactions, budgets, accounts and net worth, all local.",
-  },
-];
 ---
 
 <Base>
@@ -107,27 +65,285 @@ A private, local-first AI workspace<br />for your desktop.
     </div>
   </section>
 
-  <!-- Features -->
-  <section id="features" class="mx-auto max-w-5xl px-5 py-12">
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {features.map((f) => (
-        <div class="rounded-2xl border border-line bg-ink-2/60 p-6 transition-colors hover:border-accent/40">
-          <div class="grid size-10 place-items-center rounded-xl border border-accent/20 bg-accent/10 text-accent">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="size-5"
-              set:html={f.icon}
-            />
-          </div>
-          <h3 class="mt-4 text-base font-semibold tracking-tight">{f.title}</h3>
-          <p class="mt-2 text-sm leading-relaxed text-white/55">{f.body}</p>
+  <!-- Features — interactive walkthrough -->
+  <section id="features" class="mx-auto max-w-6xl px-5 py-16">
+    <div class="mx-auto max-w-2xl text-center">
+      <p class="text-xs font-medium uppercase tracking-wider text-accent/80">A walk through zanto</p>
+      <h2 class="mt-2 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+        Every feature, running right here.
+      </h2>
+      <p class="mt-3 text-white/55">Scroll — each panel is the actual interface, animating itself. Hover or click to poke at it.</p>
+    </div>
+
+    <div class="mt-14 space-y-20">
+      <!-- ── 1. Chat → artifacts ─────────────────────────────────────────── -->
+      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+        <div class="reveal order-2 lg:order-1">
+          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Chat → artifacts</span>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Answers render, not just reply.</h3>
+          <p class="mt-3 max-w-md text-white/60">
+            Ask a question; zanto streams an answer and draws it — charts, tables, metrics — inline or on a side canvas. Pin the ones worth keeping.
+          </p>
         </div>
-      ))}
+        <div class="reveal order-1 lg:order-2">
+          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 shadow-2xl shadow-black/40">
+            <div class="flex items-center gap-1.5 border-b border-line px-4 py-2.5">
+              <span class="size-2.5 rounded-full bg-white/15"></span>
+              <span class="size-2.5 rounded-full bg-white/15"></span>
+              <span class="size-2.5 rounded-full bg-white/15"></span>
+              <span class="ml-2 text-xs text-white/35">zanto — chat</span>
+            </div>
+            <div class="grid gap-3 p-4 sm:grid-cols-2">
+              <!-- chat column -->
+              <div class="space-y-2.5">
+                <div class="ml-auto w-fit max-w-full rounded-xl rounded-br-sm bg-accent/20 px-3 py-2 text-right text-sm">
+                  <span class="typeline inline-block max-w-full align-bottom">Chart last quarter's revenue by month</span>
+                </div>
+                <div class="reply-line w-fit max-w-full rounded-xl rounded-bl-sm bg-ink px-3 py-2 text-sm text-white/75">
+                  Here's Q2 revenue — up 34% over the quarter. ↗
+                </div>
+              </div>
+              <!-- artifact canvas -->
+              <div class="rounded-xl border border-line bg-ink/60 p-3">
+                <div class="mb-2 flex items-center justify-between">
+                  <span class="text-xs font-medium text-white/60">Q2 revenue</span>
+                  <span class="rounded-md bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">chart</span>
+                </div>
+                <div class="flex h-28 items-end gap-2">
+                  <div class="bar w-full rounded-t bg-accent/80" style="height:46%;animation-delay:2.1s"></div>
+                  <div class="bar w-full rounded-t bg-accent/80" style="height:58%;animation-delay:2.25s"></div>
+                  <div class="bar w-full rounded-t bg-accent/80" style="height:52%;animation-delay:2.4s"></div>
+                  <div class="bar w-full rounded-t bg-accent" style="height:74%;animation-delay:2.55s"></div>
+                  <div class="bar w-full rounded-t bg-accent" style="height:69%;animation-delay:2.7s"></div>
+                  <div class="bar w-full rounded-t bg-accent-2" style="height:92%;animation-delay:2.85s"></div>
+                </div>
+                <div class="mt-1.5 flex justify-between text-[10px] text-white/35">
+                  <span>Apr</span><span>May</span><span>Jun</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- ── 2. Providers ────────────────────────────────────────────────── -->
+      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+        <div class="reveal">
+          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 p-5 shadow-2xl shadow-black/40">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-white/60">Model</span>
+              <span class="rounded-md border border-line bg-ink px-2 py-1 text-xs text-white/70">
+                <span data-provider-model>claude-opus-4-8</span>
+              </span>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-2" data-provider-strip>
+              {["Anthropic","OpenAI","Gemini","Groq","xAI","DeepSeek","Ollama"].map((p, i) => (
+                <button
+                  type="button"
+                  data-provider={p}
+                  class:list={["provider-chip rounded-full border px-3 py-1.5 text-sm transition-colors", i === 0 ? "border-accent/60 bg-accent/15 text-white" : "border-line bg-ink/50 text-white/55 hover:border-accent/40 hover:text-white/80"]}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <p class="mt-4 text-xs text-white/40">Keys live in your OS keychain. Switch mid-conversation — no restart.</p>
+          </div>
+        </div>
+        <div class="reveal">
+          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">10+ providers, one app</span>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Bring your own model.</h3>
+          <p class="mt-3 max-w-md text-white/60">
+            Anthropic, OpenAI, Gemini, Groq, xAI, DeepSeek, Together, Fireworks, Cohere — or fully offline with Ollama. Tune generation globally or per provider.
+          </p>
+        </div>
+      </article>
+
+      <!-- ── 3. Tools with consent ───────────────────────────────────────── -->
+      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+        <div class="reveal order-2 lg:order-1">
+          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Real tools, with consent</span>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">It acts — only when you allow it.</h3>
+          <p class="mt-3 max-w-md text-white/60">
+            Read, write, search and edit files; run shell commands; fetch the web; parse PDFs and Office docs. Every file or shell action is permission-gated, per path.
+          </p>
+        </div>
+        <div class="reveal order-1 lg:order-2">
+          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 p-4 shadow-2xl shadow-black/40">
+            <div class="space-y-2 text-sm">
+              <div class="reply-line flex items-center gap-2 text-white/60" style="animation-delay:.2s">
+                <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/60">tool</span>
+                write_file → <span class="font-mono text-white/80">report.md</span>
+              </div>
+              <!-- permission prompt -->
+              <div class="pop rounded-xl border border-accent/30 bg-accent/10 p-3" style="animation-delay:.9s">
+                <div class="flex items-center gap-2 text-white/85">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" class="size-4 text-accent"><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/></svg>
+                  <span>Allow <b>write</b> to <span class="font-mono">~/notes/report.md</span>?</span>
+                </div>
+                <div class="mt-3 flex gap-2">
+                  <span data-consent-allow class="relative rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white">
+                    Allow
+                    <span class="cursor-ping pointer-events-none absolute -bottom-1 -right-1 size-3 rounded-full border-2 border-white/70"></span>
+                  </span>
+                  <span class="rounded-lg border border-line px-3 py-1.5 text-xs text-white/60">Deny</span>
+                  <span class="rounded-lg border border-line px-3 py-1.5 text-xs text-white/60">Always allow</span>
+                </div>
+              </div>
+              <!-- confirmation toast -->
+              <div data-consent-done class="pop flex items-center gap-2 rounded-lg border border-accent-2/30 bg-accent-2/10 px-3 py-2 text-white/80" style="animation-delay:2.2s;opacity:0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="size-4 text-accent-2"><path d="M20 6L9 17l-5-5"/></svg>
+                Wrote <span class="font-mono">report.md</span> · 1.2&nbsp;KB
+              </div>
+              <div class="flex gap-1.5 pt-1 text-[10px] text-white/35">
+                <span class="rounded bg-white/5 px-1.5 py-0.5">read</span>
+                <span class="rounded bg-white/5 px-1.5 py-0.5">shell</span>
+                <span class="rounded bg-white/5 px-1.5 py-0.5">web fetch</span>
+                <span class="rounded bg-white/5 px-1.5 py-0.5">edit</span>
+                <span class="rounded bg-white/5 px-1.5 py-0.5">docs</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- ── 4. Artifacts grid ───────────────────────────────────────────── -->
+      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+        <div class="reveal">
+          <div class="grid grid-cols-2 gap-3">
+            <!-- metric -->
+            <div class="pop rounded-2xl border border-line bg-ink-2/70 p-4" style="animation-delay:.1s">
+              <div class="text-xs text-white/50">Net worth</div>
+              <div class="tabular mt-1 text-2xl font-semibold text-accent-2" data-countup data-to="48210" data-prefix="$">$0</div>
+              <div class="mt-1 text-[11px] text-accent-2">▲ 6.2% this month</div>
+            </div>
+            <!-- donut -->
+            <div class="pop rounded-2xl border border-line bg-ink-2/70 p-4" style="animation-delay:.2s">
+              <div class="text-xs text-white/50">By category</div>
+              <div class="mt-2 grid place-items-center">
+                <div class="donut size-16 rounded-full">
+                  <div class="grid size-16 place-items-center rounded-full [mask:radial-gradient(transparent_54%,#000_55%)]"></div>
+                </div>
+              </div>
+            </div>
+            <!-- table -->
+            <div class="pop col-span-2 rounded-2xl border border-line bg-ink-2/70 p-4" style="animation-delay:.3s">
+              <div class="text-xs text-white/50">Recent</div>
+              <div class="mt-2 space-y-1.5 text-sm">
+                {[["Whole Foods","−$77.80"],["Salary","+$3,200"],["Uber","−$22.10"]].map((r, i) => (
+                  <div class="reply-line flex items-center justify-between border-b border-line/60 pb-1.5" style={`animation-delay:${0.5 + i * 0.25}s`}>
+                    <span class="text-white/70">{r[0]}</span>
+                    <span class:list={["tabular font-mono", r[1].startsWith("+") ? "text-accent-2" : "text-white/55"]}>{r[1]}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="reveal">
+          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Artifacts, not just chat</span>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Charts, tables, metrics, docs.</h3>
+          <p class="mt-3 max-w-md text-white/60">
+            Structured answers render as real components — inline or pinned to a side canvas you can browse later. Sandboxed HTML pages too.
+          </p>
+        </div>
+      </article>
+
+      <!-- ── 5. Sessions ─────────────────────────────────────────────────── -->
+      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+        <div class="reveal order-2 lg:order-1">
+          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Sessions that survive</span>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Crash-safe, resumable.</h3>
+          <p class="mt-3 max-w-md text-white/60">
+            Every message is appended to a local SQLite store as it happens. Close the app, reopen, pick up exactly where you left off — with automatic context summarization for long threads.
+          </p>
+        </div>
+        <div class="reveal order-1 lg:order-2">
+          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 p-4 shadow-2xl shadow-black/40">
+            <div class="mb-2 flex items-center justify-between text-xs text-white/50">
+              <span>Chats</span>
+              <span class="rounded bg-white/5 px-1.5 py-0.5">SQLite · WAL</span>
+            </div>
+            <div class="space-y-1.5">
+              <div class="pop flex items-center justify-between rounded-lg border border-accent/40 bg-accent/10 px-3 py-2" style="animation-delay:.2s">
+                <div>
+                  <div class="text-sm text-white/85">Q2 revenue analysis</div>
+                  <div class="text-[11px] text-white/40">resumed · 42 messages</div>
+                </div>
+                <span class="pulse rounded-full bg-accent/25 px-2 py-0.5 text-[10px] font-medium text-accent">live</span>
+              </div>
+              <div class="reply-line flex items-center justify-between rounded-lg px-3 py-2" style="animation-delay:.7s">
+                <div>
+                  <div class="text-sm text-white/70">Finance import</div>
+                  <div class="text-[11px] text-white/40">yesterday · 18 messages</div>
+                </div>
+                <span class="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-white/40">summarized</span>
+              </div>
+              <div class="reply-line flex items-center justify-between rounded-lg px-3 py-2" style="animation-delay:1s">
+                <div>
+                  <div class="text-sm text-white/70">Refactor plan</div>
+                  <div class="text-[11px] text-white/40">2 days ago · 7 messages</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- ── 6. Finance app ──────────────────────────────────────────────── -->
+      <article data-demo class="grid items-center gap-8 lg:grid-cols-2">
+        <div class="reveal">
+          <div class="overflow-hidden rounded-2xl border border-line bg-ink-2/70 shadow-2xl shadow-black/40">
+            <div class="flex items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-white/45">
+              <span class="rounded-md bg-accent/15 px-2 py-0.5 text-accent">Dashboard</span>
+              <span>Transactions</span><span>Accounts</span><span>Import</span>
+            </div>
+            <div class="space-y-3 p-4">
+              <!-- safe to spend -->
+              <div class="rounded-xl border border-line bg-ink/50 p-3">
+                <div class="text-[11px] text-white/45">Safe to spend</div>
+                <div class="tabular mt-0.5 text-2xl font-semibold" data-countup data-to="2336.93" data-prefix="AED " data-decimals="2">AED 0.00</div>
+              </div>
+              <!-- cashflow bars -->
+              <div class="rounded-xl border border-line bg-ink/50 p-3">
+                <div class="mb-2 text-[11px] text-white/45">Cashflow — 6 months</div>
+                <div class="flex h-16 items-end gap-1.5">
+                  {[40,55,48,62,58,72].map((h, i) => (
+                    <div class="flex w-full flex-col justify-end gap-0.5" style="height:100%">
+                      <div class="bar rounded-t bg-accent-2/80" style={`height:${h * 0.4}%;animation-delay:${0.3 + i * 0.08}s`}></div>
+                      <div class="bar bg-accent/70" style={`height:${h * 0.35}%;animation-delay:${0.35 + i * 0.08}s`}></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <!-- uncategorized → categorized -->
+              <div class="rounded-xl border border-line bg-ink/50 p-3">
+                <div class="mb-2 flex items-center justify-between text-[11px]">
+                  <span class="text-white/45">1 needs a category</span>
+                  <span data-cat-btn class="relative rounded-md bg-accent/15 px-2 py-0.5 text-accent">
+                    ✦ Auto-categorize
+                    <span class="cursor-ping pointer-events-none absolute -bottom-1 -right-1 size-3 rounded-full border-2 border-accent/70"></span>
+                  </span>
+                </div>
+                <div data-cat-row class="recat flex items-center justify-between rounded-md px-2 py-1.5 text-sm">
+                  <span class="text-white/75">SPOTIFY USA</span>
+                  <span class="rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-white/45" data-cat-label>uncategorized</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="reveal">
+          <span class="text-xs font-semibold uppercase tracking-wider text-accent/80">Apps on the same engine</span>
+          <h3 class="mt-2 text-2xl font-semibold tracking-tight">Personal finance, fully local.</h3>
+          <p class="mt-3 max-w-md text-white/60">
+            Import a bank statement, and zanto categorizes it, tracks budgets, accounts and net worth — and answers questions about your money. Nothing is uploaded.
+          </p>
+          <a href={SITE.releasesLatest} target="_blank" rel="noopener" class="mt-5 inline-block rounded-lg border border-line bg-ink px-4 py-2 text-sm font-medium text-white/80 hover:border-accent/40 hover:text-white">
+            Try it free →
+          </a>
+        </div>
+      </article>
     </div>
   </section>
 
@@ -144,4 +360,87 @@ A private, local-first AI workspace<br />for your desktop.
       </a>
     </div>
   </section>
+
+  <!-- Demo driver: reveal on scroll, count-up tweens, and the two interactive bits. -->
+  <script is:inline>
+    (() => {
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // Tween a number into an element once its demo is in view.
+      function countUp(el) {
+        const to = parseFloat(el.dataset.to || "0");
+        const decimals = parseInt(el.dataset.decimals || "0", 10);
+        const prefix = el.dataset.prefix || "";
+        const fmt = (n) =>
+          prefix + n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+        if (reduce) { el.textContent = fmt(to); return; }
+        const dur = 1100, t0 = performance.now();
+        const step = (t) => {
+          const p = Math.min(1, (t - t0) / dur);
+          const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+          el.textContent = fmt(to * eased);
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }
+
+      // Reveal each demo once; kick off its count-ups.
+      const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          e.target.classList.add("in-view");
+          e.target.querySelectorAll("[data-countup]").forEach((n) => countUp(n));
+          io.unobserve(e.target);
+        }
+      }, { threshold: 0.35 });
+      document.querySelectorAll("[data-demo]").forEach((d) => io.observe(d));
+
+      // ── Interactive: provider switcher ──────────────────────────────────
+      const MODEL = {
+        Anthropic: "claude-opus-4-8", OpenAI: "gpt-5", Gemini: "gemini-2.5-pro",
+        Groq: "llama-4-70b", xAI: "grok-4", DeepSeek: "deepseek-v3", Ollama: "llama3.2 (local)",
+      };
+      const strip = document.querySelector("[data-provider-strip]");
+      const modelEl = document.querySelector("[data-provider-model]");
+      function selectProvider(name) {
+        if (!strip || !modelEl) return;
+        strip.querySelectorAll("[data-provider]").forEach((c) => {
+          const on = c.dataset.provider === name;
+          c.classList.toggle("border-accent/60", on);
+          c.classList.toggle("bg-accent/15", on);
+          c.classList.toggle("text-white", on);
+          c.classList.toggle("border-line", !on);
+          c.classList.toggle("bg-ink/50", !on);
+          c.classList.toggle("text-white/55", !on);
+        });
+        modelEl.textContent = MODEL[name] || name;
+      }
+      strip?.querySelectorAll("[data-provider]").forEach((c) =>
+        c.addEventListener("click", () => selectProvider(c.dataset.provider)),
+      );
+      // Gentle auto-cycle until the user interacts.
+      if (!reduce && strip) {
+        const names = Object.keys(MODEL);
+        let i = 0, touched = false;
+        strip.addEventListener("click", () => { touched = true; }, { once: true });
+        setInterval(() => { if (!touched) selectProvider(names[++i % names.length]); }, 1800);
+      }
+
+      // ── Interactive: finance auto-categorize ────────────────────────────
+      const catBtn = document.querySelector("[data-cat-btn]");
+      const catLabel = document.querySelector("[data-cat-label]");
+      const catRow = document.querySelector("[data-cat-row]");
+      function categorize() {
+        if (!catLabel || !catRow) return;
+        catLabel.textContent = "subscriptions";
+        catLabel.classList.remove("bg-white/5", "text-white/45");
+        catLabel.classList.add("bg-accent/15", "text-accent");
+        catRow.classList.add("recat");
+        catRow.style.animation = "none";
+        void catRow.offsetWidth; // reflow to restart the highlight
+        catRow.style.animation = "";
+      }
+      catBtn?.addEventListener("click", categorize);
+    })();
+  </script>
 </Base>

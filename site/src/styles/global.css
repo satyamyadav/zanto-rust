@@ -21,3 +21,144 @@ body {
     var(--color-ink);
   color: #e7e7ee;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Interactive feature-walkthrough demos.
+
+   Each demo is a real-DOM mockup that animates when scrolled into view. An
+   IntersectionObserver toggles `.in-view` on the `[data-demo]` wrapper; the
+   keyframes/transitions below key off that class so nothing moves (and nothing
+   costs CPU) until the demo is on screen. Everything degrades to a static
+   final state under `prefers-reduced-motion`.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Section reveal: each feature row rises + fades in once. */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.in-view .reveal,
+.reveal.in-view {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Demo 1: chat → artifact ─────────────────────────────────────────────── */
+/* A caret-typed user line, then a streamed reply, then a chart draws. */
+@keyframes type-caret {
+  from { width: 0; }
+  to { width: 100%; }
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+.in-view .typeline {
+  animation: type-caret 1.4s steps(38, end) 0.3s both;
+}
+.typeline {
+  width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  border-right: 2px solid var(--color-accent);
+}
+.in-view .typeline {
+  animation: type-caret 1.4s steps(38, end) 0.3s both, blink 0.8s step-end 5;
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.in-view .reply-line {
+  animation: fade-up 0.5s ease 1.9s both;
+}
+.reply-line { opacity: 0; }
+
+/* Growing chart bars (scaleY from the baseline). */
+.bar {
+  transform: scaleY(0);
+  transform-origin: bottom;
+}
+.in-view .bar {
+  animation: grow-bar 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes grow-bar {
+  to { transform: scaleY(1); }
+}
+
+/* ── Donut sweep (conic-gradient driven by --sweep) ──────────────────────── */
+@property --sweep {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.donut {
+  --sweep: 0deg;
+  background: conic-gradient(
+    var(--color-accent) 0deg var(--sweep),
+    #4ad6c4 var(--sweep) calc(var(--sweep) + 90deg),
+    #f5a524 calc(var(--sweep) + 90deg) calc(var(--sweep) + 150deg),
+    #2b2b3a calc(var(--sweep) + 150deg) 360deg
+  );
+}
+.in-view .donut {
+  animation: donut-sweep 1.3s ease 0.4s both;
+}
+@keyframes donut-sweep {
+  from { --sweep: 0deg; }
+  to { --sweep: 140deg; }
+}
+
+/* ── Generic pop-in used by permission prompt, toasts, rows ──────────────── */
+.pop {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+}
+.in-view .pop {
+  animation: pop-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes pop-in {
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Pulse badge (resumed session / summarized) ──────────────────────────── */
+.in-view .pulse {
+  animation: pulse-badge 1.8s ease-in-out 1s infinite;
+}
+@keyframes pulse-badge {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(124, 108, 255, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(124, 108, 255, 0); }
+}
+
+/* ── Category-move highlight (finance auto-categorize) ───────────────────── */
+.in-view .recat {
+  animation: recat 0.9s ease 2.4s both;
+}
+@keyframes recat {
+  0% { background: rgba(124, 108, 255, 0.22); }
+  100% { background: transparent; }
+}
+
+/* ── Cursor ping used to hint interactivity ──────────────────────────────── */
+.in-view .cursor-ping {
+  animation: cursor-ping 2.6s ease-in-out 1.2s infinite;
+}
+@keyframes cursor-ping {
+  0%, 60%, 100% { opacity: 0; transform: translate(0, 0) scale(0.9); }
+  70%, 90% { opacity: 1; }
+  80% { transform: translate(0, 2px) scale(0.8); }
+}
+
+/* Count-up numbers are tweened in JS; this just holds the tabular layout. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Honor reduced-motion: freeze every demo at its resolved end state. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .typeline { width: 100%; border-right: 0; animation: none; }
+  .reply-line { opacity: 1; animation: none; }
+  .bar { transform: none; animation: none; }
+  .donut { --sweep: 140deg; animation: none; }
+  .pop { opacity: 1; transform: none; animation: none; }
+  .pulse, .cursor-ping, .recat { animation: none; }
+}
