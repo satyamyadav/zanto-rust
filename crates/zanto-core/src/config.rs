@@ -1,7 +1,49 @@
+use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
+/// Relative path (under the project-config base) of the project settings file.
 pub const PROJECT_CONFIG: &str = ".zanto/settings.json";
+
+/// Process-global base directory the project config resolves against. Unset →
+/// the current working directory (the CLI default: `./.zanto/settings.json`
+/// relative to where the user runs zanto). The desktop app sets this once at
+/// startup to an OS-writable app-data dir, because a packaged macOS `.app`
+/// launches with CWD `/` (read-only) and CWD-relative writes fail with EROFS.
+static PROJECT_CONFIG_BASE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Set the base directory the project config resolves against. First-set wins
+/// (subsequent calls are ignored); the desktop calls this before any
+/// `Settings::load()`. No-op difference for the CLI, which never sets it.
+pub fn set_project_config_base(dir: PathBuf) {
+    let _ = PROJECT_CONFIG_BASE.set(dir);
+}
+
+/// The OS-conventional writable data dir for zanto (macOS
+/// `~/Library/Application Support/zanto`, Linux `~/.local/share/zanto`) — the
+/// same base already used for `zanto.db`, skills and artifacts. The desktop app
+/// passes this to [`set_project_config_base`]. `None` if no home dir is known.
+pub fn default_desktop_config_base() -> Option<PathBuf> {
+    ProjectDirs::from("", "", "zanto").map(|d| d.data_dir().to_path_buf())
+}
+
+/// Absolute path to the project settings file, honoring the configured base
+/// (or CWD-relative when unset).
+pub fn project_config_path() -> PathBuf {
+    match PROJECT_CONFIG_BASE.get() {
+        Some(base) => base.join(PROJECT_CONFIG),
+        None => PathBuf::from(PROJECT_CONFIG),
+    }
+}
+
+/// The `.zanto` directory that holds the project config, for `create_dir_all`.
+fn project_config_dir() -> PathBuf {
+    project_config_path()
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(".zanto"))
+}
 
 /// Keyring service name under which API keys are stored.
 const KEYRING_SERVICE: &str = "zanto";
@@ -429,30 +471,33 @@ impl Settings {
     pub fn load() -> Self {
         Self::ensure_project_config();
         let user = Self::load_file(Self::user_path()).unwrap_or_default();
-        let project = Self::load_file(PathBuf::from(PROJECT_CONFIG)).unwrap_or_default();
+        let project = Self::load_file(project_config_path()).unwrap_or_default();
         user.merge(project).resolve_paths()
     }
 
     /// Persist an absolute path into the project config's allowed_paths.
     pub fn persist_allowed_path(abs_path: &str) {
-        let config_path = Path::new(PROJECT_CONFIG);
-        let mut settings = Self::load_file(config_path.to_path_buf()).unwrap_or_default();
+        let config_path = project_config_path();
+        let mut settings = Self::load_file(config_path.clone()).unwrap_or_default();
         if !settings.allowed_paths.contains(&abs_path.to_string()) {
             settings.allowed_paths.push(abs_path.to_string());
             if let Ok(content) = serde_json::to_string_pretty(&settings) {
-                let _ = std::fs::write(config_path, content);
+                // Ensure the base `.zanto` dir exists — under a non-CWD base it
+                // may not have been created yet.
+                let _ = std::fs::create_dir_all(project_config_dir());
+                let _ = std::fs::write(&config_path, content);
             }
         }
     }
 
     /// Persist this Settings to the project config (`.zanto/settings.json`).
     pub fn save(&self) -> std::io::Result<()> {
-        let path = Path::new(PROJECT_CONFIG);
+        let path = project_config_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let content = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(path, content)
+        std::fs::write(&path, content)
     }
 
     /// The effective active `(provider, model, endpoint)`.
@@ -477,11 +522,11 @@ impl Settings {
     }
 
     fn ensure_project_config() {
-        let path = Path::new(PROJECT_CONFIG);
+        let path = project_config_path();
         if !path.exists() {
-            let _ = std::fs::create_dir_all(".zanto");
+            let _ = std::fs::create_dir_all(project_config_dir());
             let default = serde_json::to_string_pretty(&Self::default()).unwrap_or_default();
-            let _ = std::fs::write(path, default);
+            let _ = std::fs::write(&path, default);
         }
     }
 
@@ -668,6 +713,32 @@ pub fn has_api_key(p: Provider) -> bool {
 mod tests {
     use super::*;
     use genai::adapter::AdapterKind;
+
+    #[test]
+    fn project_config_path_defaults_to_cwd_relative() {
+        // CLI invariant: with no base override set, the project config resolves
+        // to the plain CWD-relative path (unchanged from before the desktop fix).
+        // NB: this asserts the DEFAULT (unset) branch; the tests run without any
+        // set_project_config_base call, so the OnceLock stays empty here.
+        assert_eq!(project_config_path(), PathBuf::from(PROJECT_CONFIG));
+        assert_eq!(project_config_dir(), PathBuf::from(".zanto"));
+    }
+
+    #[test]
+    fn desktop_config_base_is_under_a_zanto_data_dir() {
+        // The desktop base, when a home dir is known, ends in a `zanto` data dir
+        // (macOS "Application Support/zanto", Linux ".local/share/zanto") — the
+        // same OS-writable root used for the DB. Skip only if no home is set.
+        if let Some(base) = default_desktop_config_base() {
+            assert!(
+                base.ends_with("zanto"),
+                "expected a zanto data dir, got {}",
+                base.display()
+            );
+            // And the resolved config path would live under it.
+            assert_eq!(base.join(PROJECT_CONFIG), base.join(".zanto/settings.json"));
+        }
+    }
 
     #[test]
     fn normalize_endpoint_ensures_single_trailing_slash() {

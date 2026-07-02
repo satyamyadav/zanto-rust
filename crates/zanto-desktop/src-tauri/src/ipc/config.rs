@@ -172,7 +172,7 @@ pub fn add_allowed_path(state: State<'_, DesktopState>, path: String) -> Result<
 /// project file directly so it never folds user-level settings into the project
 /// layer (a full `Settings::load().save()` of the merged settings would).
 fn load_project_settings() -> Settings {
-    std::fs::read_to_string(config::PROJECT_CONFIG)
+    std::fs::read_to_string(config::project_config_path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()

@@ -34,6 +34,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Persist the project config under an OS-writable app-data dir, NOT
+            // the process CWD. A packaged macOS `.app` launches with CWD `/`
+            // (read-only), so the CWD-relative default would make every provider/
+            // dir save fail with "read-only file system". Must run before the
+            // first `Settings::load()` below. (CLI is unaffected — it never sets
+            // this and keeps the CWD-relative `.zanto/settings.json`.)
+            if let Some(base) = zanto_core::config::default_desktop_config_base() {
+                zanto_core::config::set_project_config_base(base);
+            }
+
             let settings = Settings::load();
 
             // Resolve the active provider's model/endpoint so the running state
